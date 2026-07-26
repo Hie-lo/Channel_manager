@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # ربات اصلی
+  bot:
+    build: .
+    container_name: channel_manager_bot
+    restart: always
+    env_file:
+      - .env.docker
+    volumes:
+      - ./app:/app/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # دیتابیس PostgreSQL
+  db:
+    image: postgres:16-alpine
+    container_name: channel_manager_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: channel_manager
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis برای کش و صف پیام
+  redis:
+    image: redis:7-alpine
+    container_name: channel_manager_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Celery Worker برای وظایف پس‌زمینه
+  celery_worker:
+    build: .
+    container_name: channel_manager_celery
+    restart: always
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    env_file:
+      - .env.docker
+    volumes:
+      - ./app:/app/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery Beat برای زمان‌بندی
+  celery_beat:
+    build: .
+    container_name: channel_manager_beat
+    restart: always
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    env_file:
+      - .env.docker
+    volumes:
+      - ./app:/app/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

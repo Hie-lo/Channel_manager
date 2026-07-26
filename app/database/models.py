@@ -1,0 +1,200 @@
+import enum
+from datetime import datetime
+
+from sqlalchemy import (
+    String,
+    Integer,
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Boolean,
+    Text,
+    UniqueConstraint,
+    Numeric,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import Enum as SAEnum
+
+from app.utils.time import utc_now_naive
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class CustomerStatus(enum.Enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    SUSPENDED = "SUSPENDED"
+    REJECTED = "REJECTED"
+
+
+class Platform(enum.Enum):
+    TELEGRAM = "TELEGRAM"
+
+
+class SubscriptionStatus(enum.Enum):
+    PENDING = "PENDING"
+    ACTIVE = "ACTIVE"
+    EXPIRED = "EXPIRED"
+    GRACE = "GRACE"
+    SUSPENDED = "SUSPENDED"
+
+
+class TokenSource(enum.Enum):
+    MONTHLY = "MONTHLY"
+    PURCHASED = "PURCHASED"
+
+
+class Customer(Base):
+    __tablename__ = "customers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # ✅ BigInteger برای پشتیبانی از آیدی‌های بزرگ تلگرام
+    telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+
+    first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    business_type_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    customer_status: Mapped[CustomerStatus] = mapped_column(
+        SAEnum(CustomerStatus),
+        default=CustomerStatus.PENDING
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive
+    )
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+
+    plan_key: Mapped[str] = mapped_column(String(50))
+    status: Mapped[SubscriptionStatus] = mapped_column(
+        SAEnum(SubscriptionStatus),
+        default=SubscriptionStatus.PENDING
+    )
+
+    start_at: Mapped[datetime] = mapped_column(DateTime)
+    end_at: Mapped[datetime] = mapped_column(DateTime)
+    grace_end_at: Mapped[datetime] = mapped_column(DateTime)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
+class Business(Base):
+    __tablename__ = "businesses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+
+    business_type_key: Mapped[str] = mapped_column(String(100))
+    business_name: Mapped[str] = mapped_column(String(200))
+    contact_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
+class Channel(Base):
+    __tablename__ = "channels"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+
+    platform: Mapped[Platform] = mapped_column(
+        SAEnum(Platform),
+        default=Platform.TELEGRAM
+    )
+    channel_identifier: Mapped[str] = mapped_column(String(200))
+
+    is_connected: Mapped[bool] = mapped_column(Boolean, default=False)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
+class AIToken(Base):
+    __tablename__ = "ai_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+
+    source: Mapped[TokenSource] = mapped_column(SAEnum(TokenSource))
+    total_amount: Mapped[int] = mapped_column(Integer)
+    used_amount: Mapped[int] = mapped_column(Integer, default=0)
+    remaining_amount: Mapped[int] = mapped_column(Integer)
+
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
+class Product(Base):
+    __tablename__ = "products"
+    __table_args__ = (
+        UniqueConstraint("customer_id", "sku", name="uq_customer_sku"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+    business_id: Mapped[int | None] = mapped_column(ForeignKey("businesses.id"), nullable=True)
+
+    sku: Mapped[str] = mapped_column(String(80))
+    product_name: Mapped[str] = mapped_column(String(250))
+
+    price: Mapped[Numeric] = mapped_column(Numeric(18, 0), default=0)
+    stock_qty: Mapped[int] = mapped_column(Integer, default=0)
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    description_manual: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    specs: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive
+    )
+
+
+class PostedMessage(Base):
+    __tablename__ = "posted_messages"
+    __table_args__ = (
+        UniqueConstraint("product_id", "channel_id", name="uq_product_channel"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id"), index=True)
+
+    platform: Mapped[Platform] = mapped_column(
+        SAEnum(Platform),
+        default=Platform.TELEGRAM
+    )
+    # ✅ BigInteger برای message_id تلگرام
+    telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    last_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_price: Mapped[Numeric | None] = mapped_column(Numeric(18, 0), nullable=True)
+    last_stock_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(30), default="ACTIVE")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive
+    )

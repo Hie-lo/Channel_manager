@@ -1,0 +1,36 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual Environment
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+docker-volumes/
+
+# Logs
+*.log
+logs/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+.env.docker
