@@ -35,9 +35,16 @@ class Settings:
     # Encryption
     ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "")
 
+    # Payment
+    PAYMENT_CARD_NUMBER: str = os.getenv("PAYMENT_CARD_NUMBER", "")
+    PAYMENT_CARD_HOLDER: str = os.getenv("PAYMENT_CARD_HOLDER", "")
+
     # App
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
+   
+
 
 settings = Settings()
+

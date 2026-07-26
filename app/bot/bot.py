@@ -28,19 +28,55 @@ from app.bot.handlers.channel import (
     channel_delete_confirm_callback,
     channel_id_received_handler,
 )
+from app.bot.handlers.subscription import (
+    subscription_menu_handler,
+    sub_menu_callback,
+    sub_buy_callback,
+    sub_plan_callback,
+    sub_duration_callback,
+    sub_cancel_payment_callback,
+    sub_admin_approve_callback,
+    sub_admin_reject_callback,
+    sub_status_callback,
+    payment_receipt_handler,
+)
+from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
 
 
 async def on_startup(application: Application) -> None:
-    """کارهایی که قبل از شروع polling اجرا میشن"""
     log.info("🗄 در حال اتصال به دیتابیس...")
     await init_db()
     log.info("✅ دیتابیس آماده است")
 
 
-def create_bot() -> Application:
-    """ساخت و تنظیم ربات"""
+async def text_router(update, context):
+    """
+    مسیریاب پیام‌های متنی
+    بر اساس state کاربر تصمیم می‌گیره کدوم handler صدا زده بشه
+    """
+    user = update.effective_user
+    state = get_user_state(user.id)
 
+    if state == UserState.WAITING_CHANNEL_ID:
+        await channel_id_received_handler(update, context)
+    elif state == UserState.WAITING_PAYMENT_RECEIPT:
+        await payment_receipt_handler(update, context)
+
+
+async def photo_router(update, context):
+    """
+    مسیریاب عکس‌ها و فایل‌ها
+    برای دریافت رسید پرداخت
+    """
+    user = update.effective_user
+    state = get_user_state(user.id)
+
+    if state == UserState.WAITING_PAYMENT_RECEIPT:
+        await payment_receipt_handler(update, context)
+
+
+def create_bot() -> Application:
     log.info("در حال ساخت ربات تلگرام...")
 
     app = (
@@ -58,50 +94,43 @@ def create_bot() -> Application:
         filters.TEXT & filters.Regex("^📢 مدیریت کانال$"),
         channel_menu_handler
     ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^💳 اشتراک من$"),
+        subscription_menu_handler
+    ))
 
     # ─── کالبک‌های ثبت‌نام ───
-    app.add_handler(CallbackQueryHandler(
-        business_type_callback,
-        pattern="^biz_"
-    ))
-    app.add_handler(CallbackQueryHandler(
-        approve_customer_callback,
-        pattern="^approve_"
-    ))
-    app.add_handler(CallbackQueryHandler(
-        reject_customer_callback,
-        pattern="^reject_"
-    ))
+    app.add_handler(CallbackQueryHandler(business_type_callback, pattern="^biz_"))
+    app.add_handler(CallbackQueryHandler(approve_customer_callback, pattern="^approve_"))
+    app.add_handler(CallbackQueryHandler(reject_customer_callback, pattern="^reject_"))
 
     # ─── کالبک‌های مدیریت کانال ───
-    # ⚠️ ترتیب مهمه! چون channel_delete_confirm_ شامل channel_delete_ هم میشه
-    # پس اول confirm رو ثبت می‌کنیم
-    app.add_handler(CallbackQueryHandler(
-        channel_delete_confirm_callback,
-        pattern="^channel_delete_confirm_"
-    ))
-    app.add_handler(CallbackQueryHandler(
-        channel_delete_callback,
-        pattern="^channel_delete_"
-    ))
-    app.add_handler(CallbackQueryHandler(
-        channel_menu_callback,
-        pattern="^channel_menu$"
-    ))
-    app.add_handler(CallbackQueryHandler(
-        channel_add_callback,
-        pattern="^channel_add$"
-    ))
-    app.add_handler(CallbackQueryHandler(
-        channel_list_callback,
-        pattern="^channel_list$"
-    ))
+    app.add_handler(CallbackQueryHandler(channel_delete_confirm_callback, pattern="^channel_delete_confirm_"))
+    app.add_handler(CallbackQueryHandler(channel_delete_callback, pattern="^channel_delete_"))
+    app.add_handler(CallbackQueryHandler(channel_menu_callback, pattern="^channel_menu$"))
+    app.add_handler(CallbackQueryHandler(channel_add_callback, pattern="^channel_add$"))
+    app.add_handler(CallbackQueryHandler(channel_list_callback, pattern="^channel_list$"))
 
-    # ─── پیام‌های متنی (برای دریافت آیدی کانال) ───
-    # این handler آخر باشه چون کلی گیرندست
+    # ─── کالبک‌های اشتراک ───
+    app.add_handler(CallbackQueryHandler(sub_admin_approve_callback, pattern="^sub_admin_approve_"))
+    app.add_handler(CallbackQueryHandler(sub_admin_reject_callback, pattern="^sub_admin_reject_"))
+    app.add_handler(CallbackQueryHandler(sub_cancel_payment_callback, pattern="^sub_cancel_payment$"))
+    app.add_handler(CallbackQueryHandler(sub_duration_callback, pattern="^sub_dur_"))
+    app.add_handler(CallbackQueryHandler(sub_plan_callback, pattern="^sub_plan_"))
+    app.add_handler(CallbackQueryHandler(sub_status_callback, pattern="^sub_status$"))
+    app.add_handler(CallbackQueryHandler(sub_buy_callback, pattern="^sub_buy$"))
+    app.add_handler(CallbackQueryHandler(sub_menu_callback, pattern="^sub_menu$"))
+
+    # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
-        channel_id_received_handler
+        text_router
+    ))
+
+    # ─── عکس‌ها و فایل‌ها (برای رسید پرداخت) ───
+    app.add_handler(MessageHandler(
+        filters.PHOTO | filters.Document.ALL,
+        photo_router
     ))
 
     # ─── هندلر خطاها ───
