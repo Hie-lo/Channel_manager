@@ -1,0 +1,16 @@
+🎧 {product_name}
+
+🏭 برند: {brand}
+🔧 نوع: {accessory_type}
+🔌 اتصال: {connection}
+✨ ویژگی‌ها: {features}
+─────────────────
+💰 قیمت: {price} تومان
+📦 {stock_status}
+─────────────────
+{description_block}
+
+{hashtags}
+
+📞 {contact}
+🔄 {update_date}

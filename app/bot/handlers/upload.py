@@ -242,11 +242,12 @@ async def excel_file_received_handler(update: Update, context: ContextTypes.DEFA
                 return
 
             # خواندن فایل
+            # خواندن فایل
             read_result = read_excel_file(temp_file_path, business_config)
 
-           # چک اگه فقط خطا داشت (هیچ محصول معتبری نداشت)
+            # چک اگه فقط خطا داشت
             if read_result.is_empty and read_result.has_errors:
-                error_text = _format_errors(read_result.errors)
+                error_text = _format_errors(read_result.all_errors)
                 await processing_msg.edit_text(
                     f"❌ فایل قابل پردازش نیست!\n"
                     f"━━━━━━━━━━━━━━━\n"
@@ -255,7 +256,6 @@ async def excel_file_received_handler(update: Update, context: ContextTypes.DEFA
                 clear_user_state(user.id)
                 return
 
-            # چک اگه واقعاً خالی بود
             if read_result.is_empty:
                 await processing_msg.edit_text(
                     "❌ فایل خالی است!\n"
@@ -264,22 +264,20 @@ async def excel_file_received_handler(update: Update, context: ContextTypes.DEFA
                 clear_user_state(user.id)
                 return
 
-            # گرفتن اشتراک برای محدودیت
+            # گرفتن اشتراک و business
             subscription = await get_active_subscription(session, customer.id)
             plan = get_plan(subscription.plan_key)
-
-            # گرفتن business
             business = await get_business_for_customer(session, customer.id)
             business_id = business.id if business else None
 
-            # ذخیره محصولات
+            # ذخیره محصولات از همه sheet ها
             await processing_msg.edit_text("💾 در حال ذخیره محصولات...")
 
             save_result = await save_products_from_excel(
                 session=session,
                 customer_id=customer.id,
                 business_id=business_id,
-                products_data=read_result.products,
+                products_data=read_result.all_products,  # ← از همه sheet ها
                 max_products_limit=plan.max_products,
             )
 
@@ -320,16 +318,17 @@ async def excel_file_received_handler(update: Update, context: ContextTypes.DEFA
 
 
 def _format_errors(errors: list) -> str:
-    """فرمت کردن خطاها برای نمایش"""
+    """فرمت کردن خطاها"""
     if not errors:
         return "بدون خطا"
 
     lines = []
-    for err in errors[:10]:  # حداکثر ۱۰ خطای اول
+    for err in errors[:10]:
         if err.row_number == 0:
             lines.append(f"• {err.message}")
         else:
-            lines.append(f"• ردیف {err.row_number}: {err.message}")
+            ws_prefix = f"[{err.worksheet}] " if err.worksheet else ""
+            lines.append(f"• {ws_prefix}ردیف {err.row_number}: {err.message}")
 
     if len(errors) > 10:
         lines.append(f"... و {len(errors) - 10} خطای دیگر")
@@ -340,16 +339,27 @@ def _format_errors(errors: list) -> str:
 def _format_summary(read_result, save_result) -> str:
     """فرمت کردن خلاصه نتیجه"""
 
-    # محاسبه تعداد خطای واقعی
-    total_errors = len(read_result.errors) + save_result.error_count
+    total_errors = len(read_result.all_errors) + save_result.error_count
 
     text = (
         f"✅ پردازش کامل شد!\n"
         f"━━━━━━━━━━━━━━━\n"
         f"📊 خلاصه فایل:\n"
+        f"├── تعداد صفحه‌ها: {len(read_result.worksheets)}\n"
         f"├── کل ردیف‌ها: {read_result.total_rows}\n"
         f"├── ردیف‌های معتبر: {read_result.valid_rows}\n"
-        f"└── ردیف‌های خطادار: {len(read_result.errors)}\n"
+        f"└── ردیف‌های خطادار: {len(read_result.all_errors)}\n"
+        f"━━━━━━━━━━━━━━━\n"
+    )
+
+    # جزئیات هر sheet
+    text += f"📄 جزئیات صفحه‌ها:\n"
+    for ws in read_result.worksheets:
+        if ws.total_rows == 0 and not ws.errors:
+            continue
+        text += f"├── {ws.worksheet_name}: {ws.valid_rows}/{ws.total_rows}\n"
+
+    text += (
         f"━━━━━━━━━━━━━━━\n"
         f"💾 نتیجه ذخیره:\n"
         f"├── 🆕 محصولات جدید: {save_result.new_count}\n"
@@ -360,8 +370,8 @@ def _format_summary(read_result, save_result) -> str:
         f"📌 مجموع خطاها: {total_errors}"
     )
 
-    if read_result.errors:
-        text += f"\n\n⚠️ خطاهای فایل:\n{_format_errors(read_result.errors)}"
+    if read_result.all_errors:
+        text += f"\n\n⚠️ خطاهای فایل:\n{_format_errors(read_result.all_errors)}"
 
     if save_result.errors:
         text += f"\n\n⚠️ خطاهای ذخیره:\n"

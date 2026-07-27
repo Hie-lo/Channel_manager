@@ -8,7 +8,9 @@ from datetime import datetime
 from app.database.models import Product, Business
 from app.business.config import (
     BusinessConfig,
-    get_business_template_path,
+    get_subcategory,
+    get_subcategory_template_path,
+    BUSINESS_DIR,
 )
 from app.services.content.hashtag_generator import (
     generate_hashtags,
@@ -23,55 +25,49 @@ except ImportError:
     HAS_JDATETIME = False
 
 
-# کاراکترهای Markdown که باید escape بشن در تلگرام
-MARKDOWN_ESCAPE_CHARS = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
-
-
 def build_post_caption(
     product: Product,
     business_config: BusinessConfig,
     business: Business | None = None,
     include_ai_description: bool = False,
 ) -> str:
-    """
-    ساخت متن کامل کپشن پست
+    """ساخت متن کامل کپشن پست"""
 
-    Args:
-        product: محصول
-        business_config: تنظیمات کسب‌وکار
-        business: رکورد کسب‌وکار مشتری (برای contact_text)
-        include_ai_description: آیا از AI برای توضیحات استفاده بشه
-
-    Returns:
-        متن کامل پست آماده ارسال
-    """
-    # بارگذاری قالب
-    template = _load_template(business_config)
+    # بارگذاری قالب بر اساس sub_category
+    template = _load_template(product, business_config)
     if not template:
         return _fallback_post(product, business_config)
 
     # آماده‌سازی مقادیر
     values = _prepare_template_values(product, business_config, business)
 
-    # جایگذاری در قالب
+    # جایگذاری
     try:
         post_text = template.format(**values)
     except KeyError as e:
-        log.error(f"کلید ناشناخته در قالب: {e}")
+        log.error(f"کلید ناشناخته در قالب: {e}, sub_category: {product.sub_category_key}")
         return _fallback_post(product, business_config)
 
-    # پاک کردن خطوط خالی اضافی
-    post_text = _clean_empty_lines(post_text)
-
-    return post_text
+    return _clean_empty_lines(post_text)
 
 
-def _load_template(business_config: BusinessConfig) -> str | None:
-    """خواندن قالب از فایل"""
-    template_path = get_business_template_path(business_config.key)
+def _load_template(product: Product, business_config: BusinessConfig) -> str | None:
+    """خواندن قالب بر اساس sub_category محصول"""
+
+    if not product.sub_category_key:
+        log.warning(f"محصول {product.sku} sub_category ندارد")
+        return None
+
+    template_path = get_subcategory_template_path(
+        business_config.key,
+        product.sub_category_key,
+    )
 
     if not template_path or not template_path.exists():
-        log.error(f"قالب پیدا نشد: {business_config.key}")
+        log.error(
+            f"قالب پیدا نشد: business={business_config.key}, "
+            f"subcategory={product.sub_category_key}"
+        )
         return None
 
     try:
@@ -88,7 +84,6 @@ def _prepare_template_values(
 ) -> dict:
     """آماده‌سازی مقادیر برای قالب"""
 
-    # اطلاعات پایه
     values = {
         "product_name": product.product_name,
         "sku": product.sku,
@@ -97,19 +92,20 @@ def _prepare_template_values(
         "update_date": _format_date(product.updated_at),
     }
 
-    # مقادیر از specs (برند، cpu، ram، ...)
+    # مقادیر از specs
     if product.specs:
         for key, value in product.specs.items():
             values[key] = str(value) if value else "-"
 
-    # پر کردن فیلدهایی که در specs نبودن با "-"
-    for field in business_config.fields:
-        if field.key not in values and field.key not in [
-            "sku", "product_name", "price", "stock", "description", "image_url"
-        ]:
-            values[field.key] = "-"
+    # پیدا کردن subcategory برای فیلدهای اختیاری خالی
+    subcategory = get_subcategory(business_config.key, product.sub_category_key)
+    if subcategory:
+        for field in subcategory.fields:
+            if field.key not in values and field.key not in [
+                "sku", "product_name", "price", "stock", "description", "image_url"
+            ]:
+                values[field.key] = "-"
 
-    # توضیحات
     values["description_block"] = _build_description_block(product)
 
     # هشتگ‌ها
@@ -126,21 +122,18 @@ def _prepare_template_values(
 
 
 def _format_price(price: int) -> str:
-    """فرمت قیمت با کاما"""
     if price <= 0:
         return "-"
     return f"{price:,}"
 
 
 def _get_stock_status(product: Product) -> str:
-    """وضعیت موجودی برای نمایش"""
     if not product.is_available or product.stock_qty <= 0:
         return "❌ ناموجود"
     return "موجود ✅"
 
 
 def _format_date(dt: datetime) -> str:
-    """تبدیل تاریخ به شمسی"""
     if not dt:
         return ""
 
@@ -155,21 +148,19 @@ def _format_date(dt: datetime) -> str:
 
 
 def _build_description_block(product: Product) -> str:
-    """ساخت بلوک توضیحات"""
     if product.description_manual and product.description_manual.strip():
         return f"📝 {product.description_manual.strip()}"
     return ""
 
 
 def _clean_empty_lines(text: str) -> str:
-    """حذف خطوط خالی اضافی و trim"""
+    """حذف خطوط خالی اضافی"""
     lines = text.split("\n")
     result_lines = []
 
     prev_empty = False
     for line in lines:
         stripped = line.strip()
-        # اگه توضیحات خالی بود، خط جای خالیش رو حذف کن
         if stripped == "":
             if not prev_empty:
                 result_lines.append("")
@@ -178,7 +169,6 @@ def _clean_empty_lines(text: str) -> str:
             result_lines.append(line)
             prev_empty = False
 
-    # حذف خطوط خالی از ابتدا و انتها
     while result_lines and result_lines[0].strip() == "":
         result_lines.pop(0)
     while result_lines and result_lines[-1].strip() == "":
@@ -188,7 +178,7 @@ def _clean_empty_lines(text: str) -> str:
 
 
 def _fallback_post(product: Product, business_config: BusinessConfig) -> str:
-    """در صورت مشکل، یک پست ساده بساز"""
+    """پست ساده در صورت مشکل"""
     price = _format_price(int(product.price))
     stock = _get_stock_status(product)
 

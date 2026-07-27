@@ -1,0 +1,17 @@
+🖥 {product_name}
+
+🏭 برند: {brand}
+📐 سایز: {screen_size}
+🔍 رزولوشن: {resolution}
+⚡ نرخ رفرش: {refresh_rate}
+🎨 نوع پنل: {panel_type}
+─────────────────
+💰 قیمت: {price} تومان
+📦 {stock_status}
+─────────────────
+{description_block}
+
+{hashtags}
+
+📞 {contact}
+🔄 {update_date}

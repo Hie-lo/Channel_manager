@@ -136,6 +136,7 @@ def _create_product(
     return Product(
         customer_id=customer_id,
         business_id=business_id,
+        sub_category_key=data.get("sub_category_key"),  # ← جدید
         sku=data.get("sku"),
         product_name=data.get("product_name", ""),
         price=data.get("price", 0),

@@ -155,7 +155,7 @@ class Product(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
     business_id: Mapped[int | None] = mapped_column(ForeignKey("businesses.id"), nullable=True)
-
+    sub_category_key: Mapped[str | None] = mapped_column(String(80), nullable=True)  # laptop, monitor, ...
     sku: Mapped[str] = mapped_column(String(80))
     product_name: Mapped[str] = mapped_column(String(250))
 
@@ -240,7 +240,7 @@ class PostingSettings(Base):
         default=utc_now_naive,
         onupdate=utc_now_naive,
     )
-    
+
 class GoogleSheetConnection(Base):
     """اتصال Google Sheet هر مشتری"""
     __tablename__ = "google_sheet_connections"

@@ -77,6 +77,8 @@ from app.bot.handlers.sheet_connection import (
     sheet_delete_callback,
     sheet_delete_confirm_callback,
     sheet_sync_now_callback,
+    sheet_get_template_callback,
+    sheet_back_to_menu_callback,
 )
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
@@ -215,6 +217,8 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(sheet_change_callback, pattern="^sheet_change$"))
     app.add_handler(CallbackQueryHandler(sheet_sync_now_callback, pattern="^sheet_sync_now$"))
     app.add_handler(CallbackQueryHandler(sheet_cancel_callback, pattern="^sheet_cancel$"))
+    app.add_handler(CallbackQueryHandler(sheet_get_template_callback, pattern="^sheet_get_template$"))
+    app.add_handler(CallbackQueryHandler(sheet_back_to_menu_callback, pattern="^sheet_back_to_menu$"))
 
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(

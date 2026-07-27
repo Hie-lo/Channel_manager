@@ -47,7 +47,7 @@ def _get_bot_service_account_email() -> str:
         return "❌ خطا در خواندن ایمیل"
 
 
-def _get_sheet_menu_keyboard(has_connection: bool) -> InlineKeyboardMarkup:
+def _get_sheet_menu_keyboard(has_connection: bool, has_template: bool = False) -> InlineKeyboardMarkup:
     """کیبورد منوی اتصال Sheet"""
     keyboard = []
 
@@ -65,6 +65,10 @@ def _get_sheet_menu_keyboard(has_connection: bool) -> InlineKeyboardMarkup:
         keyboard.append([
             InlineKeyboardButton("➕ اتصال Google Sheet", callback_data="sheet_add")
         ])
+        if has_template:
+            keyboard.append([
+                InlineKeyboardButton("📥 دریافت لینک شیت نمونه", callback_data="sheet_get_template")
+            ])
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -85,10 +89,7 @@ def _get_delete_confirm_keyboard() -> InlineKeyboardMarkup:
 
 
 async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    نمایش منوی مدیریت Google Sheet
-    وقتی مشتری از منوی اصلی این بخش رو انتخاب می‌کنه
-    """
+    """نمایش منوی مدیریت Google Sheet"""
     user = update.effective_user
 
     async with AsyncSessionLocal() as session:
@@ -107,6 +108,11 @@ async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
         connection = await get_sheet_connection(session, customer.id)
+
+        from app.business.config import get_google_sheet_template_url
+        template_url = get_google_sheet_template_url(customer.business_type_key)
+
+    has_template = bool(template_url)
 
     if connection:
         sync_status = connection.last_sync_status or "هنوز sync نشده"
@@ -142,46 +148,89 @@ async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"💡 با اتصال Google Sheet:\n"
             f"├── قیمت‌ها خودکار آپدیت میشن\n"
             f"├── موجودی خودکار به‌روز میشه\n"
-            f"└── نیازی به آپلود مکرر اکسل نیست\n"
+            f"└── نیازی به آپلود مکرر اکسل نیست\n\n"
         )
+        if has_template:
+            text += (
+                f"🎯 برای شروع سریع، از دکمه\n"
+                f"'📥 دریافت لینک شیت نمونه' استفاده کنید.\n"
+            )
 
     await update.message.reply_text(
         text,
-        reply_markup=_get_sheet_menu_keyboard(has_connection=connection is not None),
+        reply_markup=_get_sheet_menu_keyboard(
+            has_connection=connection is not None,
+            has_template=has_template,
+        ),
     )
 
 
 async def sheet_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """شروع فرآیند اتصال شیت جدید"""
+    """شروع فرآیند اتصال شیت جدید - راهنمای کامل"""
     query = update.callback_query
     await query.answer()
 
     user = query.from_user
     bot_email = _get_bot_service_account_email()
 
+    # گرفتن اطلاعات کسب‌وکار مشتری
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await query.edit_message_text("❌ خطا!")
+            return
+
+        from app.business.config import get_business, get_google_sheet_template_url
+        business_config = get_business(customer.business_type_key)
+
+    template_url = get_google_sheet_template_url(customer.business_type_key) if business_config else None
+
+    # پیام اصلی با HTML
     text = (
-        f"📊 اتصال Google Sheet\n"
+        f"📊 <b>اتصال Google Sheet</b>\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"لطفاً مراحل زیر را دقیقاً انجام دهید:\n\n"
-        f"1️⃣ شیت خود را در Google Sheets باز کنید\n\n"
-        f"2️⃣ ساختار ستون‌ها باید مطابق فایل نمونه باشد\n"
-        f"    (اگر فایل نمونه ندارید، از بخش '📤 آپلود محصولات' دانلود کنید)\n\n"
-        f"3️⃣ روی دکمه 'Share' در بالای شیت کلیک کنید\n\n"
-        f"4️⃣ این ایمیل را اضافه کنید:\n"
-        f"    `{bot_email}`\n\n"
-        f"5️⃣ دسترسی: **Editor**\n"
-        f"    (تیک 'Notify people' را بردارید)\n\n"
-        f"6️⃣ دکمه 'Share' یا 'Send' را بزنید\n\n"
-        f"7️⃣ حالا لینک شیت را کپی و اینجا ارسال کنید:\n"
-        f"    (لینک از قسمت آدرس مرورگر یا Share → Copy link)"
+    )
+
+    if template_url:
+        text += (
+            f"🎯 <b>روش پیشنهادی (سریع‌ترین):</b>\n\n"
+            f"1️⃣ روی لینک زیر کلیک کنید:\n"
+            f"<a href=\"{template_url}\">📥 دریافت شیت نمونه</a>\n\n"
+            f"2️⃣ در صفحه‌ای که باز می‌شود، دکمه <b>Make a copy</b> را بزنید\n\n"
+            f"3️⃣ یه کپی از شیت در حساب گوگل شما ساخته می‌شود\n"
+            f"(با ساختار آماده و صفحه‌های صحیح)\n\n"
+            f"4️⃣ محصولات خودتون رو در هر صفحه وارد کنید\n\n"
+            f"5️⃣ دکمه <b>Share</b> بالای شیت را بزنید و این ایمیل را اضافه کنید:\n"
+            f"<code>{bot_email}</code>\n"
+            f"(سطح دسترسی: <b>Editor</b>)\n\n"
+            f"6️⃣ لینک شیت خودتون رو کپی و اینجا ارسال کنید\n\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+        )
+    else:
+        text += (
+            f"⚠️ برای این کسب‌وکار نمونه Google Sheet ندارد.\n"
+            f"لطفاً از فایل اکسل نمونه استفاده کنید.\n\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+        )
+
+    text += (
+        f"📝 <b>روش دستی (اگه از قبل شیت دارید):</b>\n\n"
+        f"1️⃣ ساختار شیت شما باید مطابق فایل نمونه باشد\n"
+        f"(نام صفحه‌ها و ستون‌ها مهم است)\n\n"
+        f"2️⃣ در Share شیت، این ایمیل را با دسترسی Editor اضافه کنید:\n"
+        f"<code>{bot_email}</code>\n\n"
+        f"3️⃣ لینک شیت را ارسال کنید\n\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"💡 حالا لینک شیت خودتون رو ارسال کنید:"
     )
 
     set_user_state(user.id, UserState.WAITING_SHEET_URL)
 
     await query.edit_message_text(
         text,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=_get_cancel_keyboard(),
+        disable_web_page_preview=True,
     )
 
 
@@ -219,17 +268,17 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
     if not result.success:
         bot_email = _get_bot_service_account_email()
         await processing_msg.edit_text(
-            f"❌ اتصال ناموفق!\n"
+            f"❌ <b>اتصال ناموفق!</b>\n"
             f"━━━━━━━━━━━━━━━\n"
             f"📝 دلیل: {result.error_message}\n"
             f"━━━━━━━━━━━━━━━\n\n"
-            f"⚠️ راهنمای رفع مشکل:\n\n"
+            f"⚠️ <b>راهنمای رفع مشکل:</b>\n\n"
             f"1️⃣ مطمئن شوید این ایمیل را به شیت اضافه کرده‌اید:\n"
-            f"`{bot_email}`\n\n"
-            f"2️⃣ سطح دسترسی حتماً 'Editor' باشد\n\n"
+            f"<code>{bot_email}</code>\n\n"
+            f"2️⃣ سطح دسترسی حتماً <b>Editor</b> باشد\n\n"
             f"3️⃣ لینک صحیح را کپی کرده باشید\n\n"
             f"دوباره تلاش کنید:",
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=_get_cancel_keyboard(),
         )
         return
@@ -364,3 +413,125 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         log.error(f"خطا در sync دستی: {e}", exc_info=True)
         await query.edit_message_text(f"❌ خطا: {str(e)[:200]}")
+
+async def sheet_get_template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ارسال لینک Google Sheet نمونه"""
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+    bot_email = _get_bot_service_account_email()
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            return
+
+        from app.business.config import get_business, get_google_sheet_template_url
+        business_config = get_business(customer.business_type_key)
+
+    template_url = get_google_sheet_template_url(customer.business_type_key) if business_config else None
+
+    if not template_url:
+        await query.edit_message_text(
+            "❌ برای این کسب‌وکار نمونه Google Sheet موجود نیست.\n\n"
+            "لطفاً از فایل اکسل نمونه استفاده کنید.",
+            reply_markup=_get_sheet_menu_keyboard(has_connection=False),
+        )
+        return
+
+    text = (
+        f"📊 <b>دریافت شیت نمونه</b>\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🏢 کسب‌وکار: {business_config.emoji} {business_config.name_fa}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"🎯 <b>مراحل:</b>\n\n"
+        f"1️⃣ روی لینک زیر کلیک کنید:\n"
+        f"<a href=\"{template_url}\">📥 باز کردن شیت نمونه</a>\n\n"
+        f"2️⃣ در صفحه باز شده، دکمه <b>Make a copy</b> را بزنید\n"
+        f"(یه کپی در Google Drive شما ساخته می‌شود)\n\n"
+        f"3️⃣ محصولات خودتون رو در صفحه‌های مربوطه وارد کنید\n\n"
+        f"4️⃣ دکمه <b>Share</b> را بزنید\n\n"
+        f"5️⃣ این ایمیل را با دسترسی <b>Editor</b> اضافه کنید:\n"
+        f"<code>{bot_email}</code>\n\n"
+        f"6️⃣ لینک شیت خودتون رو کپی کنید\n\n"
+        f"7️⃣ برگردید و از دکمه '➕ اتصال Google Sheet' استفاده کنید\n"
+        f"━━━━━━━━━━━━━━━"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("➕ اتصال Google Sheet", callback_data="sheet_add")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="sheet_back_to_menu")],
+    ]
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True,
+    )
+
+
+async def sheet_back_to_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """برگشت به منوی اصلی Sheet"""
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            return
+
+        connection = await get_sheet_connection(session, customer.id)
+
+        from app.business.config import get_google_sheet_template_url
+        template_url = get_google_sheet_template_url(customer.business_type_key)
+
+    has_template = bool(template_url)
+
+    if connection:
+        sync_status = connection.last_sync_status or "هنوز sync نشده"
+        last_sync = (
+            connection.last_sync_at.strftime("%Y/%m/%d %H:%M")
+            if connection.last_sync_at
+            else "هرگز"
+        )
+
+        text = (
+            f"📊 Google Sheet\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"✅ اتصال فعال\n"
+            f"📄 شیت: {connection.worksheet_name}\n"
+            f"🕐 آخرین همگام‌سازی: {last_sync}\n"
+            f"📊 وضعیت: {sync_status}\n"
+        )
+
+        if connection.last_error:
+            text += f"\n⚠️ آخرین خطا:\n{connection.last_error[:200]}\n"
+
+        text += (
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"💡 قیمت و موجودی محصولات به صورت خودکار\n"
+            f"از این شیت خوانده و آپدیت می‌شوند."
+        )
+    else:
+        text = (
+            f"📊 Google Sheet\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"❌ هنوز شیتی متصل نکرده‌اید\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"💡 با اتصال Google Sheet:\n"
+            f"├── قیمت‌ها خودکار آپدیت میشن\n"
+            f"├── موجودی خودکار به‌روز میشه\n"
+            f"└── نیازی به آپلود مکرر اکسل نیست\n"
+        )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=_get_sheet_menu_keyboard(
+            has_connection=connection is not None,
+            has_template=has_template,
+        ),
+    )

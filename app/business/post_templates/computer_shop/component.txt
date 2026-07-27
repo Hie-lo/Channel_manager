@@ -1,0 +1,15 @@
+⚙️ {product_name}
+
+🔧 نوع قطعه: {component_type}
+🏭 برند: {brand}
+📋 مشخصات: {specs}
+─────────────────
+💰 قیمت: {price} تومان
+📦 {stock_status}
+─────────────────
+{description_block}
+
+{hashtags}
+
+📞 {contact}
+🔄 {update_date}

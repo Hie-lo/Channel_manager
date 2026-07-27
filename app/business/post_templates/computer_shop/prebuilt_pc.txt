@@ -1,0 +1,19 @@
+🖥 {product_name}
+
+🏭 برند: {brand}
+⚡ پردازنده: {cpu}
+🧠 رم: {ram}
+💾 حافظه: {storage}
+🎮 گرافیک: {gpu}
+🔌 منبع تغذیه: {psu}
+📦 کیس: {case_model}
+─────────────────
+💰 قیمت: {price} تومان
+📦 {stock_status}
+─────────────────
+{description_block}
+
+{hashtags}
+
+📞 {contact}
+🔄 {update_date}
