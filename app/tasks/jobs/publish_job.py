@@ -1,0 +1,268 @@
+"""
+Job انتشار خودکار محصولات
+هر X دقیقه اجرا میشه و برای هر مشتری چک می‌کنه که آیا وقت پست بعدی رسیده
+"""
+
+from telegram import Bot
+from sqlalchemy import select
+
+from app.database.connection import AsyncSessionLocal
+from app.database.models import Customer, CustomerStatus
+from app.services.customer_service import get_customer_by_telegram_id
+from app.services.posting_settings_service import (
+    get_all_customers_with_auto_publish,
+    is_in_posting_hours,
+    is_time_for_next_post,
+    update_last_post_time,
+)
+from app.services.subscription.service import get_active_subscription
+from app.services.product_service import (
+    get_next_pending_product,
+    mark_product_as_published,
+    mark_product_as_failed,
+)
+from app.services.channel_service import get_customer_channels
+from app.services.business_service import (
+    get_business_config_for_customer,
+    get_business_for_customer,
+)
+from app.services.content.post_builder import build_post_caption
+from app.services.publisher.telegram_publisher import publish_post_to_telegram
+from app.services.publisher.posted_message_service import create_posted_message
+from app.utils.logger import log
+from app.utils.time import utc_now_naive
+
+
+async def run_auto_publish_job(bot: Bot) -> dict:
+    """
+    Job اصلی انتشار خودکار
+    Returns: dict حاوی جزئیات نتیجه برای نمایش به ادمین
+    """
+    log.info("🔄 [Auto Publish Job] شروع...")
+
+    stats = {
+        "total_customers": 0,
+        "published_count": 0,
+        "skipped_no_hours": 0,
+        "skipped_no_interval": 0,
+        "skipped_no_products": 0,
+        "skipped_no_channels": 0,
+        "skipped_no_subscription": 0,
+        "skipped_inactive": 0,
+        "failed": 0,
+        "details": [],
+    }
+
+    try:
+        async with AsyncSessionLocal() as session:
+            all_settings = await get_all_customers_with_auto_publish(session)
+
+            if not all_settings:
+                log.info("[Auto Publish Job] هیچ مشتری با auto_publish روشن نیست")
+                stats["message"] = "هیچ مشتری با ارسال خودکار فعال نیست"
+                return stats
+
+            stats["total_customers"] = len(all_settings)
+            log.info(f"[Auto Publish Job] بررسی {len(all_settings)} مشتری...")
+
+            for settings_obj in all_settings:
+                customer_id = settings_obj.customer_id
+
+                # چک ساعت مجاز
+                if not is_in_posting_hours(settings_obj):
+                    log.info(
+                        f"[Customer {customer_id}] "
+                        f"⏰ خارج از ساعت مجاز "
+                        f"({settings_obj.posting_start_hour}-{settings_obj.posting_end_hour}), رد شد"
+                    )
+                    stats["skipped_no_hours"] += 1
+                    stats["details"].append(f"مشتری {customer_id}: خارج از ساعت مجاز")
+                    continue
+
+                # چک زمان پست بعدی
+                if not is_time_for_next_post(settings_obj):
+                    remaining = _calculate_remaining_minutes(settings_obj)
+                    log.info(
+                        f"[Customer {customer_id}] "
+                        f"⏳ هنوز زمان پست بعدی نرسیده (تا {remaining} دقیقه دیگه)"
+                    )
+                    stats["skipped_no_interval"] += 1
+                    stats["details"].append(
+                        f"مشتری {customer_id}: {remaining} دقیقه تا پست بعدی"
+                    )
+                    continue
+
+                # پردازش این مشتری
+                result_status = await _process_customer_publish(
+                    bot=bot,
+                    customer_id=customer_id,
+                )
+
+                if result_status == "published":
+                    stats["published_count"] += 1
+                    stats["details"].append(f"مشتری {customer_id}: ✅ پست شد")
+                elif result_status == "no_products":
+                    stats["skipped_no_products"] += 1
+                    stats["details"].append(f"مشتری {customer_id}: محصول pending ندارد")
+                elif result_status == "no_channels":
+                    stats["skipped_no_channels"] += 1
+                    stats["details"].append(f"مشتری {customer_id}: کانالی متصل ندارد")
+                elif result_status == "no_subscription":
+                    stats["skipped_no_subscription"] += 1
+                    stats["details"].append(f"مشتری {customer_id}: اشتراک ندارد")
+                elif result_status == "inactive":
+                    stats["skipped_inactive"] += 1
+                    stats["details"].append(f"مشتری {customer_id}: حساب غیرفعال")
+                else:  # failed
+                    stats["failed"] += 1
+                    stats["details"].append(f"مشتری {customer_id}: ❌ ارسال ناموفق")
+
+        log.info(
+            f"✅ [Auto Publish Job] پایان - "
+            f"بررسی: {stats['total_customers']}, "
+            f"ارسال: {stats['published_count']}, "
+            f"رد شده (ساعت): {stats['skipped_no_hours']}, "
+            f"رد شده (زمان): {stats['skipped_no_interval']}, "
+            f"رد شده (بدون محصول): {stats['skipped_no_products']}"
+        )
+        return stats
+
+    except Exception as e:
+        log.error(f"❌ [Auto Publish Job] خطا: {e}", exc_info=True)
+        stats["error"] = str(e)
+        return stats
+
+
+def _calculate_remaining_minutes(settings_obj) -> int:
+    """محاسبه دقیقه‌های باقیمانده تا پست بعدی"""
+    from datetime import timedelta
+
+    if not settings_obj.last_post_at:
+        return 0
+
+    now = utc_now_naive()
+    required_interval = timedelta(hours=settings_obj.interval_hours)
+    next_post_time = settings_obj.last_post_at + required_interval
+
+    if now >= next_post_time:
+        return 0
+
+    delta = next_post_time - now
+    return int(delta.total_seconds() / 60)
+
+
+async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
+    """
+    پردازش یک مشتری: پیدا کردن محصول بعدی و ارسال به همه کانال‌هاش
+    Returns: "published" | "no_products" | "no_channels" | 
+             "no_subscription" | "inactive" | "failed"
+    """
+    async with AsyncSessionLocal() as session:
+        # گرفتن مشتری
+        result = await session.execute(
+            select(Customer).where(Customer.id == customer_id)
+        )
+        customer = result.scalar_one_or_none()
+
+        if not customer or customer.customer_status != CustomerStatus.ACTIVE:
+            log.info(f"[Customer {customer_id}] ❌ حساب فعال نیست")
+            return "inactive"
+
+        # چک اشتراک فعال
+        subscription = await get_active_subscription(session, customer.id)
+        if not subscription:
+            log.info(f"[Customer {customer_id}] ❌ اشتراک فعال ندارد")
+            return "no_subscription"
+
+        # گرفتن کانال‌ها
+        channels = await get_customer_channels(session, customer.id)
+        if not channels:
+            log.info(f"[Customer {customer_id}] ❌ کانالی متصل ندارد")
+            return "no_channels"
+
+        # گرفتن محصول بعدی
+        product = await get_next_pending_product(session, customer.id)
+        if not product:
+            log.info(f"[Customer {customer_id}] ⚠️ محصول pending موجود ندارد")
+            return "no_products"
+
+        # آماده‌سازی
+        business_config = get_business_config_for_customer(customer)
+        business = await get_business_for_customer(session, customer.id)
+
+    if not business_config:
+        log.warning(f"[Customer {customer_id}] business_config نداره")
+        return "failed"
+
+    # ساخت کپشن
+    caption = build_post_caption(product, business_config, business)
+
+    log.info(
+        f"📤 [Customer {customer_id}] ارسال محصول {product.sku} "
+        f"به {len(channels)} کانال"
+    )
+
+    # ارسال به هر کانال
+    any_success = False
+    for channel in channels:
+        try:
+            result = await publish_post_to_telegram(
+                bot=bot,
+                channel_identifier=channel.channel_identifier,
+                caption=caption,
+                photo_url=product.image_url,
+            )
+
+            if result.success and result.message_id:
+                async with AsyncSessionLocal() as session:
+                    await create_posted_message(
+                        session=session,
+                        product_id=product.id,
+                        channel_id=channel.id,
+                        telegram_message_id=result.message_id,
+                        caption=caption,
+                        price=int(product.price),
+                        stock_qty=product.stock_qty,
+                    )
+                any_success = True
+                log.info(
+                    f"✅ [Customer {customer_id}] پست شد در "
+                    f"{channel.channel_identifier}"
+                )
+            else:
+                log.error(
+                    f"❌ [Customer {customer_id}] ارسال به "
+                    f"{channel.channel_identifier} ناموفق: {result.error_message}"
+                )
+
+        except Exception as e:
+            log.error(
+                f"❌ [Customer {customer_id}] خطا در ارسال به "
+                f"{channel.channel_identifier}: {e}",
+                exc_info=True,
+            )
+
+    # آپدیت وضعیت
+    async with AsyncSessionLocal() as session:
+        if any_success:
+            await mark_product_as_published(session, product.id)
+            await update_last_post_time(session, customer_id)
+
+            try:
+                await bot.send_message(
+                    chat_id=customer.telegram_user_id,
+                    text=(
+                        f"📤 پست خودکار ارسال شد\n"
+                        f"━━━━━━━━━━━━━━━\n"
+                        f"محصول: {product.product_name}\n"
+                        f"کد: {product.sku}\n"
+                        f"━━━━━━━━━━━━━━━"
+                    ),
+                )
+            except Exception as e:
+                log.warning(f"خطا در اطلاع به مشتری: {e}")
+
+            return "published"
+        else:
+            await mark_product_as_failed(session, product.id)
+            return "failed"

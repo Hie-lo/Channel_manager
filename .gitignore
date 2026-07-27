@@ -34,3 +34,6 @@ htmlcov/
 Thumbs.db
 
 .env.docker
+secrets/
+*.json
+!requirements.json

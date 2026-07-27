@@ -264,3 +264,71 @@ async def delete_all_products(
     await session.commit()
     log.info(f"همه محصولات مشتری {customer_id} حذف شدند: {count} محصول")
     return count
+
+async def get_pending_products_for_customer(
+    session: AsyncSession,
+    customer_id: int,
+    limit: int = 100,
+) -> list[Product]:
+    """
+    گرفتن محصولات منتشر نشده مشتری (که موجود هستن)
+    مرتب شده بر اساس تاریخ ایجاد (قدیمی‌ها اول)
+    """
+    from app.database.models import ProductPublishStatus
+
+    result = await session.execute(
+        select(Product)
+        .where(
+            Product.customer_id == customer_id,
+            Product.publish_status == ProductPublishStatus.PENDING,
+            Product.is_available == True,
+        )
+        .order_by(Product.created_at.asc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def get_next_pending_product(
+    session: AsyncSession,
+    customer_id: int,
+) -> Product | None:
+    """گرفتن محصول بعدی که باید پست بشه"""
+    products = await get_pending_products_for_customer(session, customer_id, limit=1)
+    return products[0] if products else None
+
+
+async def mark_product_as_published(
+    session: AsyncSession,
+    product_id: int,
+) -> None:
+    """علامت‌گذاری محصول به عنوان منتشر شده"""
+    from app.database.models import ProductPublishStatus
+
+    result = await session.execute(
+        select(Product).where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
+
+    if product:
+        product.publish_status = ProductPublishStatus.PUBLISHED
+        product.updated_at = utc_now_naive()
+        await session.commit()
+
+
+async def mark_product_as_failed(
+    session: AsyncSession,
+    product_id: int,
+) -> None:
+    """علامت‌گذاری محصول به عنوان ارسال ناموفق"""
+    from app.database.models import ProductPublishStatus
+
+    result = await session.execute(
+        select(Product).where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
+
+    if product:
+        product.publish_status = ProductPublishStatus.FAILED
+        product.updated_at = utc_now_naive()
+        await session.commit()

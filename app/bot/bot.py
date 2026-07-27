@@ -14,7 +14,6 @@ from app.config import settings
 from app.database.init_db import init_db
 from app.bot.handlers.start import start_handler
 from app.bot.handlers.error import error_handler
-from app.bot.handlers.product import product_menu_handler
 from app.bot.handlers.customer import (
     business_type_callback,
     approve_customer_callback,
@@ -48,6 +47,26 @@ from app.bot.handlers.upload import (
     upload_cancel_callback,
     excel_file_received_handler,
 )
+from app.bot.handlers.product import (
+    product_menu_handler,
+    prod_list_callback,
+    prod_view_callback,
+    prod_preview_callback,
+    prod_publish_callback,
+)
+from app.bot.handlers.posting_settings import (
+    posting_settings_handler,
+    posting_toggle_auto_callback,
+    posting_set_interval_callback,
+    posting_interval_selected_callback,
+    posting_set_hours_callback,
+    posting_hours_selected_callback,
+    posting_back_callback,
+)
+from app.bot.handlers.admin import (
+    admin_test_publish_job_handler,
+    admin_test_reminder_job_handler,
+)
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
 
@@ -56,6 +75,10 @@ async def on_startup(application: Application) -> None:
     log.info("🗄 در حال اتصال به دیتابیس...")
     await init_db()
     log.info("✅ دیتابیس آماده است")
+
+    # راه‌اندازی scheduler
+    from app.tasks.scheduler import start_scheduler
+    start_scheduler(application.bot)
 
 
 async def text_router(update, context):
@@ -119,7 +142,13 @@ def create_bot() -> Application:
     filters.TEXT & filters.Regex("^📦 مدیریت محصولات$"),
     product_menu_handler
     ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^⚙️ تنظیمات$"),
+        posting_settings_handler
+    ))
 
+    app.add_handler(CommandHandler("test_publish", admin_test_publish_job_handler))
+    app.add_handler(CommandHandler("test_reminder", admin_test_reminder_job_handler))
     # ─── کالبک‌های ثبت‌نام ───
     app.add_handler(CallbackQueryHandler(business_type_callback, pattern="^biz_"))
     app.add_handler(CallbackQueryHandler(approve_customer_callback, pattern="^approve_"))
@@ -147,6 +176,20 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(upload_send_excel_callback, pattern="^upload_send_excel$"))
     app.add_handler(CallbackQueryHandler(upload_cancel_callback, pattern="^upload_cancel$"))
 
+    # ─── کالبک‌های محصولات ───
+    app.add_handler(CallbackQueryHandler(prod_preview_callback, pattern="^prod_preview_"))
+    app.add_handler(CallbackQueryHandler(prod_publish_callback, pattern="^prod_publish_"))
+    app.add_handler(CallbackQueryHandler(prod_view_callback, pattern="^prod_view_"))
+    app.add_handler(CallbackQueryHandler(prod_list_callback, pattern="^prod_list_"))
+    # ─── کالبک‌های تنظیمات ارسال ───
+    
+    # ⚠️ ترتیب مهم! interval_ و hours_ باید قبل از set_interval و set_hours ثبت شوند
+    app.add_handler(CallbackQueryHandler(posting_interval_selected_callback, pattern="^posting_interval_"))
+    app.add_handler(CallbackQueryHandler(posting_hours_selected_callback, pattern="^posting_hours_"))
+    app.add_handler(CallbackQueryHandler(posting_toggle_auto_callback, pattern="^posting_toggle_auto$"))
+    app.add_handler(CallbackQueryHandler(posting_set_interval_callback, pattern="^posting_set_interval$"))
+    app.add_handler(CallbackQueryHandler(posting_set_hours_callback, pattern="^posting_set_hours$"))
+    app.add_handler(CallbackQueryHandler(posting_back_callback, pattern="^posting_back$"))
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
