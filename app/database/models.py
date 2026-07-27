@@ -46,6 +46,13 @@ class TokenSource(enum.Enum):
     MONTHLY = "MONTHLY"
     PURCHASED = "PURCHASED"
 
+class ProductPublishStatus(enum.Enum):
+    """وضعیت انتشار محصول در کانال"""
+    PENDING = "PENDING"           # هنوز منتشر نشده
+    SCHEDULED = "SCHEDULED"       # در صف انتشار
+    PUBLISHED = "PUBLISHED"       # منتشر شده
+    FAILED = "FAILED"             # ارسال ناموفق
+    SKIPPED = "SKIPPED"           # نادیده گرفته شده
 
 class Customer(Base):
     __tablename__ = "customers"
@@ -160,6 +167,10 @@ class Product(Base):
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     specs: Mapped[dict] = mapped_column(JSONB, default=dict)
+    publish_status: Mapped[ProductPublishStatus] = mapped_column(
+        SAEnum(ProductPublishStatus),
+        default=ProductPublishStatus.PENDING
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
     updated_at: Mapped[datetime] = mapped_column(
@@ -197,4 +208,35 @@ class PostedMessage(Base):
         DateTime,
         default=utc_now_naive,
         onupdate=utc_now_naive
+    )
+
+class PostingSettings(Base):
+    """تنظیمات ارسال پست هر مشتری"""
+    __tablename__ = "posting_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id"),
+        unique=True,
+        index=True,
+    )
+
+    # فعال بودن انتشار خودکار
+    auto_publish_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # فاصله بین پست‌ها (به ساعت)
+    interval_hours: Mapped[int] = mapped_column(Integer, default=3)
+
+    # ساعت‌های مجاز (0-23)
+    posting_start_hour: Mapped[int] = mapped_column(Integer, default=9)
+    posting_end_hour: Mapped[int] = mapped_column(Integer, default=22)
+
+    # زمان آخرین پست
+    last_post_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
     )

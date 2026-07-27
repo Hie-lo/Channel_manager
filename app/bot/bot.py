@@ -14,6 +14,7 @@ from app.config import settings
 from app.database.init_db import init_db
 from app.bot.handlers.start import start_handler
 from app.bot.handlers.error import error_handler
+from app.bot.handlers.product import product_menu_handler
 from app.bot.handlers.customer import (
     business_type_callback,
     approve_customer_callback,
@@ -44,6 +45,8 @@ from app.bot.handlers.upload import (
     upload_menu_handler,
     upload_download_template_callback,
     upload_send_excel_callback,
+    upload_cancel_callback,
+    excel_file_received_handler,
 )
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
@@ -66,8 +69,19 @@ async def text_router(update, context):
         await payment_receipt_handler(update, context)
 
 
+async def document_router(update, context):
+    """مسیریاب فایل‌ها"""
+    user = update.effective_user
+    state = get_user_state(user.id)
+
+    if state == UserState.WAITING_EXCEL_FILE:
+        await excel_file_received_handler(update, context)
+    elif state == UserState.WAITING_PAYMENT_RECEIPT:
+        await payment_receipt_handler(update, context)
+
+
 async def photo_router(update, context):
-    """مسیریاب عکس‌ها و فایل‌ها"""
+    """مسیریاب عکس‌ها"""
     user = update.effective_user
     state = get_user_state(user.id)
 
@@ -101,6 +115,10 @@ def create_bot() -> Application:
         filters.TEXT & filters.Regex("^📤 آپلود محصولات$"),
         upload_menu_handler
     ))
+    app.add_handler(MessageHandler(
+    filters.TEXT & filters.Regex("^📦 مدیریت محصولات$"),
+    product_menu_handler
+    ))
 
     # ─── کالبک‌های ثبت‌نام ───
     app.add_handler(CallbackQueryHandler(business_type_callback, pattern="^biz_"))
@@ -127,6 +145,7 @@ def create_bot() -> Application:
     # ─── کالبک‌های آپلود ───
     app.add_handler(CallbackQueryHandler(upload_download_template_callback, pattern="^upload_download_template$"))
     app.add_handler(CallbackQueryHandler(upload_send_excel_callback, pattern="^upload_send_excel$"))
+    app.add_handler(CallbackQueryHandler(upload_cancel_callback, pattern="^upload_cancel$"))
 
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(
@@ -134,9 +153,15 @@ def create_bot() -> Application:
         text_router
     ))
 
-    # ─── عکس‌ها و فایل‌ها ───
+    # ─── فایل‌ها (router) ───
     app.add_handler(MessageHandler(
-        filters.PHOTO | filters.Document.ALL,
+        filters.Document.ALL,
+        document_router
+    ))
+
+    # ─── عکس‌ها (router) ───
+    app.add_handler(MessageHandler(
+        filters.PHOTO,
         photo_router
     ))
 

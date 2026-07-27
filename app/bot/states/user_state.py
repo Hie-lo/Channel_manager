@@ -11,22 +11,20 @@ class UserState(Enum):
     """حالت‌های مختلف کاربر"""
     IDLE = "idle"
     WAITING_CHANNEL_ID = "waiting_channel_id"
-    WAITING_PAYMENT_RECEIPT = "waiting_payment_receipt"  # منتظر عکس رسید
+    WAITING_PAYMENT_RECEIPT = "waiting_payment_receipt"
+    WAITING_EXCEL_FILE = "waiting_excel_file"  # ← جدید
 
 
 @dataclass
 class UserContext:
-    """داده‌های اضافه هر کاربر"""
     state: UserState = UserState.IDLE
     data: dict[str, Any] = field(default_factory=dict)
 
 
-# ذخیره وضعیت هر کاربر
 _user_contexts: dict[int, UserContext] = {}
 
 
 def set_user_state(user_id: int, state: UserState, data: dict | None = None) -> None:
-    """تنظیم وضعیت کاربر"""
     if user_id not in _user_contexts:
         _user_contexts[user_id] = UserContext()
     _user_contexts[user_id].state = state
@@ -35,18 +33,15 @@ def set_user_state(user_id: int, state: UserState, data: dict | None = None) -> 
 
 
 def get_user_state(user_id: int) -> UserState:
-    """گرفتن وضعیت کاربر"""
     context = _user_contexts.get(user_id)
     return context.state if context else UserState.IDLE
 
 
 def get_user_data(user_id: int) -> dict:
-    """گرفتن داده‌های ذخیره شده کاربر"""
     context = _user_contexts.get(user_id)
     return context.data if context else {}
 
 
 def clear_user_state(user_id: int) -> None:
-    """پاک کردن وضعیت کاربر"""
     if user_id in _user_contexts:
         del _user_contexts[user_id]
