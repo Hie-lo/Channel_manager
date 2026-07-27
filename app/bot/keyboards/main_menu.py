@@ -4,6 +4,8 @@
 
 from telegram import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
+from app.business.config import get_all_businesses
+
 
 def get_customer_main_menu() -> ReplyKeyboardMarkup:
     """منوی اصلی مشتری"""
@@ -29,13 +31,18 @@ def get_admin_main_menu() -> ReplyKeyboardMarkup:
 
 
 def get_business_type_keyboard() -> InlineKeyboardMarkup:
-    """دکمه‌های انتخاب نوع کسب‌وکار"""
-    keyboard = [
-        [InlineKeyboardButton("💻 فروش لپتاپ و کامپیوتر", callback_data="biz_laptop_store")],
-        [InlineKeyboardButton("📱 فروش موبایل و تبلت", callback_data="biz_mobile_store")],
-        [InlineKeyboardButton("👕 پوشاک", callback_data="biz_clothing_store")],
-        [InlineKeyboardButton("📦 سایر", callback_data="biz_other")],
-    ]
+    """
+    دکمه‌های انتخاب نوع کسب‌وکار
+    از روی BUSINESSES ساخته میشه (داینامیک)
+    """
+    keyboard = []
+
+    for business in get_all_businesses():
+        text = f"{business.emoji} {business.name_fa}"
+        keyboard.append([
+            InlineKeyboardButton(text, callback_data=f"biz_{business.key}")
+        ])
+
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -57,7 +64,6 @@ def get_pending_approval_keyboard(customer_telegram_id: int) -> InlineKeyboardMa
 
 
 def get_cancel_keyboard() -> InlineKeyboardMarkup:
-    """دکمه لغو عملیات"""
     keyboard = [
         [InlineKeyboardButton("❌ لغو", callback_data="cancel")]
     ]

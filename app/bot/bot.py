@@ -40,6 +40,11 @@ from app.bot.handlers.subscription import (
     sub_status_callback,
     payment_receipt_handler,
 )
+from app.bot.handlers.upload import (
+    upload_menu_handler,
+    upload_download_template_callback,
+    upload_send_excel_callback,
+)
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
 
@@ -51,10 +56,7 @@ async def on_startup(application: Application) -> None:
 
 
 async def text_router(update, context):
-    """
-    مسیریاب پیام‌های متنی
-    بر اساس state کاربر تصمیم می‌گیره کدوم handler صدا زده بشه
-    """
+    """مسیریاب پیام‌های متنی بر اساس state"""
     user = update.effective_user
     state = get_user_state(user.id)
 
@@ -65,10 +67,7 @@ async def text_router(update, context):
 
 
 async def photo_router(update, context):
-    """
-    مسیریاب عکس‌ها و فایل‌ها
-    برای دریافت رسید پرداخت
-    """
+    """مسیریاب عکس‌ها و فایل‌ها"""
     user = update.effective_user
     state = get_user_state(user.id)
 
@@ -98,6 +97,10 @@ def create_bot() -> Application:
         filters.TEXT & filters.Regex("^💳 اشتراک من$"),
         subscription_menu_handler
     ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^📤 آپلود محصولات$"),
+        upload_menu_handler
+    ))
 
     # ─── کالبک‌های ثبت‌نام ───
     app.add_handler(CallbackQueryHandler(business_type_callback, pattern="^biz_"))
@@ -121,13 +124,17 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(sub_buy_callback, pattern="^sub_buy$"))
     app.add_handler(CallbackQueryHandler(sub_menu_callback, pattern="^sub_menu$"))
 
+    # ─── کالبک‌های آپلود ───
+    app.add_handler(CallbackQueryHandler(upload_download_template_callback, pattern="^upload_download_template$"))
+    app.add_handler(CallbackQueryHandler(upload_send_excel_callback, pattern="^upload_send_excel$"))
+
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         text_router
     ))
 
-    # ─── عکس‌ها و فایل‌ها (برای رسید پرداخت) ───
+    # ─── عکس‌ها و فایل‌ها ───
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.Document.ALL,
         photo_router

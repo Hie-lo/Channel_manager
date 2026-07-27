@@ -1,6 +1,5 @@
 """
 هندلرهای مربوط به مشتری
-انتخاب کسب‌وکار، تایید/رد و ...
 """
 
 from telegram import Update
@@ -14,16 +13,13 @@ from app.services.customer_service import (
     approve_customer,
     reject_customer,
 )
+from app.services.business_service import (
+    create_business_for_customer,
+    get_business_for_customer,
+)
+from app.business.config import get_business
 from app.bot.keyboards.main_menu import get_pending_approval_keyboard
 from app.utils.logger import log
-
-# نام‌های فارسی کسب‌وکارها
-BUSINESS_TYPE_NAMES = {
-    "laptop_store": "💻 فروش لپتاپ و کامپیوتر",
-    "mobile_store": "📱 فروش موبایل و تبلت",
-    "clothing_store": "👕 پوشاک",
-    "other": "📦 سایر",
-}
 
 
 async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -33,14 +29,24 @@ async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     user = query.from_user
-    data = query.data  # مثال: biz_laptop_store
+    data = query.data
 
     # استخراج کلید کسب‌وکار
     business_key = data.replace("biz_", "")
-    business_name = BUSINESS_TYPE_NAMES.get(business_key, "سایر")
+    business_config = get_business(business_key)
+
+    if not business_config:
+        # اگر "other" یا کسب‌وکار ناشناخته
+        await query.edit_message_text(
+            "❌ این نوع کسب‌وکار در حال حاضر پشتیبانی نمی‌شود.\n"
+            "لطفاً یکی از موارد پشتیبانی شده را انتخاب کنید."
+        )
+        return
+
+    business_name = f"{business_config.emoji} {business_config.name_fa}"
 
     async with AsyncSessionLocal() as session:
-        # ذخیره نوع کسب‌وکار
+        # ذخیره نوع کسب‌وکار در جدول Customer
         customer = await set_customer_business_type(
             session=session,
             telegram_user_id=user.id,
@@ -50,6 +56,19 @@ async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_T
         if not customer:
             await query.edit_message_text("❌ خطا! لطفاً دوباره /start بزنید.")
             return
+
+        # ایجاد رکورد در جدول Business
+        existing_business = await get_business_for_customer(session, customer.id)
+        if not existing_business:
+            # استفاده از نام کاربر به عنوان نام موقت کسب‌وکار
+            business_name_for_db = f"کسب‌وکار {user.first_name or 'جدید'}"
+            await create_business_for_customer(
+                session=session,
+                customer_id=customer.id,
+                business_type_key=business_key,
+                business_name=business_name_for_db,
+                contact_text=f"@{user.username}" if user.username else None,
+            )
 
         # اطلاع به مشتری
         await query.edit_message_text(
@@ -95,7 +114,6 @@ async def approve_customer_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    # استخراج آیدی مشتری از callback_data
     customer_telegram_id = int(query.data.replace("approve_", ""))
 
     async with AsyncSessionLocal() as session:
@@ -107,12 +125,8 @@ async def approve_customer_callback(update: Update, context: ContextTypes.DEFAUL
 
         name = customer.first_name or "کاربر"
 
-        # آپدیت پیام ادمین
-        await query.edit_message_text(
-            query.message.text + "\n\n✅ تایید شد"
-        )
+        await query.edit_message_text(query.message.text + "\n\n✅ تایید شد")
 
-        # اطلاع به مشتری
         try:
             await context.bot.send_message(
                 chat_id=customer_telegram_id,
@@ -123,7 +137,7 @@ async def approve_customer_callback(update: Update, context: ContextTypes.DEFAUL
                 ),
             )
         except Exception as e:
-            log.error(f"خطا در ارسال پیام به مشتری {customer_telegram_id}: {e}")
+            log.error(f"خطا در ارسال پیام: {e}")
 
 
 async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -141,12 +155,8 @@ async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT
             await query.edit_message_text("❌ مشتری پیدا نشد!")
             return
 
-        # آپدیت پیام ادمین
-        await query.edit_message_text(
-            query.message.text + "\n\n❌ رد شد"
-        )
+        await query.edit_message_text(query.message.text + "\n\n❌ رد شد")
 
-        # اطلاع به مشتری
         try:
             await context.bot.send_message(
                 chat_id=customer_telegram_id,
@@ -156,4 +166,4 @@ async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT
                 ),
             )
         except Exception as e:
-            log.error(f"خطا در ارسال پیام به مشتری {customer_telegram_id}: {e}")
+            log.error(f"خطا در ارسال پیام: {e}")
