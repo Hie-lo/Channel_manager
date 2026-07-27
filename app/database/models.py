@@ -240,3 +240,30 @@ class PostingSettings(Base):
         default=utc_now_naive,
         onupdate=utc_now_naive,
     )
+    
+class GoogleSheetConnection(Base):
+    """اتصال Google Sheet هر مشتری"""
+    __tablename__ = "google_sheet_connections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id"),
+        unique=True,
+        index=True,
+    )
+
+    sheet_url: Mapped[str] = mapped_column(Text)
+    sheet_id: Mapped[str] = mapped_column(String(200))  # شناسه یکتای شیت
+    worksheet_name: Mapped[str] = mapped_column(String(200), default="Sheet1")
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_sync_status: Mapped[str | None] = mapped_column(String(50), nullable=True)  # SUCCESS/FAILED
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
+    )

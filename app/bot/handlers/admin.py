@@ -81,3 +81,40 @@ async def admin_test_reminder_job_handler(update: Update, context: ContextTypes.
     except Exception as e:
         log.error(f"خطا در تست Job: {e}", exc_info=True)
         await update.message.reply_text(f"❌ خطا: {e}")
+
+async def admin_test_sheet_sync_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    اجرای دستی Job همگام‌سازی شیت
+    """
+    user = update.effective_user
+
+    if user.id != settings.ADMIN_CHAT_ID:
+        return
+
+    msg = await update.message.reply_text("🔄 در حال اجرای Job همگام‌سازی...")
+
+    try:
+        from app.tasks.jobs.sheet_sync_job import run_sheet_sync_job
+        stats = await run_sheet_sync_job(context.bot)
+
+        report = "📊 گزارش همگام‌سازی\n━━━━━━━━━━━━━━━\n"
+
+        if "message" in stats:
+            report += f"ℹ️ {stats['message']}\n"
+        elif "error" in stats:
+            report += f"❌ خطا: {stats['error']}\n"
+        else:
+            report += f"👥 کل مشتریان: {stats['total_customers']}\n"
+            report += f"✅ موفق: {stats['success_count']}\n"
+            report += f"❌ ناموفق: {stats['failed_count']}\n"
+
+            if stats.get('details'):
+                report += "\n📝 جزئیات:\n"
+                for detail in stats['details'][:10]:
+                    report += f"• {detail}\n"
+
+        await msg.edit_text(report)
+
+    except Exception as e:
+        log.error(f"خطا در تست sync: {e}", exc_info=True)
+        await msg.edit_text(f"❌ خطا: {e}")

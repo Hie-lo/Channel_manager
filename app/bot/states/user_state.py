@@ -12,7 +12,8 @@ class UserState(Enum):
     IDLE = "idle"
     WAITING_CHANNEL_ID = "waiting_channel_id"
     WAITING_PAYMENT_RECEIPT = "waiting_payment_receipt"
-    WAITING_EXCEL_FILE = "waiting_excel_file"  # ← جدید
+    WAITING_EXCEL_FILE = "waiting_excel_file"  
+    WAITING_SHEET_URL = "waiting_sheet_url"  # ← جدید
 
 
 @dataclass

@@ -66,6 +66,17 @@ from app.bot.handlers.posting_settings import (
 from app.bot.handlers.admin import (
     admin_test_publish_job_handler,
     admin_test_reminder_job_handler,
+    admin_test_sheet_sync_handler,
+)
+from app.bot.handlers.sheet_connection import (
+    sheet_menu_handler,
+    sheet_add_callback,
+    sheet_url_received_handler,
+    sheet_cancel_callback,
+    sheet_change_callback,
+    sheet_delete_callback,
+    sheet_delete_confirm_callback,
+    sheet_sync_now_callback,
 )
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
@@ -90,6 +101,8 @@ async def text_router(update, context):
         await channel_id_received_handler(update, context)
     elif state == UserState.WAITING_PAYMENT_RECEIPT:
         await payment_receipt_handler(update, context)
+    elif state == UserState.WAITING_SHEET_URL:
+        await sheet_url_received_handler(update, context)
 
 
 async def document_router(update, context):
@@ -146,7 +159,11 @@ def create_bot() -> Application:
         filters.TEXT & filters.Regex("^⚙️ تنظیمات$"),
         posting_settings_handler
     ))
-
+    app.add_handler(MessageHandler(
+    filters.TEXT & filters.Regex("^📊 اتصال Google Sheet$"),
+    sheet_menu_handler
+    ))
+    app.add_handler(CommandHandler("test_sheet_sync", admin_test_sheet_sync_handler))
     app.add_handler(CommandHandler("test_publish", admin_test_publish_job_handler))
     app.add_handler(CommandHandler("test_reminder", admin_test_reminder_job_handler))
     # ─── کالبک‌های ثبت‌نام ───
@@ -190,6 +207,15 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(posting_set_interval_callback, pattern="^posting_set_interval$"))
     app.add_handler(CallbackQueryHandler(posting_set_hours_callback, pattern="^posting_set_hours$"))
     app.add_handler(CallbackQueryHandler(posting_back_callback, pattern="^posting_back$"))
+
+    # ─── کالبک‌های Google Sheet ───
+    app.add_handler(CallbackQueryHandler(sheet_delete_confirm_callback, pattern="^sheet_delete_confirm$"))
+    app.add_handler(CallbackQueryHandler(sheet_delete_callback, pattern="^sheet_delete$"))
+    app.add_handler(CallbackQueryHandler(sheet_add_callback, pattern="^sheet_add$"))
+    app.add_handler(CallbackQueryHandler(sheet_change_callback, pattern="^sheet_change$"))
+    app.add_handler(CallbackQueryHandler(sheet_sync_now_callback, pattern="^sheet_sync_now$"))
+    app.add_handler(CallbackQueryHandler(sheet_cancel_callback, pattern="^sheet_cancel$"))
+
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,

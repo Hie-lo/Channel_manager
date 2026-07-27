@@ -28,11 +28,11 @@ def start_scheduler(bot) -> None:
     """راه‌اندازی scheduler و ثبت همه Jobها"""
     from app.tasks.jobs.publish_job import run_auto_publish_job
     from app.tasks.jobs.subscription_job import run_subscription_reminder_job
+    from app.tasks.jobs.sheet_sync_job import run_sheet_sync_job
 
     scheduler = get_scheduler()
 
     # ─── Job 1: انتشار خودکار محصولات ───
-    # هر ۵ دقیقه چک می‌کنه کدوم مشتری الان باید پست بذاره
     scheduler.add_job(
         run_auto_publish_job,
         trigger=IntervalTrigger(minutes=5),
@@ -40,12 +40,11 @@ def start_scheduler(bot) -> None:
         id="auto_publish",
         name="انتشار خودکار محصولات",
         replace_existing=True,
-        max_instances=1,  # اگه هنوز job قبلی تموم نشده، جدید ران نکن
+        max_instances=1,
     )
     log.info("✅ Job 'انتشار خودکار محصولات' ثبت شد (هر ۵ دقیقه)")
 
     # ─── Job 2: یادآوری انقضای اشتراک ───
-    # هر روز ساعت ۱۰ صبح
     scheduler.add_job(
         run_subscription_reminder_job,
         trigger=CronTrigger(hour=10, minute=0),
@@ -57,7 +56,19 @@ def start_scheduler(bot) -> None:
     )
     log.info("✅ Job 'یادآوری انقضای اشتراک' ثبت شد (روزانه ساعت ۱۰)")
 
-    # شروع
+    # ─── Job 3: همگام‌سازی Google Sheet ───
+    # هر ۲ ساعت (به هر مشتری بر اساس business config اجازه sync میده)
+    scheduler.add_job(
+        run_sheet_sync_job,
+        trigger=IntervalTrigger(hours=2),
+        args=[bot],
+        id="sheet_sync",
+        name="همگام‌سازی Google Sheet",
+        replace_existing=True,
+        max_instances=1,
+    )
+    log.info("✅ Job 'همگام‌سازی Google Sheet' ثبت شد (هر ۲ ساعت)")
+
     scheduler.start()
     log.info("🚀 Scheduler راه‌اندازی شد")
 

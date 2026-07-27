@@ -1,0 +1,366 @@
+"""
+هندلرهای اتصال Google Sheet
+"""
+
+from pathlib import Path
+import json
+
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import ContextTypes
+
+from app.config import settings
+from app.database.connection import AsyncSessionLocal
+from app.database.models import CustomerStatus
+from app.services.customer_service import get_customer_by_telegram_id
+from app.services.subscription.service import get_active_subscription
+from app.services.sheet_connection_service import (
+    get_sheet_connection,
+    create_or_update_sheet_connection,
+    delete_sheet_connection,
+)
+from app.services.data_input.sheet_reader import (
+    test_sheet_connection,
+    extract_sheet_id_from_url,
+)
+from app.bot.states.user_state import (
+    UserState,
+    set_user_state,
+    get_user_state,
+    clear_user_state,
+)
+from app.utils.logger import log
+
+
+def _get_bot_service_account_email() -> str:
+    """خواندن ایمیل service account از فایل credentials"""
+    try:
+        creds_path = Path(settings.GOOGLE_CREDENTIALS_FILE)
+        if not creds_path.exists():
+            return "❌ فایل credentials پیدا نشد"
+
+        with open(creds_path, "r") as f:
+            data = json.load(f)
+
+        return data.get("client_email", "❌ ایمیل پیدا نشد")
+    except Exception as e:
+        log.error(f"خطا در خواندن ایمیل service account: {e}")
+        return "❌ خطا در خواندن ایمیل"
+
+
+def _get_sheet_menu_keyboard(has_connection: bool) -> InlineKeyboardMarkup:
+    """کیبورد منوی اتصال Sheet"""
+    keyboard = []
+
+    if has_connection:
+        keyboard.append([
+            InlineKeyboardButton("🔄 تغییر شیت", callback_data="sheet_change")
+        ])
+        keyboard.append([
+            InlineKeyboardButton("🔃 همگام‌سازی الان", callback_data="sheet_sync_now")
+        ])
+        keyboard.append([
+            InlineKeyboardButton("❌ حذف اتصال", callback_data="sheet_delete")
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton("➕ اتصال Google Sheet", callback_data="sheet_add")
+        ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def _get_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("❌ لغو", callback_data="sheet_cancel")
+    ]])
+
+
+def _get_delete_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ بله، حذف کن", callback_data="sheet_delete_confirm"),
+            InlineKeyboardButton("❌ انصراف", callback_data="sheet_cancel"),
+        ]
+    ])
+
+
+async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    نمایش منوی مدیریت Google Sheet
+    وقتی مشتری از منوی اصلی این بخش رو انتخاب می‌کنه
+    """
+    user = update.effective_user
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+
+        if not customer or customer.customer_status != CustomerStatus.ACTIVE:
+            await update.message.reply_text("❌ حساب شما فعال نیست.")
+            return
+
+        subscription = await get_active_subscription(session, customer.id)
+        if not subscription:
+            await update.message.reply_text(
+                "❌ اشتراک فعالی ندارید!\n\n"
+                "برای استفاده از این بخش، از منوی '💳 اشتراک من' اشتراک تهیه کنید."
+            )
+            return
+
+        connection = await get_sheet_connection(session, customer.id)
+
+    if connection:
+        sync_status = connection.last_sync_status or "هنوز sync نشده"
+        last_sync = (
+            connection.last_sync_at.strftime("%Y/%m/%d %H:%M")
+            if connection.last_sync_at
+            else "هرگز"
+        )
+
+        text = (
+            f"📊 Google Sheet\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"✅ اتصال فعال\n"
+            f"📄 شیت: {connection.worksheet_name}\n"
+            f"🕐 آخرین همگام‌سازی: {last_sync}\n"
+            f"📊 وضعیت: {sync_status}\n"
+        )
+
+        if connection.last_error:
+            text += f"\n⚠️ آخرین خطا:\n{connection.last_error[:200]}\n"
+
+        text += (
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"💡 قیمت و موجودی محصولات به صورت خودکار\n"
+            f"از این شیت خوانده و آپدیت می‌شوند."
+        )
+    else:
+        text = (
+            f"📊 Google Sheet\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"❌ هنوز شیتی متصل نکرده‌اید\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"💡 با اتصال Google Sheet:\n"
+            f"├── قیمت‌ها خودکار آپدیت میشن\n"
+            f"├── موجودی خودکار به‌روز میشه\n"
+            f"└── نیازی به آپلود مکرر اکسل نیست\n"
+        )
+
+    await update.message.reply_text(
+        text,
+        reply_markup=_get_sheet_menu_keyboard(has_connection=connection is not None),
+    )
+
+
+async def sheet_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """شروع فرآیند اتصال شیت جدید"""
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+    bot_email = _get_bot_service_account_email()
+
+    text = (
+        f"📊 اتصال Google Sheet\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"لطفاً مراحل زیر را دقیقاً انجام دهید:\n\n"
+        f"1️⃣ شیت خود را در Google Sheets باز کنید\n\n"
+        f"2️⃣ ساختار ستون‌ها باید مطابق فایل نمونه باشد\n"
+        f"    (اگر فایل نمونه ندارید، از بخش '📤 آپلود محصولات' دانلود کنید)\n\n"
+        f"3️⃣ روی دکمه 'Share' در بالای شیت کلیک کنید\n\n"
+        f"4️⃣ این ایمیل را اضافه کنید:\n"
+        f"    `{bot_email}`\n\n"
+        f"5️⃣ دسترسی: **Editor**\n"
+        f"    (تیک 'Notify people' را بردارید)\n\n"
+        f"6️⃣ دکمه 'Share' یا 'Send' را بزنید\n\n"
+        f"7️⃣ حالا لینک شیت را کپی و اینجا ارسال کنید:\n"
+        f"    (لینک از قسمت آدرس مرورگر یا Share → Copy link)"
+    )
+
+    set_user_state(user.id, UserState.WAITING_SHEET_URL)
+
+    await query.edit_message_text(
+        text,
+        parse_mode="Markdown",
+        reply_markup=_get_cancel_keyboard(),
+    )
+
+
+async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    دریافت لینک شیت از مشتری
+    فقط وقتی state = WAITING_SHEET_URL
+    """
+    user = update.effective_user
+
+    if get_user_state(user.id) != UserState.WAITING_SHEET_URL:
+        return
+
+    url = update.message.text.strip()
+
+    # چک اولیه
+    sheet_id = extract_sheet_id_from_url(url)
+    if not sheet_id:
+        await update.message.reply_text(
+            "❌ لینک نامعتبر است!\n\n"
+            "لینک باید شبیه این باشه:\n"
+            "https://docs.google.com/spreadsheets/d/XXXXX/edit\n\n"
+            "دوباره ارسال کنید یا لغو کنید."
+        )
+        return
+
+    processing_msg = await update.message.reply_text(
+        "🔍 در حال بررسی اتصال به شیت...\n"
+        "لطفاً چند لحظه صبر کنید."
+    )
+
+    # تست اتصال
+    result = test_sheet_connection(url)
+
+    if not result.success:
+        bot_email = _get_bot_service_account_email()
+        await processing_msg.edit_text(
+            f"❌ اتصال ناموفق!\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📝 دلیل: {result.error_message}\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"⚠️ راهنمای رفع مشکل:\n\n"
+            f"1️⃣ مطمئن شوید این ایمیل را به شیت اضافه کرده‌اید:\n"
+            f"`{bot_email}`\n\n"
+            f"2️⃣ سطح دسترسی حتماً 'Editor' باشد\n\n"
+            f"3️⃣ لینک صحیح را کپی کرده باشید\n\n"
+            f"دوباره تلاش کنید:",
+            parse_mode="Markdown",
+            reply_markup=_get_cancel_keyboard(),
+        )
+        return
+
+    # اتصال موفق - ذخیره در دیتابیس
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await processing_msg.edit_text("❌ خطا!")
+            clear_user_state(user.id)
+            return
+
+        await create_or_update_sheet_connection(
+            session=session,
+            customer_id=customer.id,
+            sheet_url=url,
+            sheet_id=result.sheet_id,
+            worksheet_name=result.worksheet_title,
+        )
+
+    clear_user_state(user.id)
+
+    await processing_msg.edit_text(
+        f"✅ اتصال با موفقیت برقرار شد!\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📊 نام شیت: {result.sheet_title}\n"
+        f"📄 صفحه: {result.worksheet_title}\n"
+        f"📏 تعداد ردیف‌ها: {result.row_count}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"🎯 گام بعدی:\n"
+        f"از منوی '📊 Google Sheet' گزینه '🔃 همگام‌سازی الان'\n"
+        f"را بزنید تا محصولات ذخیره شوند.\n\n"
+        f"از این به بعد، سیستم به صورت خودکار\n"
+        f"قیمت‌ها و موجودی را از این شیت آپدیت می‌کند."
+    )
+
+
+async def sheet_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """لغو فرآیند اتصال"""
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+    clear_user_state(user.id)
+
+    await query.edit_message_text(
+        "❌ لغو شد.\n\n"
+        "برای شروع مجدد از منوی '📊 Google Sheet' استفاده کنید."
+    )
+
+
+async def sheet_change_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تغییر شیت متصل"""
+    await sheet_add_callback(update, context)
+
+
+async def sheet_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """درخواست حذف اتصال"""
+    query = update.callback_query
+    await query.answer()
+
+    await query.edit_message_text(
+        "⚠️ حذف اتصال Google Sheet\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        "با حذف اتصال:\n"
+        "├── آپدیت خودکار قیمت متوقف می‌شود\n"
+        "├── محصولات فعلی حفظ می‌شوند\n"
+        "└── پست‌های کانال دست‌نخورده می‌مانند\n\n"
+        "آیا مطمئن هستید؟",
+        reply_markup=_get_delete_confirm_keyboard(),
+    )
+
+
+async def sheet_delete_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تایید حذف اتصال"""
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if customer:
+            await delete_sheet_connection(session, customer.id)
+
+    await query.edit_message_text(
+        "✅ اتصال Google Sheet حذف شد.\n\n"
+        "برای اتصال مجدد از منوی '📊 Google Sheet' استفاده کنید."
+    )
+
+
+async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """همگام‌سازی دستی الان"""
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+
+    await query.edit_message_text("🔄 در حال همگام‌سازی از Google Sheet...")
+
+    try:
+        from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
+
+        async with AsyncSessionLocal() as session:
+            customer = await get_customer_by_telegram_id(session, user.id)
+
+        if not customer:
+            await query.edit_message_text("❌ خطا!")
+            return
+
+        result = await sync_customer_sheet(context.bot, customer.id)
+
+        # ساخت گزارش
+        text = "✅ همگام‌سازی انجام شد\n━━━━━━━━━━━━━━━\n\n"
+
+        if result.get("error"):
+            text = f"❌ خطا در همگام‌سازی\n━━━━━━━━━━━━━━━\n{result['error']}"
+        else:
+            text += f"📊 نتیجه:\n"
+            text += f"├── 🆕 محصول جدید: {result.get('new_count', 0)}\n"
+            text += f"├── 🔄 آپدیت شده: {result.get('updated_count', 0)}\n"
+            text += f"├── ✅ بدون تغییر: {result.get('unchanged_count', 0)}\n"
+            text += f"└── ❌ خطا: {result.get('error_count', 0)}\n"
+
+            if result.get('price_changes'):
+                text += f"\n💰 تغییرات قیمت: {len(result['price_changes'])}\n"
+            if result.get('stock_changes'):
+                text += f"📦 تغییرات موجودی: {len(result['stock_changes'])}\n"
+
+        await query.edit_message_text(text)
+
+    except Exception as e:
+        log.error(f"خطا در sync دستی: {e}", exc_info=True)
+        await query.edit_message_text(f"❌ خطا: {str(e)[:200]}")

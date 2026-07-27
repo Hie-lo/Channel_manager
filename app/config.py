@@ -42,7 +42,9 @@ class Settings:
     # App
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-
+    
+    # Google Sheets
+    GOOGLE_CREDENTIALS_FILE: str = os.getenv("GOOGLE_CREDENTIALS_FILE", "secrets/google_service_account.json")
    
 
 
