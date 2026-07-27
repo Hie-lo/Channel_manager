@@ -4,7 +4,7 @@
 
 from telegram import Update
 from telegram.ext import ContextTypes
-
+from app.services.ai_token_service import allocate_monthly_tokens
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.database.models import CustomerStatus
@@ -386,7 +386,21 @@ async def sub_admin_approve_callback(update: Update, context: ContextTypes.DEFAU
 
         # فعال کردن اشتراک
         activated = await activate_subscription(session, subscription_id, duration_days)
-
+        # اگه پلن پرو (طلایی) هست، توکن AI ماهانه تخصیص بده
+        if activated and plan and plan.monthly_ai_tokens > 0:
+            try:
+                await allocate_monthly_tokens(
+                    session=session,
+                    customer_id=activated.customer_id,
+                    amount=plan.monthly_ai_tokens,
+                    duration_days=duration_days,
+                )
+                log.info(
+                    f"✅ {plan.monthly_ai_tokens} توکن AI ماهانه "
+                    f"به مشتری {activated.customer_id} تخصیص یافت"
+                )
+            except Exception as e:
+                log.error(f"خطا در تخصیص توکن ماهانه: {e}")
         # گرفتن اطلاعات مشتری
         from app.database.models import Customer
         customer_result = await session.execute(
@@ -409,19 +423,28 @@ async def sub_admin_approve_callback(update: Update, context: ContextTypes.DEFAU
     # اطلاع به مشتری
     if customer and activated:
         try:
+            # ساخت متن
+            welcome_text = (
+                f"🎉 تبریک! اشتراک شما فعال شد!\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"📦 پلن: {plan.emoji} {plan.name_fa}\n"
+                f"📅 شروع: {activated.start_at.strftime('%Y/%m/%d')}\n"
+                f"📅 پایان: {activated.end_at.strftime('%Y/%m/%d')}\n"
+                f"📢 حداکثر کانال: {plan.max_channels if plan.max_channels < 9999 else 'نامحدود'}\n"
+                f"📦 حداکثر محصول: {plan.max_products if plan.max_products < 9999 else 'نامحدود'}\n"
+            )
+
+            if plan.monthly_ai_tokens > 0:
+                welcome_text += f"🤖 توکن AI: {plan.monthly_ai_tokens} در ماه\n"
+
+            welcome_text += (
+                f"━━━━━━━━━━━━━━━\n\n"
+                f"از الان می‌تونید از همه امکانات استفاده کنید! 🚀"
+            )
+
             await context.bot.send_message(
                 chat_id=customer.telegram_user_id,
-                text=(
-                    f"🎉 تبریک! اشتراک شما فعال شد!\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"📦 پلن: {plan.emoji} {plan.name_fa}\n"
-                    f"📅 شروع: {activated.start_at.strftime('%Y/%m/%d')}\n"
-                    f"📅 پایان: {activated.end_at.strftime('%Y/%m/%d')}\n"
-                    f"📢 حداکثر کانال: {plan.max_channels if plan.max_channels < 9999 else 'نامحدود'}\n"
-                    f"📦 حداکثر محصول: {plan.max_products if plan.max_products < 9999 else 'نامحدود'}\n"
-                    f"━━━━━━━━━━━━━━━\n\n"
-                    f"از الان می‌تونید از همه امکانات استفاده کنید! 🚀"
-                ),
+                text=welcome_text,
             )
         except Exception as e:
             log.error(f"خطا در ارسال به مشتری: {e}")

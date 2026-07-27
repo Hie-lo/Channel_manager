@@ -80,6 +80,16 @@ from app.bot.handlers.sheet_connection import (
     sheet_get_template_callback,
     sheet_back_to_menu_callback,
 )
+from app.bot.handlers.ai_tokens import (
+    ai_tokens_menu_handler,
+    ai_buy_tokens_callback,
+    ai_package_selected_callback,
+    ai_cancel_purchase_callback,
+    ai_menu_back_callback,
+    ai_token_receipt_handler,
+    ai_admin_approve_callback,
+    ai_admin_reject_callback,
+)
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
 
@@ -116,6 +126,8 @@ async def document_router(update, context):
         await excel_file_received_handler(update, context)
     elif state == UserState.WAITING_PAYMENT_RECEIPT:
         await payment_receipt_handler(update, context)
+    elif state == UserState.WAITING_AI_TOKEN_RECEIPT:
+        await ai_token_receipt_handler(update, context)
 
 
 async def photo_router(update, context):
@@ -125,6 +137,8 @@ async def photo_router(update, context):
 
     if state == UserState.WAITING_PAYMENT_RECEIPT:
         await payment_receipt_handler(update, context)
+    elif state == UserState.WAITING_AI_TOKEN_RECEIPT:
+        await ai_token_receipt_handler(update, context)
 
 
 def create_bot() -> Application:
@@ -148,6 +162,10 @@ def create_bot() -> Application:
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex("^💳 اشتراک من$"),
         subscription_menu_handler
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^🤖 توکن AI$"),
+        ai_tokens_menu_handler
     ))
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex("^📤 آپلود محصولات$"),
@@ -219,6 +237,14 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(sheet_cancel_callback, pattern="^sheet_cancel$"))
     app.add_handler(CallbackQueryHandler(sheet_get_template_callback, pattern="^sheet_get_template$"))
     app.add_handler(CallbackQueryHandler(sheet_back_to_menu_callback, pattern="^sheet_back_to_menu$"))
+
+    # ─── کالبک‌های AI Tokens ───
+    app.add_handler(CallbackQueryHandler(ai_admin_approve_callback, pattern="^ai_admin_approve_"))
+    app.add_handler(CallbackQueryHandler(ai_admin_reject_callback, pattern="^ai_admin_reject_"))
+    app.add_handler(CallbackQueryHandler(ai_buy_tokens_callback, pattern="^ai_buy_tokens$"))
+    app.add_handler(CallbackQueryHandler(ai_package_selected_callback, pattern="^ai_pkg_"))
+    app.add_handler(CallbackQueryHandler(ai_cancel_purchase_callback, pattern="^ai_cancel_purchase$"))
+    app.add_handler(CallbackQueryHandler(ai_menu_back_callback, pattern="^ai_menu_back$"))
 
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(

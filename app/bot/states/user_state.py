@@ -13,8 +13,8 @@ class UserState(Enum):
     WAITING_CHANNEL_ID = "waiting_channel_id"
     WAITING_PAYMENT_RECEIPT = "waiting_payment_receipt"
     WAITING_EXCEL_FILE = "waiting_excel_file"  
-    WAITING_SHEET_URL = "waiting_sheet_url"  # ← جدید
-
+    WAITING_SHEET_URL = "waiting_sheet_url" 
+    WAITING_AI_TOKEN_RECEIPT = "waiting_ai_token_receipt"
 
 @dataclass
 class UserContext:
