@@ -5,7 +5,8 @@
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-
+from app.services.subscription.service import get_active_subscription
+from app.services.subscription.plans import get_plan
 from app.database.connection import AsyncSessionLocal
 from app.database.models import CustomerStatus, ProductPublishStatus
 from app.services.customer_service import get_customer_by_telegram_id
@@ -207,11 +208,28 @@ async def prod_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if product.description_manual:
         text += f"\n📝 توضیحات:\n{product.description_manual}\n"
 
+    # چک کن آیا مشتری امکان AI داره
+    async with AsyncSessionLocal() as session:
+        subscription = await get_active_subscription(session, customer.id)
+        can_use_ai = False
+        if subscription:
+            plan_obj = get_plan(subscription.plan_key)
+            # AI برای همه پلن‌ها فعاله (اگه توکن داشته باشن)
+            can_use_ai = True
+
     keyboard = [
         [InlineKeyboardButton("👁 پیش‌نمایش پست", callback_data=f"prod_preview_{product.id}")],
         [InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"prod_publish_{product.id}")],
-        [InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="prod_list_0")],
     ]
+
+    if can_use_ai:
+        keyboard.append([
+            InlineKeyboardButton("🤖 تولید توضیحات با AI", callback_data=f"ai_start_{product.id}")
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="prod_list_0")
+    ])
 
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 

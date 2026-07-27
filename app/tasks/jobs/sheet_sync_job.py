@@ -147,14 +147,15 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
     )
 
     if sheet_data.is_empty and sheet_data.has_errors:
-        error_msg = f"خطا در خواندن شیت: {sheet_data.errors[0].message}"
+        first_error = sheet_data.all_errors[0] if sheet_data.all_errors else None
+        error_msg = f"خطا در خواندن شیت: {first_error.message}" if first_error else "شیت خالی است"
         async with AsyncSessionLocal() as session:
             await update_sync_status(session, customer_id, False, error_msg)
         result["error"] = error_msg
         return result
 
     # تشخیص تغییرات قیمت و موجودی برای محصولات موجود
-    for product_data in sheet_data.products:
+    for product_data in sheet_data.all_products:
         sku = product_data.get("sku")
         if not sku:
             continue
@@ -191,7 +192,7 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
             session=session,
             customer_id=customer_id,
             business_id=business_id,
-            products_data=sheet_data.products,
+            products_data=sheet_data.all_products,
             max_products_limit=plan.max_products,
         )
 

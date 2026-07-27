@@ -5,7 +5,16 @@ Job انتشار خودکار محصولات
 
 from telegram import Bot
 from sqlalchemy import select
-
+from app.config import settings
+from app.services.posting_settings_service import get_posting_settings
+from app.services.ai_token_service import (
+    get_total_available_tokens,
+    consume_tokens,
+    refund_tokens,
+)
+from app.services.ai_usage_log_service import log_ai_usage
+from app.services.ai.service import generate_product_description
+from app.database.models import Product
 from app.database.connection import AsyncSessionLocal
 from app.database.models import Customer, CustomerStatus
 from app.services.customer_service import get_customer_by_telegram_id
@@ -193,7 +202,72 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
     if not business_config:
         log.warning(f"[Customer {customer_id}] business_config نداره")
         return "failed"
+    # چک کن AI خودکار فعال هست و محصول توضیحات نداره
+    async with AsyncSessionLocal() as session:
+        settings_obj = await get_posting_settings(session, customer_id)
+        auto_ai = settings_obj.auto_ai_description if settings_obj else False
 
+    if auto_ai and (not product.description_manual or not product.description_manual.strip()):
+        # چک توکن
+        async with AsyncSessionLocal() as session:
+            available_tokens = await get_total_available_tokens(session, customer.id)
+
+        if available_tokens >= 1:
+            log.info(
+                f"🤖 [Customer {customer_id}] تولید AI خودکار "
+                f"برای {product.sku}"
+            )
+
+            # مصرف توکن
+            async with AsyncSessionLocal() as session:
+                consumed = await consume_tokens(session, customer.id, 1)
+
+            if consumed:
+                # فراخوانی AI
+                ai_result = await generate_product_description(
+                    product=product,
+                    business_config=business_config,
+                    mode="new",
+                )
+
+                if ai_result.success:
+                    # ذخیره در محصول
+                    async with AsyncSessionLocal() as session:
+                        result = await session.execute(
+                            select(Product).where(Product.id == product.id)
+                        )
+                        p = result.scalar_one_or_none()
+                        if p:
+                            p.description_manual = ai_result.formatted_text
+                            await session.commit()
+                            # آپدیت product مرجع محلی
+                            product.description_manual = ai_result.formatted_text
+
+                        # لاگ
+                        await log_ai_usage(
+                            session=session,
+                            customer_id=customer.id,
+                            product_id=product.id,
+                            usage_type="auto_generate",
+                            tokens_used=1,
+                            model_used=settings.AI_MODEL,
+                            accepted=True,
+                            raw_response=ai_result.raw_response,
+                        )
+                    log.info(f"✅ [Customer {customer_id}] AI موفق برای {product.sku}")
+                else:
+                    # AI خطا داد، توکن رو برگردون
+                    async with AsyncSessionLocal() as session:
+                        await refund_tokens(session, customer.id, 1)
+                    log.warning(
+                        f"⚠️ [Customer {customer_id}] AI ناموفق: "
+                        f"{ai_result.error_message}"
+                    )
+        else:
+            log.info(
+                f"⚠️ [Customer {customer_id}] AI خودکار فعال ولی "
+                f"توکن کافی نیست، ارسال بدون AI"
+            )
     # ساخت کپشن
     caption = build_post_caption(product, business_config, business)
 

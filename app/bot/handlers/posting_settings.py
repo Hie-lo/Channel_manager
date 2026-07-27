@@ -14,6 +14,7 @@ from app.services.posting_settings_service import (
     update_interval,
     update_posting_hours,
     calculate_posts_per_day,
+    set_auto_ai_description
 )
 from app.utils.logger import log
 
@@ -25,6 +26,7 @@ INTERVAL_OPTIONS = [1, 2, 3, 4, 6, 8, 12, 24]
 def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
     """کیبورد اصلی تنظیمات"""
     auto_status = "🟢 فعال" if settings_obj.auto_publish_enabled else "🔴 غیرفعال"
+    ai_status = "🟢 فعال" if settings_obj.auto_ai_description else "🔴 غیرفعال"
 
     keyboard = [
         [
@@ -48,6 +50,14 @@ def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
                 callback_data="posting_set_hours",
             )
         ])
+
+    # دکمه AI خودکار (همیشه)
+    keyboard.append([
+        InlineKeyboardButton(
+            f"🤖 AI خودکار: {ai_status}",
+            callback_data="posting_toggle_ai",
+        )
+    ])
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -77,6 +87,7 @@ async def posting_settings_handler(update: Update, context: ContextTypes.DEFAULT
 def _build_settings_text(settings_obj) -> str:
     """متن نمایش تنظیمات"""
     auto_text = "🟢 خودکار" if settings_obj.auto_publish_enabled else "🔴 دستی"
+    ai_text = "🟢 فعال" if settings_obj.auto_ai_description else "🔴 غیرفعال"
 
     text = (
         f"⚙️ تنظیمات ارسال پست\n"
@@ -90,7 +101,31 @@ def _build_settings_text(settings_obj) -> str:
             f"⏱ فاصله بین پست‌ها: هر {settings_obj.interval_hours} ساعت\n"
             f"🕐 ساعت مجاز: {settings_obj.posting_start_hour}:00 تا {settings_obj.posting_end_hour}:00\n"
             f"📊 تقریباً {posts_per_day} پست در روز\n"
-            f"━━━━━━━━━━━━━━━\n\n"
+        )
+
+    text += (
+        f"━━━━━━━━━━━━━━━\n"
+        f"🤖 AI خودکار: {ai_text}\n"
+    )
+
+    if settings_obj.auto_ai_description:
+        text += (
+            f"\n💡 موقع ارسال پست، AI خودکار توضیحات\n"
+            f"محصولات بدون توضیحات رو تولید می‌کنه.\n"
+            f"⚠️ هر تولید = ۱ توکن AI\n"
+        )
+    else:
+        text += (
+            f"\n💡 توضیحات محصولات دستی یا از اکسل\n"
+            f"استفاده می‌شوند (بدون AI).\n"
+        )
+
+    text += (
+        f"━━━━━━━━━━━━━━━\n\n"
+    )
+
+    if settings_obj.auto_publish_enabled:
+        text += (
             f"💡 ربات در ساعت‌های مجاز و طبق فاصله تعیین شده،\n"
             f"محصولات منتشر نشده رو خودکار پست می‌کنه.\n\n"
             f"⚠️ نکته: اگه محصولی قبلاً منتشر شده،\n"
@@ -98,7 +133,6 @@ def _build_settings_text(settings_obj) -> str:
         )
     else:
         text += (
-            f"━━━━━━━━━━━━━━━\n\n"
             f"💡 در حالت دستی، شما باید محصولات را\n"
             f"به صورت تک به تک از منوی '📦 مدیریت محصولات' ارسال کنید.\n\n"
             f"برای فعال کردن ارسال خودکار، دکمه بالا رو بزنید."
@@ -268,5 +302,44 @@ async def posting_back_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     await query.edit_message_text(
         _build_settings_text(settings_obj),
+        reply_markup=_get_settings_keyboard(settings_obj),
+    )
+
+async def posting_toggle_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تغییر حالت AI خودکار"""
+
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            return
+
+        settings_obj = await get_or_create_posting_settings(session, customer.id)
+        new_state = not settings_obj.auto_ai_description
+        settings_obj = await set_auto_ai_description(session, customer.id, new_state)
+
+    text = _build_settings_text(settings_obj)
+
+    if new_state:
+        text += (
+            f"\n\n✅ AI خودکار فعال شد!\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"⚠️ توجهات مهم:\n"
+            f"• هر تولید = ۱ توکن AI\n"
+            f"• برای محصولاتی که توضیحات ندارن اجرا میشه\n"
+            f"• AI ممکنه اشتباه یا خطای جزئی داشته باشه\n"
+            f"• اگه توکن کافی نداشتی، پست بدون AI میره\n"
+            f"• متن‌های AI بعد از تولید ذخیره می‌شن\n\n"
+            f"💡 توصیه: قبل از استفاده، توکن کافی داشته باش."
+        )
+    else:
+        text += "\n\n🔴 AI خودکار غیرفعال شد."
+
+    await query.edit_message_text(
+        text,
         reply_markup=_get_settings_keyboard(settings_obj),
     )

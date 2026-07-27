@@ -230,7 +230,8 @@ class PostingSettings(Base):
     # ساعت‌های مجاز (0-23)
     posting_start_hour: Mapped[int] = mapped_column(Integer, default=9)
     posting_end_hour: Mapped[int] = mapped_column(Integer, default=22)
-
+    # آیا AI به صورت خودکار توضیحات تولید کنه؟
+    auto_ai_description: Mapped[bool] = mapped_column(Boolean, default=False)
     # زمان آخرین پست
     last_post_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
@@ -267,3 +268,20 @@ class GoogleSheetConnection(Base):
         default=utc_now_naive,
         onupdate=utc_now_naive,
     )
+
+class AIUsageLog(Base):
+    """لاگ استفاده از AI (برای ردیابی و آمار)"""
+    __tablename__ = "ai_usage_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"), nullable=True)
+
+    usage_type: Mapped[str] = mapped_column(String(30))  # generate | improve
+    tokens_used: Mapped[int] = mapped_column(Integer, default=1)
+    model_used: Mapped[str] = mapped_column(String(100))
+
+    accepted: Mapped[bool] = mapped_column(Boolean, default=False)  # آیا مشتری قبول کرد
+    raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)

@@ -146,3 +146,16 @@ def is_time_for_next_post(settings_obj) -> bool:
     required_interval = timedelta(hours=settings_obj.interval_hours)
 
     return time_since_last >= required_interval
+
+async def set_auto_ai_description(
+    session: AsyncSession,
+    customer_id: int,
+    enabled: bool,
+) -> PostingSettings:
+    """فعال/غیرفعال کردن AI خودکار برای توضیحات"""
+    settings_obj = await get_or_create_posting_settings(session, customer_id)
+    settings_obj.auto_ai_description = enabled
+    settings_obj.updated_at = utc_now_naive()
+    await session.commit()
+    await session.refresh(settings_obj)
+    return settings_obj

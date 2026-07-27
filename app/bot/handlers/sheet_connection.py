@@ -284,6 +284,7 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
         return
 
     # اتصال موفق - ذخیره در دیتابیس
+    # اتصال موفق - ذخیره در دیتابیس
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
@@ -291,29 +292,66 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
             clear_user_state(user.id)
             return
 
+        # چک کن sheet های موردنیاز موجودن
+        from app.business.config import get_business
+        business_config = get_business(customer.business_type_key)
+
+        recognized_sheets = []
+        unrecognized_sheets = []
+
+        if business_config:
+            expected_sheets = {sc.worksheet_name for sc in business_config.sub_categories}
+            for ws_title in result.worksheet_titles:
+                if ws_title in expected_sheets:
+                    recognized_sheets.append(ws_title)
+                elif ws_title not in ("راهنما", "info"):
+                    unrecognized_sheets.append(ws_title)
+
         await create_or_update_sheet_connection(
             session=session,
             customer_id=customer.id,
             sheet_url=url,
             sheet_id=result.sheet_id,
-            worksheet_name=result.worksheet_title,
+            worksheet_name="multi_sheet",  # حالا چند صفحه هست
         )
 
     clear_user_state(user.id)
 
-    await processing_msg.edit_text(
+    # ساخت گزارش
+    text = (
         f"✅ اتصال با موفقیت برقرار شد!\n"
         f"━━━━━━━━━━━━━━━\n"
         f"📊 نام شیت: {result.sheet_title}\n"
-        f"📄 صفحه: {result.worksheet_title}\n"
-        f"📏 تعداد ردیف‌ها: {result.row_count}\n"
-        f"━━━━━━━━━━━━━━━\n\n"
+        f"📄 تعداد صفحه‌ها: {len(result.worksheet_titles)}\n"
+        f"━━━━━━━━━━━━━━━\n"
+    )
+
+    if recognized_sheets:
+        text += f"\n✅ صفحه‌های شناسایی شده ({len(recognized_sheets)}):\n"
+        for sheet in recognized_sheets:
+            text += f"   • {sheet}\n"
+
+    if unrecognized_sheets:
+        text += f"\n⚠️ صفحه‌های ناشناخته (نادیده گرفته می‌شوند):\n"
+        for sheet in unrecognized_sheets:
+            text += f"   • {sheet}\n"
+
+    if not recognized_sheets:
+        text += (
+            f"\n⚠️ هیچ صفحه معتبری پیدا نشد!\n"
+            f"لطفاً از فایل نمونه استفاده کنید یا نام صفحه‌ها را چک کنید.\n"
+        )
+
+    text += (
+        f"\n━━━━━━━━━━━━━━━\n\n"
         f"🎯 گام بعدی:\n"
         f"از منوی '📊 Google Sheet' گزینه '🔃 همگام‌سازی الان'\n"
         f"را بزنید تا محصولات ذخیره شوند.\n\n"
         f"از این به بعد، سیستم به صورت خودکار\n"
         f"قیمت‌ها و موجودی را از این شیت آپدیت می‌کند."
     )
+
+    await processing_msg.edit_text(text)
 
 
 async def sheet_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

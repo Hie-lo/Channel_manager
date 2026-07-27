@@ -15,7 +15,8 @@ class UserState(Enum):
     WAITING_EXCEL_FILE = "waiting_excel_file"  
     WAITING_SHEET_URL = "waiting_sheet_url" 
     WAITING_AI_TOKEN_RECEIPT = "waiting_ai_token_receipt"
-
+    VIEWING_AI_RESULT = "viewing_ai_result"  # کاربر داره نتیجه AI رو بررسی می‌کنه
+    
 @dataclass
 class UserContext:
     state: UserState = UserState.IDLE

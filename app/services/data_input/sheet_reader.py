@@ -111,7 +111,7 @@ def test_sheet_connection(sheet_url_or_id: str) -> SheetConnectionResult:
             worksheet_titles=worksheet_titles,
         )
 
-    except gspread.SpreadsheetNotFound:
+    except gspread.exceptions.SpreadsheetNotFound:
         return SheetConnectionResult(
             success=False,
             error_message=(
@@ -119,7 +119,7 @@ def test_sheet_connection(sheet_url_or_id: str) -> SheetConnectionResult:
                 "لطفاً مطمئن شوید ایمیل ربات را با دسترسی 'Editor' اضافه کرده‌اید."
             ),
         )
-    except gspread.APIError as e:
+    except gspread.exceptions.APIError as e:
         error_str = str(e)
         if "403" in error_str or "PERMISSION_DENIED" in error_str:
             return SheetConnectionResult(
@@ -135,6 +135,24 @@ def test_sheet_connection(sheet_url_or_id: str) -> SheetConnectionResult:
         )
     except Exception as e:
         log.error(f"خطا در تست اتصال: {e}", exc_info=True)
+        # چک بر اساس متن خطا
+        error_str = str(e).lower()
+        if "spreadsheetnotfound" in error_str or "not found" in error_str:
+            return SheetConnectionResult(
+                success=False,
+                error_message=(
+                    "شیت پیدا نشد یا دسترسی ندارید.\n"
+                    "لطفاً مطمئن شوید ایمیل ربات را با دسترسی 'Editor' اضافه کرده‌اید."
+                ),
+            )
+        if "permission" in error_str or "403" in error_str:
+            return SheetConnectionResult(
+                success=False,
+                error_message=(
+                    "دسترسی به شیت وجود ندارد.\n"
+                    "لطفاً ایمیل ربات را به عنوان 'Editor' اضافه کنید."
+                ),
+            )
         return SheetConnectionResult(
             success=False,
             error_message=f"خطای غیرمنتظره: {str(e)[:100]}",

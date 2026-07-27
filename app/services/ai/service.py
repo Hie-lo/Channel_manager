@@ -67,8 +67,8 @@ async def generate_product_description(
     ai_response = await call_ai(
         system_prompt=SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        max_tokens=200,
-        temperature=0.5,
+        max_tokens=500,
+        temperature=0.6,
     )
 
     if not ai_response.success:

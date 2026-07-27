@@ -62,6 +62,7 @@ from app.bot.handlers.posting_settings import (
     posting_set_hours_callback,
     posting_hours_selected_callback,
     posting_back_callback,
+    posting_toggle_ai_callback
 )
 from app.bot.handlers.admin import (
     admin_test_publish_job_handler,
@@ -89,6 +90,12 @@ from app.bot.handlers.ai_tokens import (
     ai_token_receipt_handler,
     ai_admin_approve_callback,
     ai_admin_reject_callback,
+)
+from app.bot.handlers.product_ai import (
+    ai_start_generation_callback,
+    ai_confirm_generation_callback,
+    ai_regenerate_callback,
+    ai_accept_result_callback,
 )
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
@@ -219,7 +226,6 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(prod_view_callback, pattern="^prod_view_"))
     app.add_handler(CallbackQueryHandler(prod_list_callback, pattern="^prod_list_"))
     # ─── کالبک‌های تنظیمات ارسال ───
-    
     # ⚠️ ترتیب مهم! interval_ و hours_ باید قبل از set_interval و set_hours ثبت شوند
     app.add_handler(CallbackQueryHandler(posting_interval_selected_callback, pattern="^posting_interval_"))
     app.add_handler(CallbackQueryHandler(posting_hours_selected_callback, pattern="^posting_hours_"))
@@ -227,6 +233,7 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(posting_set_interval_callback, pattern="^posting_set_interval$"))
     app.add_handler(CallbackQueryHandler(posting_set_hours_callback, pattern="^posting_set_hours$"))
     app.add_handler(CallbackQueryHandler(posting_back_callback, pattern="^posting_back$"))
+    app.add_handler(CallbackQueryHandler(posting_toggle_ai_callback, pattern="^posting_toggle_ai$"))
 
     # ─── کالبک‌های Google Sheet ───
     app.add_handler(CallbackQueryHandler(sheet_delete_confirm_callback, pattern="^sheet_delete_confirm$"))
@@ -245,6 +252,12 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(ai_package_selected_callback, pattern="^ai_pkg_"))
     app.add_handler(CallbackQueryHandler(ai_cancel_purchase_callback, pattern="^ai_cancel_purchase$"))
     app.add_handler(CallbackQueryHandler(ai_menu_back_callback, pattern="^ai_menu_back$"))
+
+    # ─── کالبک‌های AI Generation ───
+    app.add_handler(CallbackQueryHandler(ai_confirm_generation_callback, pattern="^ai_confirm_gen_"))
+    app.add_handler(CallbackQueryHandler(ai_accept_result_callback, pattern="^ai_accept_"))
+    app.add_handler(CallbackQueryHandler(ai_regenerate_callback, pattern="^ai_regen_"))
+    app.add_handler(CallbackQueryHandler(ai_start_generation_callback, pattern="^ai_start_"))
 
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(

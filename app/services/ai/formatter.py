@@ -1,7 +1,7 @@
 """
 تبدیل خروجی خام AI به متن قابل استفاده در پست
 """
-
+import re
 from dataclasses import dataclass, field
 from app.utils.logger import log
 
@@ -39,7 +39,7 @@ class AIDescription:
         # نکات
         if self.cons:
             parts.append("")  # خط خالی
-            parts.append("⚠️ نکات:")
+            parts.append("⚠️ ملاحضات:")
             for con in self.cons:
                 parts.append(f"• {con}")
 
@@ -78,14 +78,14 @@ def parse_ai_response(raw_response: str) -> AIDescription:
             if content:
                 result.description = content
 
-        # پارس P1, P2, ...
-        elif line.startswith(("P1:", "P2:", "P3:", "P1 :", "P2 :", "P3 :")):
+        # پارس P1, P2, P3, P4, P5, ...
+        elif re.match(r'^P\d+\s*:', line):
             content = _extract_content(line)
             if content:
                 result.pros.append(content)
 
-        # پارس N1, N2, ...
-        elif line.startswith(("N1:", "N2:", "N3:", "N1 :", "N2 :", "N3 :")):
+        # پارس N1, N2, N3, ...
+        elif re.match(r'^N\d+\s*:', line):
             content = _extract_content(line)
             if content:
                 result.cons.append(content)
@@ -120,5 +120,21 @@ def _extract_content(line: str) -> str:
 
     # حذف quote های احتمالی
     content = content.strip('"').strip("'").strip()
+
+    # حذف ایموجی‌های تکراری و کاراکترهای اضافی از ابتدا
+    # چند بار تکرار می‌کنیم چون ممکنه چند ایموجی پشت هم باشه
+    import re
+
+    # الگو: ایموجی‌های رایج + bullet + خط تیره + ستاره
+    unwanted_prefix_pattern = re.compile(
+        r'^[\s📝✅⚠️❌•\-\*→↳▪▫◆◇★☆♦♣]+',
+        re.UNICODE
+    )
+
+    # تا زمانی که تغییر می‌کنه، ادامه بده
+    prev = None
+    while prev != content:
+        prev = content
+        content = unwanted_prefix_pattern.sub('', content).strip()
 
     return content
