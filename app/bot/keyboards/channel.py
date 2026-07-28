@@ -3,7 +3,7 @@
 """
 
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from app.database.models import Channel
+from app.database.models import Channel, Platform
 
 
 def get_channel_management_keyboard() -> InlineKeyboardMarkup:
@@ -16,16 +16,40 @@ def get_channel_management_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def get_platform_selection_keyboard() -> InlineKeyboardMarkup:
+    """انتخاب پلتفرم برای کانال جدید"""
+    keyboard = [
+        [InlineKeyboardButton("📱 تلگرام", callback_data="channel_platform_TELEGRAM")],
+        [InlineKeyboardButton("📢 ایتا (به زودی فعال)", callback_data="channel_platform_EITAA")],
+        [InlineKeyboardButton("🔵 بله (به زودی فعال)", callback_data="channel_platform_BALE")],
+        [InlineKeyboardButton("❌ لغو", callback_data="channel_menu")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 def get_channel_list_keyboard(channels: list[Channel]) -> InlineKeyboardMarkup:
     """لیست کانال‌ها با دکمه حذف"""
     keyboard = []
 
     for channel in channels:
-        # نمایش نام کانال
-        display_name = channel.channel_identifier
+        # آیکون پلتفرم
+        platform_icon = {
+            Platform.TELEGRAM: "📱",
+            Platform.EITAA: "📢",
+            Platform.BALE: "🔵",
+        }.get(channel.platform, "📌")
+
+        # آیکون وضعیت
+        if channel.activation_status == "PENDING_ACTIVATION":
+            status_icon = "⏳"
+        else:
+            status_icon = "✅"
+
+        display_name = f"{platform_icon} {status_icon} {channel.channel_identifier}"
+
         keyboard.append([
             InlineKeyboardButton(
-                f"📢 {display_name}",
+                display_name[:60],
                 callback_data=f"channel_info_{channel.id}"
             ),
             InlineKeyboardButton(
@@ -62,7 +86,7 @@ def get_channel_delete_confirm_keyboard(channel_id: int) -> InlineKeyboardMarkup
 
 
 def get_cancel_channel_add_keyboard() -> InlineKeyboardMarkup:
-    """لغو اضافه کردن کانال + راهنما"""
+    """لغو اضافه کردن کانال"""
     keyboard = [
         [InlineKeyboardButton("❓ راهنمای اتصال کانال", callback_data="tut_inline_connect_channel")],
         [InlineKeyboardButton("❌ لغو", callback_data="channel_menu")]

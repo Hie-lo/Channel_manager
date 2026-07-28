@@ -108,31 +108,41 @@ async def add_channel_for_customer(
     session: AsyncSession,
     customer_id: int,
     channel_identifier: str,
+    platform: Platform = Platform.TELEGRAM,
+    activation_status: str = "ACTIVE",
 ) -> Channel:
     """اضافه کردن کانال جدید برای مشتری"""
     channel = Channel(
         customer_id=customer_id,
-        platform=Platform.TELEGRAM,
+        platform=platform,
         channel_identifier=channel_identifier,
-        is_connected=True,
-        connected_at=utc_now_naive(),
+        is_connected=(activation_status == "ACTIVE"),
+        connected_at=utc_now_naive() if activation_status == "ACTIVE" else None,
+        activation_status=activation_status,
         created_at=utc_now_naive(),
     )
     session.add(channel)
     await session.commit()
     await session.refresh(channel)
-    log.info(f"کانال جدید اضافه شد: {channel_identifier} برای مشتری {customer_id}")
+    log.info(
+        f"کانال جدید: {channel_identifier} ({platform.value}) "
+        f"برای مشتری {customer_id}"
+    )
     return channel
 
 
 async def get_customer_channels(
     session: AsyncSession,
     customer_id: int,
+    only_active: bool = False,
 ) -> list[Channel]:
     """لیست کانال‌های یک مشتری"""
-    result = await session.execute(
-        select(Channel).where(Channel.customer_id == customer_id)
-    )
+    query = select(Channel).where(Channel.customer_id == customer_id)
+
+    if only_active:
+        query = query.where(Channel.activation_status == "ACTIVE")
+
+    result = await session.execute(query)
     return list(result.scalars().all())
 
 

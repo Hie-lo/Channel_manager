@@ -184,7 +184,7 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
             return "no_subscription"
 
         # گرفتن کانال‌ها
-        channels = await get_customer_channels(session, customer.id)
+        channels = await get_customer_channels(session, customer.id, only_active=True)
         if not channels:
             log.info(f"[Customer {customer_id}] ❌ کانالی متصل ندارد")
             return "no_channels"

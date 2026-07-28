@@ -249,7 +249,7 @@ async def _edit_published_posts(
 
         business_config = get_business_config_for_customer(customer)
         business = await get_business_for_customer(session, customer.id)
-        channels = await get_customer_channels(session, customer.id)
+        channels = await get_customer_channels(session, customer.id, only_active=True)
 
         from app.database.models import Product
         products_result = await session.execute(

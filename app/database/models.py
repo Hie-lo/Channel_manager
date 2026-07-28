@@ -32,7 +32,8 @@ class CustomerStatus(enum.Enum):
 
 class Platform(enum.Enum):
     TELEGRAM = "TELEGRAM"
-
+    EITAA = "EITAA"     
+    BALE = "BALE"
 
 class SubscriptionStatus(enum.Enum):
     PENDING = "PENDING"
@@ -123,7 +124,11 @@ class Channel(Base):
         default=Platform.TELEGRAM
     )
     channel_identifier: Mapped[str] = mapped_column(String(200))
-
+    # وضعیت فعال‌سازی برای پلتفرم‌های غیر تلگرام
+    activation_status: Mapped[str] = mapped_column(
+        String(30),
+        default="ACTIVE"  # ACTIVE / PENDING_ACTIVATION
+    )
     is_connected: Mapped[bool] = mapped_column(Boolean, default=False)
     connected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

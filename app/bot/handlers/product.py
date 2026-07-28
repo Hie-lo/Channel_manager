@@ -298,7 +298,7 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         # گرفتن کانال‌ها
-        channels = await get_customer_channels(session, customer.id)
+        channels = await get_customer_channels(session, customer.id, only_active=True)
 
         if not channels:
             await query.edit_message_text(

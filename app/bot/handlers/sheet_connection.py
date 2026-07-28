@@ -123,7 +123,7 @@ async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             else "هرگز"
         )
 
-        text = (
+        menu_text = (
             f"📊 Google Sheet\n"
             f"━━━━━━━━━━━━━━━\n"
             f"✅ اتصال فعال\n"
@@ -133,15 +133,15 @@ async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
         if connection.last_error:
-            text += f"\n⚠️ آخرین خطا:\n{connection.last_error[:200]}\n"
+            menu_text += f"\n⚠️ آخرین خطا:\n{connection.last_error[:200]}\n"
 
-        text += (
+        menu_text += (
             f"━━━━━━━━━━━━━━━\n\n"
             f"💡 قیمت و موجودی محصولات به صورت خودکار\n"
             f"از این شیت خوانده و آپدیت می‌شوند."
         )
     else:
-        text = (
+        menu_text = (
             f"📊 Google Sheet\n"
             f"━━━━━━━━━━━━━━━\n"
             f"❌ هنوز شیتی متصل نکرده‌اید\n"
@@ -152,13 +152,13 @@ async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"└── نیازی به آپلود مکرر اکسل نیست\n\n"
         )
         if has_template:
-            text += (
+            menu_text += (
                 f"🎯 برای شروع سریع، از دکمه\n"
                 f"'📥 دریافت لینک شیت نمونه' استفاده کنید.\n"
             )
 
     await update.message.reply_text(
-        text,
+        menu_text,
         reply_markup=_get_sheet_menu_keyboard(
             has_connection=connection is not None,
             has_template=has_template,
@@ -167,14 +167,13 @@ async def sheet_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def sheet_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """شروع فرآیند اتصال شیت جدید - راهنمای کامل"""
+    """شروع فرآیند اتصال شیت جدید"""
     query = update.callback_query
     await query.answer()
 
     user = query.from_user
     bot_email = _get_bot_service_account_email()
 
-    # گرفتن اطلاعات کسب‌وکار مشتری
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
@@ -186,7 +185,6 @@ async def sheet_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     template_url = get_google_sheet_template_url(customer.business_type_key) if business_config else None
 
-    # پیام اصلی با HTML
     text = (
         f"📊 <b>اتصال Google Sheet</b>\n"
         f"━━━━━━━━━━━━━━━\n\n"
@@ -236,10 +234,7 @@ async def sheet_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    دریافت لینک شیت از مشتری
-    فقط وقتی state = WAITING_SHEET_URL
-    """
+    """دریافت لینک شیت از مشتری + همگام‌سازی خودکار اولیه"""
     user = update.effective_user
 
     if get_user_state(user.id) != UserState.WAITING_SHEET_URL:
@@ -285,7 +280,10 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
         return
 
     # اتصال موفق - ذخیره در دیتابیس
-    # اتصال موفق - ذخیره در دیتابیس
+    customer_id_for_sync = None
+    recognized_sheets = []
+    unrecognized_sheets = []
+
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
@@ -293,12 +291,9 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
             clear_user_state(user.id)
             return
 
-        # چک کن sheet های موردنیاز موجودن
+        # چک sheets موجود
         from app.business.config import get_business
         business_config = get_business(customer.business_type_key)
-
-        recognized_sheets = []
-        unrecognized_sheets = []
 
         if business_config:
             expected_sheets = {sc.worksheet_name for sc in business_config.sub_categories}
@@ -313,13 +308,15 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
             customer_id=customer.id,
             sheet_url=url,
             sheet_id=result.sheet_id,
-            worksheet_name="multi_sheet",  # حالا چند صفحه هست
+            worksheet_name="multi_sheet",
         )
+
+        customer_id_for_sync = customer.id
 
     clear_user_state(user.id)
 
-    # ساخت گزارش
-    text = (
+    # ساخت گزارش اتصال
+    connection_text = (
         f"✅ اتصال با موفقیت برقرار شد!\n"
         f"━━━━━━━━━━━━━━━\n"
         f"📊 نام شیت: {result.sheet_title}\n"
@@ -328,31 +325,96 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
     )
 
     if recognized_sheets:
-        text += f"\n✅ صفحه‌های شناسایی شده ({len(recognized_sheets)}):\n"
+        connection_text += f"\n✅ صفحه‌های شناسایی شده ({len(recognized_sheets)}):\n"
         for sheet in recognized_sheets:
-            text += f"   • {sheet}\n"
+            connection_text += f"   • {sheet}\n"
 
     if unrecognized_sheets:
-        text += f"\n⚠️ صفحه‌های ناشناخته (نادیده گرفته می‌شوند):\n"
+        connection_text += f"\n⚠️ صفحه‌های ناشناخته (نادیده گرفته می‌شوند):\n"
         for sheet in unrecognized_sheets:
-            text += f"   • {sheet}\n"
+            connection_text += f"   • {sheet}\n"
 
+    # اگه هیچ صفحه معتبری نبود، sync معنی نداره
     if not recognized_sheets:
-        text += (
-            f"\n⚠️ هیچ صفحه معتبری پیدا نشد!\n"
-            f"لطفاً از فایل نمونه استفاده کنید یا نام صفحه‌ها را چک کنید.\n"
+        connection_text += (
+            f"\n━━━━━━━━━━━━━━━\n"
+            f"⚠️ هیچ صفحه معتبری پیدا نشد!\n"
+            f"لطفاً از فایل نمونه استفاده کنید یا نام صفحه‌ها را چک کنید."
+        )
+        await processing_msg.edit_text(connection_text)
+        return
+
+    # مرحله بعد: شروع همگام‌سازی اولیه
+    connection_text += (
+        f"\n━━━━━━━━━━━━━━━\n\n"
+        f"🔄 در حال شروع همگام‌سازی اولیه...\n"
+        f"لطفاً چند لحظه صبر کنید."
+    )
+    await processing_msg.edit_text(connection_text)
+
+    # اجرای sync
+    try:
+        from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
+        sync_result = await sync_customer_sheet(context.bot, customer_id_for_sync)
+
+        # ساخت گزارش نهایی
+        final_text = (
+            f"✅ اتصال و همگام‌سازی کامل شد!\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📊 شیت: {result.sheet_title}\n"
+            f"📄 صفحه‌های فعال: {len(recognized_sheets)}\n"
+            f"━━━━━━━━━━━━━━━\n\n"
         )
 
-    text += (
-        f"\n━━━━━━━━━━━━━━━\n\n"
-        f"🎯 گام بعدی:\n"
-        f"از منوی '📊 Google Sheet' گزینه '🔃 همگام‌سازی الان'\n"
-        f"را بزنید تا محصولات ذخیره شوند.\n\n"
-        f"از این به بعد، سیستم به صورت خودکار\n"
-        f"قیمت‌ها و موجودی را از این شیت آپدیت می‌کند."
-    )
+        if sync_result.get("error"):
+            final_text += (
+                f"⚠️ در همگام‌سازی خطایی رخ داد:\n"
+                f"{sync_result['error']}\n\n"
+                f"می‌تونید از منوی '📊 Google Sheet' →\n"
+                f"'🔃 همگام‌سازی الان' دوباره امتحان کنید."
+            )
+        else:
+            new_count = sync_result.get("new_count", 0)
+            updated_count = sync_result.get("updated_count", 0)
+            unchanged = sync_result.get("unchanged_count", 0)
+            errors = sync_result.get("error_count", 0)
 
-    await processing_msg.edit_text(text)
+            final_text += (
+                f"📊 نتیجه همگام‌سازی:\n"
+                f"├── 🆕 محصولات جدید: {new_count}\n"
+                f"├── 🔄 آپدیت شده: {updated_count}\n"
+                f"├── ✅ بدون تغییر: {unchanged}\n"
+                f"└── ❌ خطا: {errors}\n\n"
+            )
+
+            if new_count > 0:
+                final_text += (
+                    f"🎉 {new_count} محصول جدید به سیستم اضافه شد!\n\n"
+                    f"از این به بعد:\n"
+                    f"├── هر ۲ ساعت خودکار همگام‌سازی میشه\n"
+                    f"├── تغییر قیمت/موجودی در شیت → آپدیت پست‌ها\n"
+                    f"└── محصولات جدید → اضافه به سیستم\n\n"
+                    f"💡 برای دیدن محصولات از '📦 مدیریت محصولات'"
+                )
+            else:
+                final_text += (
+                    f"از این به بعد:\n"
+                    f"├── هر ۲ ساعت خودکار همگام‌سازی میشه\n"
+                    f"└── تغییرات خودکار اعمال میشن\n\n"
+                    f"💡 اگه محصولی در شیت اضافه کنید،\n"
+                    f"در همگام‌سازی بعدی اضافه میشه."
+                )
+
+        await processing_msg.edit_text(final_text)
+
+    except Exception as e:
+        log.error(f"خطا در sync اولیه: {e}", exc_info=True)
+        await processing_msg.edit_text(
+            f"✅ اتصال برقرار شد ولی در همگام‌سازی خطا رخ داد.\n\n"
+            f"لطفاً از منوی '📊 Google Sheet' →\n"
+            f"'🔃 همگام‌سازی الان' اقدام کنید.\n\n"
+            f"جزئیات خطا:\n{str(e)[:200]}"
+        )
 
 
 async def sheet_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -428,30 +490,30 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("❌ خطا!")
             return
 
-        result = await sync_customer_sheet(context.bot, customer.id)
+        sync_result = await sync_customer_sheet(context.bot, customer.id)
 
-        # ساخت گزارش
         text = "✅ همگام‌سازی انجام شد\n━━━━━━━━━━━━━━━\n\n"
 
-        if result.get("error"):
-            text = f"❌ خطا در همگام‌سازی\n━━━━━━━━━━━━━━━\n{result['error']}"
+        if sync_result.get("error"):
+            text = f"❌ خطا در همگام‌سازی\n━━━━━━━━━━━━━━━\n{sync_result['error']}"
         else:
             text += f"📊 نتیجه:\n"
-            text += f"├── 🆕 محصول جدید: {result.get('new_count', 0)}\n"
-            text += f"├── 🔄 آپدیت شده: {result.get('updated_count', 0)}\n"
-            text += f"├── ✅ بدون تغییر: {result.get('unchanged_count', 0)}\n"
-            text += f"└── ❌ خطا: {result.get('error_count', 0)}\n"
+            text += f"├── 🆕 محصول جدید: {sync_result.get('new_count', 0)}\n"
+            text += f"├── 🔄 آپدیت شده: {sync_result.get('updated_count', 0)}\n"
+            text += f"├── ✅ بدون تغییر: {sync_result.get('unchanged_count', 0)}\n"
+            text += f"└── ❌ خطا: {sync_result.get('error_count', 0)}\n"
 
-            if result.get('price_changes'):
-                text += f"\n💰 تغییرات قیمت: {len(result['price_changes'])}\n"
-            if result.get('stock_changes'):
-                text += f"📦 تغییرات موجودی: {len(result['stock_changes'])}\n"
+            if sync_result.get('price_changes'):
+                text += f"\n💰 تغییرات قیمت: {len(sync_result['price_changes'])}\n"
+            if sync_result.get('stock_changes'):
+                text += f"📦 تغییرات موجودی: {len(sync_result['stock_changes'])}\n"
 
         await query.edit_message_text(text)
 
     except Exception as e:
         log.error(f"خطا در sync دستی: {e}", exc_info=True)
         await query.edit_message_text(f"❌ خطا: {str(e)[:200]}")
+
 
 async def sheet_get_template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """ارسال لینک Google Sheet نمونه"""
@@ -538,7 +600,7 @@ async def sheet_back_to_menu_callback(update: Update, context: ContextTypes.DEFA
             else "هرگز"
         )
 
-        text = (
+        menu_text = (
             f"📊 Google Sheet\n"
             f"━━━━━━━━━━━━━━━\n"
             f"✅ اتصال فعال\n"
@@ -548,15 +610,15 @@ async def sheet_back_to_menu_callback(update: Update, context: ContextTypes.DEFA
         )
 
         if connection.last_error:
-            text += f"\n⚠️ آخرین خطا:\n{connection.last_error[:200]}\n"
+            menu_text += f"\n⚠️ آخرین خطا:\n{connection.last_error[:200]}\n"
 
-        text += (
+        menu_text += (
             f"━━━━━━━━━━━━━━━\n\n"
             f"💡 قیمت و موجودی محصولات به صورت خودکار\n"
             f"از این شیت خوانده و آپدیت می‌شوند."
         )
     else:
-        text = (
+        menu_text = (
             f"📊 Google Sheet\n"
             f"━━━━━━━━━━━━━━━\n"
             f"❌ هنوز شیتی متصل نکرده‌اید\n"
@@ -568,7 +630,7 @@ async def sheet_back_to_menu_callback(update: Update, context: ContextTypes.DEFA
         )
 
     await query.edit_message_text(
-        text,
+        menu_text,
         reply_markup=_get_sheet_menu_keyboard(
             has_connection=connection is not None,
             has_template=has_template,

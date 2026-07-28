@@ -11,11 +11,15 @@ class UserState(Enum):
     """حالت‌های مختلف کاربر"""
     IDLE = "idle"
     WAITING_CHANNEL_ID = "waiting_channel_id"
+    WAITING_CHANNEL_ID_TELEGRAM = "waiting_channel_id_telegram"  # ← مهم
+    WAITING_CHANNEL_ID_EITAA = "waiting_channel_id_eitaa"
+    WAITING_CHANNEL_ID_BALE = "waiting_channel_id_bale"
     WAITING_PAYMENT_RECEIPT = "waiting_payment_receipt"
-    WAITING_EXCEL_FILE = "waiting_excel_file"  
-    WAITING_SHEET_URL = "waiting_sheet_url" 
+    WAITING_EXCEL_FILE = "waiting_excel_file"
     WAITING_AI_TOKEN_RECEIPT = "waiting_ai_token_receipt"
-    VIEWING_AI_RESULT = "viewing_ai_result"  # کاربر داره نتیجه AI رو بررسی می‌کنه
+    WAITING_PRODUCT_IMAGE = "waiting_product_image"
+    WAITING_SHEET_URL = "waiting_sheet_url"
+    VIEWING_AI_RESULT = "viewing_ai_result"
     ADMIN_SENDING_MESSAGE = "admin_sending_message"
     ADMIN_GIFTING_TOKENS = "admin_gifting_tokens"
     ADMIN_BROADCASTING = "admin_broadcasting"
