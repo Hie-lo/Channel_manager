@@ -41,6 +41,7 @@ def get_upload_menu_keyboard() -> InlineKeyboardMarkup:
 
 def get_cancel_upload_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
+        [InlineKeyboardButton("❓ راهنمای آپلود اکسل", callback_data="tut_inline_upload_excel")],
         [InlineKeyboardButton("❌ لغو", callback_data="upload_cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)

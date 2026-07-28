@@ -5,7 +5,6 @@
 
 from telegram import Update
 from telegram.ext import ContextTypes
-
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.services.customer_service import (
@@ -15,9 +14,9 @@ from app.services.customer_service import (
 from app.database.models import CustomerStatus
 from app.bot.keyboards.main_menu import (
     get_customer_main_menu,
-    get_admin_main_menu,
     get_business_type_keyboard,
 )
+from app.bot.keyboards.admin import get_admin_main_menu  
 from app.utils.logger import log
 
 

@@ -285,3 +285,47 @@ class AIUsageLog(Base):
     raw_response: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
+class Tutorial(Base):
+    """آموزش‌ها (ویدیو، متن، FAQ)"""
+    __tablename__ = "tutorials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # کلید یکتا برای هر آموزش (مثلاً "connect_channel", "upload_excel")
+    key: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+
+    # عنوان نمایشی
+    title: Mapped[str] = mapped_column(String(200))
+
+    # دسته‌بندی: general / channel / upload / sheet / ai / subscription / faq
+    category: Mapped[str] = mapped_column(String(50), index=True)
+
+    # نوع: video / text / faq
+    content_type: Mapped[str] = mapped_column(String(20))
+
+    # محتوای متنی (برای text و faq)
+    text_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # file_id ویدیو (برای video)
+    video_file_id: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    # کپشن ویدیو
+    video_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ترتیب نمایش
+    display_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    # فعال یا غیرفعال
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # برای FAQ - سوال کوتاه
+    faq_question: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
+    )

@@ -29,10 +29,11 @@ def start_scheduler(bot) -> None:
     from app.tasks.jobs.publish_job import run_auto_publish_job
     from app.tasks.jobs.subscription_job import run_subscription_reminder_job
     from app.tasks.jobs.sheet_sync_job import run_sheet_sync_job
+    from app.tasks.jobs.daily_report_job import run_daily_report_job
 
     scheduler = get_scheduler()
 
-    # ─── Job 1: انتشار خودکار محصولات ───
+    # ─── Job 1: انتشار خودکار ───
     scheduler.add_job(
         run_auto_publish_job,
         trigger=IntervalTrigger(minutes=5),
@@ -44,7 +45,7 @@ def start_scheduler(bot) -> None:
     )
     log.info("✅ Job 'انتشار خودکار محصولات' ثبت شد (هر ۵ دقیقه)")
 
-    # ─── Job 2: یادآوری انقضای اشتراک ───
+    # ─── Job 2: یادآوری اشتراک ───
     scheduler.add_job(
         run_subscription_reminder_job,
         trigger=CronTrigger(hour=10, minute=0),
@@ -57,7 +58,6 @@ def start_scheduler(bot) -> None:
     log.info("✅ Job 'یادآوری انقضای اشتراک' ثبت شد (روزانه ساعت ۱۰)")
 
     # ─── Job 3: همگام‌سازی Google Sheet ───
-    # هر ۲ ساعت (به هر مشتری بر اساس business config اجازه sync میده)
     scheduler.add_job(
         run_sheet_sync_job,
         trigger=IntervalTrigger(hours=2),
@@ -68,6 +68,18 @@ def start_scheduler(bot) -> None:
         max_instances=1,
     )
     log.info("✅ Job 'همگام‌سازی Google Sheet' ثبت شد (هر ۲ ساعت)")
+
+    # ─── Job 4: گزارش روزانه ───
+    scheduler.add_job(
+        run_daily_report_job,
+        trigger=CronTrigger(hour=22, minute=0),  # هر شب ساعت ۲۲
+        args=[bot],
+        id="daily_report",
+        name="گزارش روزانه فعالیت",
+        replace_existing=True,
+        max_instances=1,
+    )
+    log.info("✅ Job 'گزارش روزانه فعالیت' ثبت شد (روزانه ساعت ۲۲)")
 
     scheduler.start()
     log.info("🚀 Scheduler راه‌اندازی شد")

@@ -2,6 +2,8 @@
 راه‌اندازی و تنظیم ربات تلگرام
 """
 
+from turtle import update
+
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -68,6 +70,7 @@ from app.bot.handlers.admin import (
     admin_test_publish_job_handler,
     admin_test_reminder_job_handler,
     admin_test_sheet_sync_handler,
+    admin_test_daily_report_handler,
 )
 from app.bot.handlers.sheet_connection import (
     sheet_menu_handler,
@@ -97,6 +100,50 @@ from app.bot.handlers.product_ai import (
     ai_regenerate_callback,
     ai_accept_result_callback,
 )
+from app.bot.handlers.admin_panel import (
+    admin_customers_menu_handler,
+    admin_customers_menu_callback,
+    admin_customers_list_callback,
+    admin_customer_view_callback,
+    admin_customer_suspend_callback,
+    admin_customer_activate_callback,
+    admin_customer_message_callback,
+    admin_message_text_handler,
+    admin_customer_gift_tokens_callback,
+    admin_gift_tokens_handler,
+    admin_stats_handler,
+    admin_ai_stats_handler,
+    admin_broadcast_handler,
+    admin_broadcast_text_handler,
+    admin_broadcast_confirm_callback,
+    admin_broadcast_cancel_callback,
+    admin_cancel_callback,
+    admin_customer_search_callback,
+    admin_search_customer_handler,
+)
+from app.bot.handlers.admin_subscriptions import (
+    admin_subs_menu_handler,
+    admin_subs_menu_callback,
+    admin_subs_list_callback,
+    admin_sub_view_callback,
+    admin_sub_extend_callback,
+    admin_sub_extend_days_callback,
+    admin_sub_cancel_callback,
+    admin_sub_cancel_confirm_callback,
+    admin_sub_delete_callback,
+    admin_sub_delete_confirm_callback,
+    admin_subs_revenue_callback,
+    admin_subs_view_plans_callback,
+)
+from app.bot.handlers.tutorial import (
+    tutorial_menu_handler,
+    tut_menu_callback,
+    tut_category_callback,
+    tut_view_callback,
+    tut_inline_callback,
+)
+
+from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
 
@@ -105,6 +152,13 @@ async def on_startup(application: Application) -> None:
     log.info("🗄 در حال اتصال به دیتابیس...")
     await init_db()
     log.info("✅ دیتابیس آماده است")
+
+    # ایجاد آموزش‌های پیش‌فرض
+    from app.database.connection import AsyncSessionLocal
+    from app.services.tutorial_seeder import seed_default_tutorials
+
+    async with AsyncSessionLocal() as session:
+        await seed_default_tutorials(session)
 
     # راه‌اندازی scheduler
     from app.tasks.scheduler import start_scheduler
@@ -122,6 +176,14 @@ async def text_router(update, context):
         await payment_receipt_handler(update, context)
     elif state == UserState.WAITING_SHEET_URL:
         await sheet_url_received_handler(update, context)
+    elif state == UserState.ADMIN_SENDING_MESSAGE:
+        await admin_message_text_handler(update, context)
+    elif state == UserState.ADMIN_GIFTING_TOKENS:
+        await admin_gift_tokens_handler(update, context)
+    elif state == UserState.ADMIN_BROADCASTING:
+        await admin_broadcast_text_handler(update, context)
+    elif state == UserState.ADMIN_SEARCHING_CUSTOMER:
+        await admin_search_customer_handler(update, context)
 
 
 async def document_router(update, context):
@@ -135,7 +197,9 @@ async def document_router(update, context):
         await payment_receipt_handler(update, context)
     elif state == UserState.WAITING_AI_TOKEN_RECEIPT:
         await ai_token_receipt_handler(update, context)
-
+    elif user.id == settings.ADMIN_CHAT_ID:
+            # اگه ادمین در حالتی نبود و فایلی فرستاد، file_id رو بده
+        await admin_get_file_id_handler(update, context)
 
 async def photo_router(update, context):
     """مسیریاب عکس‌ها"""
@@ -147,6 +211,11 @@ async def photo_router(update, context):
     elif state == UserState.WAITING_AI_TOKEN_RECEIPT:
         await ai_token_receipt_handler(update, context)
 
+async def video_router(update, context):
+    """مسیریاب ویدیوها - فقط برای گرفتن file_id توسط ادمین"""
+    user = update.effective_user
+    if user.id == settings.ADMIN_CHAT_ID:
+        await admin_get_file_id_handler(update, context)
 
 def create_bot() -> Application:
     log.info("در حال ساخت ربات تلگرام...")
@@ -190,6 +259,64 @@ def create_bot() -> Application:
     filters.TEXT & filters.Regex("^📊 اتصال Google Sheet$"),
     sheet_menu_handler
     ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^📚 آموزش و راهنما$"),
+        tutorial_menu_handler
+    ))
+
+    # ─── دکمه‌های ادمین ───
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^👥 مدیریت مشتریان$"),
+        admin_customers_menu_handler
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^💳 مدیریت اشتراک‌ها$"),
+        admin_subs_menu_handler
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^📊 آمار کلی$"),
+        admin_stats_handler
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^🤖 آمار AI$"),
+        admin_ai_stats_handler
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^🔔 ارسال اعلان$"),
+        admin_broadcast_handler
+    ))
+
+    # ─── کالبک‌های ادمین ───
+    app.add_handler(CallbackQueryHandler(admin_customers_menu_callback, pattern="^admin_customers_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_customer_search_callback, pattern="^admin_customer_search$"))
+    app.add_handler(CallbackQueryHandler(admin_customers_list_callback, pattern="^admin_customers_(list|active|pending|suspended)_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_view_callback, pattern="^admin_customer_view_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_suspend_callback, pattern="^admin_customer_suspend_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_activate_callback, pattern="^admin_customer_activate_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_message_callback, pattern="^admin_customer_message_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_gift_tokens_callback, pattern="^admin_customer_gift_tokens_"))
+    app.add_handler(CallbackQueryHandler(admin_broadcast_confirm_callback, pattern="^admin_broadcast_confirm$"))
+    app.add_handler(CallbackQueryHandler(admin_broadcast_cancel_callback, pattern="^admin_broadcast_cancel$"))
+    app.add_handler(CallbackQueryHandler(admin_cancel_callback, pattern="^admin_cancel$"))
+
+    # ─── کالبک‌های مدیریت اشتراک ادمین ───
+    app.add_handler(CallbackQueryHandler(admin_subs_menu_callback, pattern="^admin_subs_menu$"))
+    app.add_handler(CallbackQueryHandler(admin_subs_revenue_callback, pattern="^admin_subs_revenue$"))
+    app.add_handler(CallbackQueryHandler(admin_subs_view_plans_callback, pattern="^admin_subs_view_plans$"))
+
+    # ترتیب مهمه: cancel_confirm قبل از cancel
+    app.add_handler(CallbackQueryHandler(admin_sub_cancel_confirm_callback, pattern="^admin_sub_cancel_confirm_"))
+    app.add_handler(CallbackQueryHandler(admin_sub_cancel_callback, pattern="^admin_sub_cancel_"))
+
+    app.add_handler(CallbackQueryHandler(admin_sub_delete_confirm_callback, pattern="^admin_sub_delete_confirm_"))
+    app.add_handler(CallbackQueryHandler(admin_sub_delete_callback, pattern="^admin_sub_delete_"))
+
+    app.add_handler(CallbackQueryHandler(admin_sub_extend_days_callback, pattern="^admin_sub_extend_days_"))
+    app.add_handler(CallbackQueryHandler(admin_sub_extend_callback, pattern="^admin_sub_extend_"))
+    app.add_handler(CommandHandler("test_daily_report", admin_test_daily_report_handler))
+    app.add_handler(CallbackQueryHandler(admin_sub_view_callback, pattern="^admin_sub_view_"))
+    app.add_handler(CallbackQueryHandler(admin_subs_list_callback, pattern="^admin_subs_(active|pending|expired|grace)_"))
+
     app.add_handler(CommandHandler("test_sheet_sync", admin_test_sheet_sync_handler))
     app.add_handler(CommandHandler("test_publish", admin_test_publish_job_handler))
     app.add_handler(CommandHandler("test_reminder", admin_test_reminder_job_handler))
@@ -259,6 +386,12 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(ai_regenerate_callback, pattern="^ai_regen_"))
     app.add_handler(CallbackQueryHandler(ai_start_generation_callback, pattern="^ai_start_"))
 
+    # ─── کالبک‌های آموزش ───
+    app.add_handler(CallbackQueryHandler(tut_inline_callback, pattern="^tut_inline_"))
+    app.add_handler(CallbackQueryHandler(tut_view_callback, pattern="^tut_view_"))
+    app.add_handler(CallbackQueryHandler(tut_category_callback, pattern="^tut_cat_"))
+    app.add_handler(CallbackQueryHandler(tut_menu_callback, pattern="^tut_menu$"))
+
     # ─── پیام‌های متنی (router) ───
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
@@ -276,7 +409,11 @@ def create_bot() -> Application:
         filters.PHOTO,
         photo_router
     ))
-
+    # ─── ویدیوها (برای ادمین فقط - گرفتن file_id) ───
+    app.add_handler(MessageHandler(
+        filters.VIDEO | filters.ANIMATION,
+        video_router
+    ))
     # ─── هندلر خطاها ───
     app.add_error_handler(error_handler)
 

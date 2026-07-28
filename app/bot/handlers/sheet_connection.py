@@ -74,9 +74,10 @@ def _get_sheet_menu_keyboard(has_connection: bool, has_template: bool = False) -
 
 
 def _get_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("❌ لغو", callback_data="sheet_cancel")
-    ]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("❓ راهنمای اتصال Google Sheet", callback_data="tut_inline_connect_sheet")],
+        [InlineKeyboardButton("❌ لغو", callback_data="sheet_cancel")],
+    ])
 
 
 def _get_delete_confirm_keyboard() -> InlineKeyboardMarkup:

@@ -16,6 +16,10 @@ class UserState(Enum):
     WAITING_SHEET_URL = "waiting_sheet_url" 
     WAITING_AI_TOKEN_RECEIPT = "waiting_ai_token_receipt"
     VIEWING_AI_RESULT = "viewing_ai_result"  # کاربر داره نتیجه AI رو بررسی می‌کنه
+    ADMIN_SENDING_MESSAGE = "admin_sending_message"
+    ADMIN_GIFTING_TOKENS = "admin_gifting_tokens"
+    ADMIN_BROADCASTING = "admin_broadcasting"
+    ADMIN_SEARCHING_CUSTOMER = "admin_searching_customer"
     
 @dataclass
 class UserContext:

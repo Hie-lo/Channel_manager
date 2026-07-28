@@ -19,16 +19,6 @@ def get_customer_main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
 
 
-def get_admin_main_menu() -> ReplyKeyboardMarkup:
-    """منوی اصلی سوپر ادمین"""
-    keyboard = [
-        [KeyboardButton("👥 مدیریت مشتریان"), KeyboardButton("💳 مدیریت اشتراک‌ها")],
-        [KeyboardButton("🏢 مدیریت کسب‌وکارها"), KeyboardButton("📊 آمار کلی")],
-        [KeyboardButton("🔔 ارسال اعلان"), KeyboardButton("🔧 تنظیمات سیستم")],
-        [KeyboardButton("📚 مدیریت آموزش‌ها")],
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-
 
 def get_business_type_keyboard() -> InlineKeyboardMarkup:
     """

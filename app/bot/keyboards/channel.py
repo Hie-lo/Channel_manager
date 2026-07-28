@@ -62,8 +62,9 @@ def get_channel_delete_confirm_keyboard(channel_id: int) -> InlineKeyboardMarkup
 
 
 def get_cancel_channel_add_keyboard() -> InlineKeyboardMarkup:
-    """لغو اضافه کردن کانال"""
+    """لغو اضافه کردن کانال + راهنما"""
     keyboard = [
+        [InlineKeyboardButton("❓ راهنمای اتصال کانال", callback_data="tut_inline_connect_channel")],
         [InlineKeyboardButton("❌ لغو", callback_data="channel_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
