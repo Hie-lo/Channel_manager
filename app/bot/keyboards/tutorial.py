@@ -11,7 +11,6 @@ CATEGORIES = {
     "upload": "📤 آپلود محصولات",
     "sheet": "📊 Google Sheet",
     "ai": "🤖 هوش مصنوعی",
-    "subscription": "💳 اشتراک",
     "faq": "❓ سوالات متداول",
 }
 

@@ -24,6 +24,8 @@ class UserState(Enum):
     ADMIN_GIFTING_TOKENS = "admin_gifting_tokens"
     ADMIN_BROADCASTING = "admin_broadcasting"
     ADMIN_SEARCHING_CUSTOMER = "admin_searching_customer"
+    WAITING_SUPPORT_MESSAGE = "waiting_support_message"
+    ADMIN_REPLYING_TO_SUPPORT = "admin_replying_to_support"
     
 @dataclass
 class UserContext:

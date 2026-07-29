@@ -147,6 +147,14 @@ from app.bot.handlers.product_image import (
     prod_remove_image_callback,
     product_image_received_handler,
 )
+from app.bot.handlers.support import (
+    support_menu_handler,
+    support_message_received_handler,
+    support_cancel_callback,
+    support_reply_callback,
+    support_reply_cancel_callback,
+    admin_reply_message_handler,
+)
 from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
@@ -174,14 +182,14 @@ async def text_router(update, context):
     user = update.effective_user
     state = get_user_state(user.id)
 
-    from app.utils.logger import log
-    log.info(f"📨 [DEBUG] پیام متنی: user={user.id}, state={state.value if state else 'None'}, text={update.message.text[:80]}")
-
     # چک state های کانال - همه حالت‌ها
-    if state == UserState.WAITING_CHANNEL_ID_TELEGRAM:
-        log.info(f"✅ [DEBUG] رفت به channel handler")  # ← این رو اضافه کن
+    if state in (
+        UserState.WAITING_CHANNEL_ID,
+        UserState.WAITING_CHANNEL_ID_TELEGRAM,
+        UserState.WAITING_CHANNEL_ID_EITAA,
+        UserState.WAITING_CHANNEL_ID_BALE,
+    ):
         await channel_id_received_handler(update, context)
-        log.info(f"✅ [DEBUG] از channel handler برگشت")  # ← این رو اضافه کن
     elif state == UserState.WAITING_CHANNEL_ID_EITAA:
         await channel_id_received_handler(update, context)
     elif state == UserState.WAITING_CHANNEL_ID_BALE:
@@ -200,6 +208,10 @@ async def text_router(update, context):
         await admin_broadcast_text_handler(update, context)
     elif state == UserState.ADMIN_SEARCHING_CUSTOMER:
         await admin_search_customer_handler(update, context)
+    elif state == UserState.WAITING_SUPPORT_MESSAGE:  # ← جدید
+        await support_message_received_handler(update, context)
+    elif state == UserState.ADMIN_REPLYING_TO_SUPPORT:  # ← جدید
+        await admin_reply_message_handler(update, context)
     else:
         log.info(f"⚠️ [DEBUG] پیام بدون state خاص: {update.message.text[:50]}")
 
@@ -373,7 +385,10 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(tut_view_callback, pattern="^tut_view_"))
     app.add_handler(CallbackQueryHandler(tut_category_callback, pattern="^tut_cat_"))
     app.add_handler(CallbackQueryHandler(tut_menu_callback, pattern="^tut_menu$"))
-
+    # ─── کالبک‌های پشتیبانی ───
+    app.add_handler(CallbackQueryHandler(support_cancel_callback, pattern="^support_cancel$"))
+    app.add_handler(CallbackQueryHandler(support_reply_cancel_callback, pattern="^support_reply_cancel$"))
+    app.add_handler(CallbackQueryHandler(support_reply_callback, pattern="^support_reply_"))
     # ═══════════════════════════════════════════════════════════
     # ۳. Message Handlers - دکمه‌های ReplyKeyboard (خاص)
     # ⚠️ باید قبل از text_router عمومی باشن
@@ -411,6 +426,10 @@ def create_bot() -> Application:
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex("^📚 آموزش و راهنما$"),
         tutorial_menu_handler
+    )) 
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^💬 پشتیبانی$"),
+        support_menu_handler
     ))
 
     # ─── منوی ادمین ───
