@@ -2,7 +2,6 @@
 راه‌اندازی و تنظیم ربات تلگرام
 """
 
-from turtle import update
 
 from telegram.ext import (
     Application,
