@@ -334,3 +334,34 @@ class Tutorial(Base):
         default=utc_now_naive,
         onupdate=utc_now_naive,
     )
+
+class ProductPlatformMedia(Base):
+    """
+    ذخیره file_id عکس‌های محصول برای هر پلتفرم
+    این طراحی آینده‌نگره - می‌تونیم بعداً برای ایتا/بله هم استفاده کنیم
+    """
+    __tablename__ = "product_platform_media"
+    __table_args__ = (
+        UniqueConstraint("product_id", "platform", name="uq_product_platform_media"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+
+    platform: Mapped[Platform] = mapped_column(
+        SAEnum(Platform),
+        default=Platform.TELEGRAM,
+    )
+
+    # file_id عکس در اون پلتفرم
+    file_id: Mapped[str] = mapped_column(String(300))
+
+    # آپلود شده توسط مشتری یا از URL دانلود شده
+    uploaded_by_customer: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now_naive,
+        onupdate=utc_now_naive,
+    )

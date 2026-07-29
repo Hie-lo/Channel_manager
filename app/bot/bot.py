@@ -143,7 +143,11 @@ from app.bot.handlers.tutorial import (
     tut_view_callback,
     tut_inline_callback,
 )
-
+from app.bot.handlers.product_image import (
+    prod_upload_image_callback,
+    prod_remove_image_callback,
+    product_image_received_handler,
+)
 from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
 from app.bot.states.user_state import get_user_state, UserState
 from app.utils.logger import log
@@ -225,6 +229,12 @@ async def photo_router(update, context):
         await payment_receipt_handler(update, context)
     elif state == UserState.WAITING_AI_TOKEN_RECEIPT:
         await ai_token_receipt_handler(update, context)
+    elif state == UserState.WAITING_PRODUCT_IMAGE:
+        await product_image_received_handler(update, context)
+    elif user.id == settings.ADMIN_CHAT_ID:
+        # اگه ادمین در حالتی نبود، file_id بگیر
+        from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
+        await admin_get_file_id_handler(update, context)
 
 async def video_router(update, context):
     """مسیریاب ویدیوها - فقط برای گرفتن file_id توسط ادمین"""
@@ -314,7 +324,9 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(upload_download_template_callback, pattern="^upload_download_template$"))
     app.add_handler(CallbackQueryHandler(upload_send_excel_callback, pattern="^upload_send_excel$"))
     app.add_handler(CallbackQueryHandler(upload_cancel_callback, pattern="^upload_cancel$"))
-
+    # ─── کالبک‌های عکس محصول ───
+    app.add_handler(CallbackQueryHandler(prod_upload_image_callback, pattern="^prod_upload_image_"))
+    app.add_handler(CallbackQueryHandler(prod_remove_image_callback, pattern="^prod_remove_image_"))
     # ─── کالبک‌های محصولات ───
     app.add_handler(CallbackQueryHandler(prod_preview_callback, pattern="^prod_preview_"))
     app.add_handler(CallbackQueryHandler(prod_publish_callback, pattern="^prod_publish_"))

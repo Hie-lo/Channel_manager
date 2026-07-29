@@ -1,23 +1,28 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
-# تنظیمات پایه
-ENV PYTHONDONTWRITEBYTECODE=1
+# جلوگیری از بافر output
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# ساخت پوشه کاری
-WORKDIR /app
-
-# نصب وابستگی‌های سیستمی
+# نصب پیش‌نیازها
 RUN apt-get update && apt-get install -y \
     gcc \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# کپی و نصب کتابخانه‌ها
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# پوشه کار
+WORKDIR /app
 
-# کپی کد برنامه
+# نصب dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# کپی کد
 COPY . .
 
-# اجرای ربات
+# ساخت پوشه‌های موردنیاز
+RUN mkdir -p logs secrets
+
+# اجرا
 CMD ["python", "-m", "app.main"]

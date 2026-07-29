@@ -148,9 +148,24 @@ def _format_date(dt: datetime) -> str:
 
 
 def _build_description_block(product: Product) -> str:
-    if product.description_manual and product.description_manual.strip():
-        return f"📝 {product.description_manual.strip()}"
-    return ""
+    """
+    ساخت بلوک توضیحات
+    - اگه متن با ایموجی 📝 شروع میشه (از AI)، همون رو برگردون
+    - وگرنه (از اکسل/شیت)، 📝 اضافه کن
+    """
+    if not product.description_manual:
+        return ""
+
+    text = product.description_manual.strip()
+    if not text:
+        return ""
+
+    # اگه متن با 📝 شروع میشه، خودش داره - دست نزن
+    if text.startswith("📝"):
+        return text
+
+    # وگرنه 📝 اضافه کن
+    return f"📝 {text}"
 
 
 def _clean_empty_lines(text: str) -> str:

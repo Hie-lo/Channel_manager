@@ -40,7 +40,11 @@ from app.services.publisher.telegram_publisher import publish_post_to_telegram
 from app.services.publisher.posted_message_service import create_posted_message
 from app.utils.logger import log
 from app.utils.time import utc_now_naive
-
+from app.database.models import Product, Platform
+from app.services.product_media_service import (
+    get_customer_uploaded_media,
+    get_photo_source_for_platform,
+)
 
 async def run_auto_publish_job(bot: Bot) -> dict:
     """
@@ -278,13 +282,19 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
 
     # ارسال به هر کانال
     any_success = False
+    # گرفتن عکس (اولویت با آپلود شده)
+    async with AsyncSessionLocal() as session:
+        uploaded_media = await get_customer_uploaded_media(session, product.id)
+
+    photo_source = get_photo_source_for_platform(product, uploaded_media)
+
     for channel in channels:
         try:
             result = await publish_post_to_telegram(
                 bot=bot,
                 channel_identifier=channel.channel_identifier,
                 caption=caption,
-                photo_url=product.image_url,
+                photo_url=photo_source,  # ← عکس درست
             )
 
             if result.success and result.message_id:

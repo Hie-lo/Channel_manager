@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 from app.services.subscription.service import get_active_subscription
 from app.services.subscription.plans import get_plan
 from app.database.connection import AsyncSessionLocal
-from app.database.models import CustomerStatus, ProductPublishStatus
+from app.database.models import CustomerStatus, Product, ProductPublishStatus, Platform
 from app.services.customer_service import get_customer_by_telegram_id
 from app.services.product_service import (
     get_all_products_by_customer,
@@ -31,7 +31,10 @@ from app.services.publisher.posted_message_service import (
 )
 from app.utils.logger import log
 from sqlalchemy import select
-
+from app.services.product_media_service import (
+    get_customer_uploaded_media,
+    get_photo_source_for_platform,
+)
 
 PRODUCTS_PER_PAGE = 5
 
@@ -161,19 +164,23 @@ async def prod_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def prod_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش جزئیات یک محصول با دکمه‌های عملیات"""
-
     query = update.callback_query
     await query.answer()
 
     product_id = int(query.data.replace("prod_view_", ""))
     user = query.from_user
 
+    await _show_product_detail(query, product_id, user.id)
+
+
+async def _show_product_detail(query, product_id: int, telegram_user_id: int) -> None:
+    """نمایش جزئیات محصول (helper - برای reuse)"""
+
     async with AsyncSessionLocal() as session:
-        customer = await get_customer_by_telegram_id(session, user.id)
+        customer = await get_customer_by_telegram_id(session, telegram_user_id)
         if not customer:
             return
 
-        from app.database.models import Product
         result = await session.execute(
             select(Product).where(
                 Product.id == product_id,
@@ -186,8 +193,23 @@ async def prod_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text("❌ محصول پیدا نشد!")
             return
 
+        # چک عکس آپلود شده
+        uploaded_media = await get_customer_uploaded_media(session, product_id)
+
+        # چک اشتراک
+        subscription = await get_active_subscription(session, customer.id)
+        can_use_ai = subscription is not None
+
     status = "✅ موجود" if product.is_available else "❌ ناموجود"
     published = "📤 منتشر شده" if product.publish_status == ProductPublishStatus.PUBLISHED else "⏳ منتشر نشده"
+
+    # وضعیت عکس
+    if uploaded_media:
+        image_status = "🖼 عکس آپلود شده ✅"
+    elif product.image_url and product.image_url.strip():
+        image_status = "🔗 عکس از لینک ✅"
+    else:
+        image_status = "❌ بدون عکس"
 
     text = (
         f"📦 جزئیات محصول\n"
@@ -198,6 +220,7 @@ async def prod_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"📦 موجودی: {product.stock_qty} عدد\n"
         f"🚦 وضعیت: {status}\n"
         f"📡 انتشار: {published}\n"
+        f"🖼 عکس: {image_status}\n"
     )
 
     if product.specs:
@@ -208,15 +231,6 @@ async def prod_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if product.description_manual:
         text += f"\n📝 توضیحات:\n{product.description_manual}\n"
 
-    # چک کن آیا مشتری امکان AI داره
-    async with AsyncSessionLocal() as session:
-        subscription = await get_active_subscription(session, customer.id)
-        can_use_ai = False
-        if subscription:
-            plan_obj = get_plan(subscription.plan_key)
-            # AI برای همه پلن‌ها فعاله (اگه توکن داشته باشن)
-            can_use_ai = True
-
     keyboard = [
         [InlineKeyboardButton("👁 پیش‌نمایش پست", callback_data=f"prod_preview_{product.id}")],
         [InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"prod_publish_{product.id}")],
@@ -225,6 +239,28 @@ async def prod_view_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if can_use_ai:
         keyboard.append([
             InlineKeyboardButton("🤖 تولید توضیحات با AI", callback_data=f"ai_start_{product.id}")
+        ])
+
+    # دکمه‌های عکس
+    if uploaded_media:
+        keyboard.append([
+            InlineKeyboardButton(
+                "🖼 تغییر عکس آپلود شده",
+                callback_data=f"prod_upload_image_{product.id}"
+            )
+        ])
+        keyboard.append([
+            InlineKeyboardButton(
+                "❌ حذف عکس آپلود شده",
+                callback_data=f"prod_remove_image_{product.id}"
+            )
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton(
+                "🖼 آپلود عکس محصول",
+                callback_data=f"prod_upload_image_{product.id}"
+            )
         ])
 
     keyboard.append([
@@ -248,7 +284,6 @@ async def prod_preview_callback(update: Update, context: ContextTypes.DEFAULT_TY
         if not customer:
             return
 
-        from app.database.models import Product
         result = await session.execute(
             select(Product).where(
                 Product.id == product_id,
@@ -308,7 +343,6 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
             return
 
         # گرفتن محصول
-        from app.database.models import Product
         result = await session.execute(
             select(Product).where(
                 Product.id == product_id,
@@ -378,7 +412,6 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # آپدیت وضعیت publish محصول اگه حداقل یک ارسال موفق بود
     if success_count > 0:
         async with AsyncSessionLocal() as session:
-            from app.database.models import Product
             result = await session.execute(
                 select(Product).where(Product.id == product_id)
             )
@@ -392,41 +425,51 @@ async def _publish_or_edit(bot, product, channel, caption):
     """
     اگه محصول قبلاً در این کانال پست شده → ویرایش
     اگه نه → ارسال جدید
+
+    از عکس آپلود شده (اگه هست) استفاده می‌کنه، وگرنه از image_url
     """
     async with AsyncSessionLocal() as session:
-        # چک کن قبلاً پست شده یا نه
+        # چک قبلاً پست شده
         existing = await get_posted_message(session, product.id, channel.id)
 
-        if existing and existing.telegram_message_id:
-            # ویرایش
-            has_photo = bool(product.image_url)
-            result = await edit_post_in_telegram(
-                bot=bot,
-                channel_identifier=channel.channel_identifier,
-                message_id=existing.telegram_message_id,
-                new_caption=caption,
-                has_photo=has_photo,
-            )
+        # گرفتن عکس (اولویت با آپلود شده)
+        uploaded_media = await get_customer_uploaded_media(session, product.id)
+        photo_source = get_photo_source_for_platform(product, uploaded_media)
 
-            if result.success:
-                await update_posted_message(
-                    session=session,
-                    posted_message=existing,
-                    new_caption=caption,
-                    new_price=int(product.price),
-                    new_stock_qty=product.stock_qty,
-                )
-            return result
-        else:
-            # ارسال جدید
-            result = await publish_post_to_telegram(
-                bot=bot,
-                channel_identifier=channel.channel_identifier,
-                caption=caption,
-                photo_url=product.image_url,
-            )
+    if existing and existing.telegram_message_id:
+        # ویرایش
+        has_photo = bool(photo_source)
+        result = await edit_post_in_telegram(
+            bot=bot,
+            channel_identifier=channel.channel_identifier,
+            message_id=existing.telegram_message_id,
+            new_caption=caption,
+            has_photo=has_photo,
+        )
 
-            if result.success and result.message_id:
+        if result.success:
+            async with AsyncSessionLocal() as session:
+                posted_fresh = await get_posted_message(session, product.id, channel.id)
+                if posted_fresh:
+                    await update_posted_message(
+                        session=session,
+                        posted_message=posted_fresh,
+                        new_caption=caption,
+                        new_price=int(product.price),
+                        new_stock_qty=product.stock_qty,
+                    )
+        return result
+    else:
+        # ارسال جدید
+        result = await publish_post_to_telegram(
+            bot=bot,
+            channel_identifier=channel.channel_identifier,
+            caption=caption,
+            photo_url=photo_source,  # ← از عکس درست استفاده می‌کنه
+        )
+
+        if result.success and result.message_id:
+            async with AsyncSessionLocal() as session:
                 await create_posted_message(
                     session=session,
                     product_id=product.id,
@@ -436,4 +479,4 @@ async def _publish_or_edit(bot, product, channel, caption):
                     price=int(product.price),
                     stock_qty=product.stock_qty,
                 )
-            return result
+        return result

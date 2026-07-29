@@ -31,20 +31,35 @@ async def publish_post_to_telegram(
 ) -> PublishResult:
     """
     انتشار پست در کانال تلگرام
-    اگه عکس بارگذاری نشد، به صورت متنی ارسال می‌کند (fallback)
+    photo_url می‌تونه URL باشه یا file_id تلگرام
     """
-    # کوتاه کردن متن
     max_len = MAX_CAPTION_LENGTH if photo_url else MAX_TEXT_LENGTH
     if len(caption) > max_len:
         caption = caption[:max_len - 3] + "..."
 
-    # ✨ چک اعتبار URL عکس قبل از ارسال
+    # چک نوع photo_url
+    is_url = False
+    is_file_id = False
+
     if photo_url:
+        photo_url = photo_url.strip()
+        if photo_url.startswith("http://") or photo_url.startswith("https://"):
+            is_url = True
+        else:
+            # هر چیز دیگه‌ای file_id در نظر می‌گیریم
+            is_file_id = True
+
+    # اعتبارسنجی URL (فقط اگه URL باشه)
+    if is_url:
         is_valid = await is_valid_image_url(photo_url)
         if not is_valid:
-            log.warning(f"⚠️ لینک عکس نامعتبر تشخیص داده شد: {photo_url}")
-            log.warning(f"⚠️ Fallback به ارسال متنی برای {channel_identifier}")
+            log.warning(f"⚠️ لینک عکس نامعتبر: {photo_url}")
+            log.warning(f"⚠️ Fallback به متنی")
             return await _fallback_to_text(bot, channel_identifier, caption)
+
+    # اگه file_id هست، مستقیم استفاده کن (بدون اعتبارسنجی URL)
+    if is_file_id:
+        log.info(f"📷 استفاده از file_id تلگرام برای {channel_identifier}")
 
     # تلاش ۱: ارسال با عکس
     if photo_url:

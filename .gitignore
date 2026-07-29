@@ -1,39 +1,38 @@
 # Environment
 .env
+.env.production
+.env.local
+
+# Secrets
+secrets/
+*.json
+!requirements*.txt
+
+# Logs
+logs/
+*.log
 
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-dist/
-build/
-.eggs/
-
-# Virtual Environment
+*.so
 venv/
-.venv/
+.venv
+env/
 
 # IDE
 .vscode/
 .idea/
-
-# Docker
-docker-volumes/
-
-# Logs
-*.log
-logs/
+*.swp
 
 # Testing
+.pytest_cache/
 .coverage
 htmlcov/
-.pytest_cache/
 
 # OS
 .DS_Store
 Thumbs.db
 
-.env.docker
-secrets/
-*.json
-!requirements.json
+# Local test files
+test_*.py
