@@ -211,15 +211,28 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
         settings_obj = await get_posting_settings(session, customer_id)
         auto_ai = settings_obj.auto_ai_description if settings_obj else False
 
+    # متغیر برای نگه داشتن هشدار AI
+    ai_notification = None  # اگر مقدار داشته باشه، به مشتری بعد از پست فرستاده میشه
+
     if auto_ai and (not product.description_manual or not product.description_manual.strip()):
         # چک توکن
         async with AsyncSessionLocal() as session:
             available_tokens = await get_total_available_tokens(session, customer.id)
 
-        if available_tokens >= 1:
+        if available_tokens < 1:
+            # توکن کافی نیست
+            log.warning(
+                f"⚠️ [Customer {customer_id}] AI خودکار فعال ولی توکن کافی نیست"
+            )
+            ai_notification = (
+                f"⚠️ برای محصول <b>{product.product_name}</b> AI اجرا نشد!\n"
+                f"دلیل: توکن AI کافی ندارید\n"
+                f"محصول بدون توضیحات AI پست شد.\n\n"
+                f"💡 برای خرید توکن به منوی '🤖 توکن AI' برید."
+            )
+        else:
             log.info(
-                f"🤖 [Customer {customer_id}] تولید AI خودکار "
-                f"برای {product.sku}"
+                f"🤖 [Customer {customer_id}] تولید AI خودکار برای {product.sku}"
             )
 
             # مصرف توکن
@@ -237,14 +250,13 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                 if ai_result.success:
                     # ذخیره در محصول
                     async with AsyncSessionLocal() as session:
-                        result = await session.execute(
+                        result_prod = await session.execute(
                             select(Product).where(Product.id == product.id)
                         )
-                        p = result.scalar_one_or_none()
+                        p = result_prod.scalar_one_or_none()
                         if p:
                             p.description_manual = ai_result.formatted_text
                             await session.commit()
-                            # آپدیت product مرجع محلی
                             product.description_manual = ai_result.formatted_text
 
                         # لاگ
@@ -267,11 +279,17 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                         f"⚠️ [Customer {customer_id}] AI ناموفق: "
                         f"{ai_result.error_message}"
                     )
-        else:
-            log.info(
-                f"⚠️ [Customer {customer_id}] AI خودکار فعال ولی "
-                f"توکن کافی نیست، ارسال بدون AI"
-            )
+                    ai_notification = (
+                        f"⚠️ برای محصول <b>{product.product_name}</b> AI اجرا نشد!\n"
+                        f"دلیل: {ai_result.error_message}\n"
+                        f"توکن به حساب شما برگشت.\n"
+                        f"محصول بدون توضیحات AI پست شد."
+                    )
+    else:
+        log.info(
+            f"⚠️ [Customer {customer_id}] AI خودکار فعال ولی "
+            f"توکن کافی نیست، ارسال بدون AI"
+        )
     # ساخت کپشن
     caption = build_post_caption(product, business_config, business)
 
@@ -326,22 +344,30 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                 exc_info=True,
             )
 
-    # آپدیت وضعیت
+    # آپدیت وضعیت محصول و زمان آخرین پست
     async with AsyncSessionLocal() as session:
         if any_success:
             await mark_product_as_published(session, product.id)
             await update_last_post_time(session, customer_id)
 
+            # ساخت پیام اطلاع
+            notification_text = (
+                f"📤 پست خودکار ارسال شد\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"محصول: {product.product_name}\n"
+                f"کد: {product.sku}\n"
+                f"━━━━━━━━━━━━━━━"
+            )
+
+            # اگه هشدار AI بود، اضافه کن
+            if ai_notification:
+                notification_text += f"\n\n{ai_notification}"
+
             try:
                 await bot.send_message(
                     chat_id=customer.telegram_user_id,
-                    text=(
-                        f"📤 پست خودکار ارسال شد\n"
-                        f"━━━━━━━━━━━━━━━\n"
-                        f"محصول: {product.product_name}\n"
-                        f"کد: {product.sku}\n"
-                        f"━━━━━━━━━━━━━━━"
-                    ),
+                    text=notification_text,
+                    parse_mode="HTML",
                 )
             except Exception as e:
                 log.warning(f"خطا در اطلاع به مشتری: {e}")
@@ -349,4 +375,22 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
             return "published"
         else:
             await mark_product_as_failed(session, product.id)
+
+            # حتی اگه پست fail شد، هشدار AI رو بفرست
+            if ai_notification:
+                try:
+                    await bot.send_message(
+                        chat_id=customer.telegram_user_id,
+                        text=(
+                            f"❌ ارسال پست ناموفق\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"محصول: {product.product_name}\n"
+                            f"کد: {product.sku}\n\n"
+                            f"{ai_notification}"
+                        ),
+                        parse_mode="HTML",
+                    )
+                except Exception as e:
+                    log.warning(f"خطا در اطلاع به مشتری: {e}")
+
             return "failed"

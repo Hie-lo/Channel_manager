@@ -127,6 +127,19 @@ async def prod_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     end = start + PRODUCTS_PER_PAGE
     page_products = products[start:end]
 
+    # گرفتن business_config برای پیدا کردن اسم دسته‌ها
+    business_config = None
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if customer:
+            business_config = get_business_config_for_customer(customer)
+
+    # ساخت map از sub_category_key به نام فارسی
+    subcategory_names = {}
+    if business_config:
+        for sc in business_config.sub_categories:
+            subcategory_names[sc.key] = f"{sc.emoji} {sc.name_fa}"
+
     text = f"📋 لیست محصولات ({page + 1}/{total_pages})\n━━━━━━━━━━━━━━━\n\n"
 
     for i, product in enumerate(page_products, start=start + 1):
@@ -134,17 +147,38 @@ async def prod_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         published_emoji = "📤" if product.publish_status == ProductPublishStatus.PUBLISHED else "⏳"
         price = f"{int(product.price):,}"
 
+        # نوع محصول
+        category_display = subcategory_names.get(
+            product.sub_category_key,
+            "نامشخص"
+        )
+
         text += (
             f"{i}. {status_emoji} {published_emoji} {product.product_name}\n"
+            f"    📁 {category_display}\n"
             f"    💰 {price} ت | 📦 {product.stock_qty} | 🔖 {product.sku}\n\n"
         )
 
-    # دکمه‌های هر محصول
+    # دکمه‌های هر محصول - با نوع محصول
     keyboard = []
     for product in page_products:
+        # ساخت متن دکمه: نوع + نام
+        category = subcategory_names.get(product.sub_category_key, "")
+
+        # اسم دکمه با محدودیت طول
+        if category:
+            # مثلاً: "💻 لپتاپ - IdeaPad 5"
+            button_text = f"{category[:15]} - {product.product_name[:25]}"
+        else:
+            button_text = f"👁 {product.product_name[:35]}"
+
+        # محدود کردن طول کلی به ۶۴ کاراکتر (محدودیت تلگرام)
+        if len(button_text) > 60:
+            button_text = button_text[:57] + "..."
+
         keyboard.append([
             InlineKeyboardButton(
-                f"👁 {product.product_name[:30]}",
+                button_text,
                 callback_data=f"prod_view_{product.id}",
             )
         ])
