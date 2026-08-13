@@ -95,10 +95,17 @@ async def run_sheet_sync_job(bot: Bot) -> dict:
         return stats
 
 
-async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
+async def sync_customer_sheet(
+    bot: Bot,
+    customer_id: int,
+    apply_changes: bool = True,   # ← جدید: اگه False، فقط گزارش میده
+) -> dict:
     """
     همگام‌سازی شیت یک مشتری خاص
-    شامل: خواندن شیت، تشخیص تغییرات، ذخیره، ویرایش پست‌های موجود، گزارش
+
+    Args:
+        apply_changes: اگه True، تغییرات اعمال میشن
+                      اگه False، فقط تغییرات شناسایی و برگردانده میشن (preview)
     """
     result = {
         "new_count": 0,
@@ -107,10 +114,12 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
         "error_count": 0,
         "price_changes": [],
         "stock_changes": [],
+        "applied": apply_changes,
+        "new_products_data": [],  # ← جدید: داده‌های محصولات جدید
     }
 
     async with AsyncSessionLocal() as session:
-        # گرفتن مشتری و اطلاعات
+        # گرفتن اطلاعات
         customer_result = await session.execute(
             select(Customer).where(Customer.id == customer_id)
         )
@@ -134,7 +143,7 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
         business = await get_business_for_customer(session, customer.id)
         plan = get_plan(subscription.plan_key)
 
-        # گرفتن محصولات قبلی برای مقایسه
+        # گرفتن محصولات قبلی
         existing_products = await get_all_products_by_customer(session, customer.id)
         existing_by_sku = {p.sku: p for p in existing_products}
 
@@ -149,21 +158,26 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
     if sheet_data.is_empty and sheet_data.has_errors:
         first_error = sheet_data.all_errors[0] if sheet_data.all_errors else None
         error_msg = f"خطا در خواندن شیت: {first_error.message}" if first_error else "شیت خالی است"
-        async with AsyncSessionLocal() as session:
-            await update_sync_status(session, customer_id, False, error_msg)
+        if apply_changes:
+            async with AsyncSessionLocal() as session:
+                await update_sync_status(session, customer_id, False, error_msg)
         result["error"] = error_msg
         return result
 
-    # تشخیص تغییرات قیمت و موجودی برای محصولات موجود
+    # تشخیص تغییرات + محصولات جدید
     for product_data in sheet_data.all_products:
         sku = product_data.get("sku")
         if not sku:
             continue
 
         existing = existing_by_sku.get(sku)
+
         if not existing:
+            # محصول جدید
+            result["new_products_data"].append(product_data)
             continue
 
+        # محصول موجود - تشخیص تغییرات
         detection = detect_product_changes(existing, product_data)
 
         if detection.price_changed:
@@ -184,7 +198,21 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
                 "product_id": existing.id,
             })
 
-    # ذخیره محصولات
+    result["new_count"] = len(result["new_products_data"])
+
+    # اگه فقط preview هست، همینجا برگرد
+    if not apply_changes:
+        log.info(
+            f"[Sync Customer {customer_id}] Preview - "
+            f"جدید: {result['new_count']}, قیمت: {len(result['price_changes'])}, "
+            f"موجودی: {len(result['stock_changes'])}"
+        )
+        return result
+
+    # ═══════════════════════════════════════
+    # اعمال تغییرات
+    # ═══════════════════════════════════════
+
     async with AsyncSessionLocal() as session:
         business_id = business.id if business else None
 
@@ -196,12 +224,11 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
             max_products_limit=plan.max_products,
         )
 
-        result["new_count"] = save_result.new_count
         result["updated_count"] = save_result.updated_count
         result["unchanged_count"] = save_result.unchanged_count
         result["error_count"] = save_result.error_count
 
-    # ویرایش پست‌های موجود برای محصولاتی که تغییر کردن
+    # ویرایش پست‌های موجود
     if result["price_changes"] or result["stock_changes"]:
         changed_product_ids = set()
         for change in result["price_changes"] + result["stock_changes"]:
@@ -218,7 +245,7 @@ async def sync_customer_sheet(bot: Bot, customer_id: int) -> dict:
     async with AsyncSessionLocal() as session:
         await update_sync_status(session, customer_id, True, None)
 
-    # ارسال گزارش به مشتری اگه تغییری بوده
+    # ارسال گزارش
     total_changes = (
         result["new_count"]
         + len(result["price_changes"])
