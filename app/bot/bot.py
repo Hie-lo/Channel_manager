@@ -148,6 +148,7 @@ from app.bot.handlers.product_image import (
     prod_upload_image_callback,
     prod_remove_image_callback,
     product_image_received_handler,
+    prod_finish_upload_callback,
 )
 from app.bot.handlers.support import (
     support_menu_handler,
@@ -298,7 +299,7 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(admin_broadcast_cancel_callback, pattern="^admin_broadcast_cancel$"))
     app.add_handler(CallbackQueryHandler(admin_cancel_callback, pattern="^admin_cancel$"))
     app.add_handler(CommandHandler("force_ai_test", admin_force_ai_test_handler))
-    
+
     # ─── کالبک‌های ادمین - مدیریت اشتراک ───
     # ⚠️ ترتیب مهم! confirm ها قبل از parent
     app.add_handler(CallbackQueryHandler(admin_sub_cancel_confirm_callback, pattern="^admin_sub_cancel_confirm_"))
@@ -346,7 +347,7 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(prod_publish_callback, pattern="^prod_publish_"))
     app.add_handler(CallbackQueryHandler(prod_view_callback, pattern="^prod_view_"))
     app.add_handler(CallbackQueryHandler(prod_list_callback, pattern="^prod_list_"))
-
+    app.add_handler(CallbackQueryHandler(prod_finish_upload_callback, pattern="^prod_finish_upload_"))
     # ─── کالبک‌های تنظیمات ارسال ───
     # ⚠️ ترتیب مهم! interval_ و hours_ قبل از set_
     app.add_handler(CallbackQueryHandler(posting_interval_selected_callback, pattern="^posting_interval_"))

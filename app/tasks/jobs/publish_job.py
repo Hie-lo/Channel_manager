@@ -300,20 +300,38 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
 
     # ارسال به هر کانال
     any_success = False
-    # گرفتن عکس (اولویت با آپلود شده)
-    async with AsyncSessionLocal() as session:
-        uploaded_media = await get_customer_uploaded_media(session, product.id)
+    # گرفتن عکس‌ها (اولویت با آپلود شده)
+    from app.services.product_media_service import (
+        get_product_medias,
+        get_photo_sources_for_platform,
+    )
+    from app.services.publisher.telegram_publisher import (
+        publish_media_group_to_telegram,
+    )
 
-    photo_source = get_photo_source_for_platform(product, uploaded_media)
+    async with AsyncSessionLocal() as session:
+        uploaded_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
+
+    photo_sources = get_photo_sources_for_platform(product, uploaded_medias)
 
     for channel in channels:
         try:
-            result = await publish_post_to_telegram(
-                bot=bot,
-                channel_identifier=channel.channel_identifier,
-                caption=caption,
-                photo_url=photo_source,  # ← عکس درست
-            )
+            # آلبوم یا تک عکس
+            if len(photo_sources) > 1:
+                result = await publish_media_group_to_telegram(
+                    bot=bot,
+                    channel_identifier=channel.channel_identifier,
+                    caption=caption,
+                    photo_sources=photo_sources,
+                )
+            else:
+                photo_url = photo_sources[0] if photo_sources else None
+                result = await publish_post_to_telegram(
+                    bot=bot,
+                    channel_identifier=channel.channel_identifier,
+                    caption=caption,
+                    photo_url=photo_url,
+                )
 
             if result.success and result.message_id:
                 async with AsyncSessionLocal() as session:

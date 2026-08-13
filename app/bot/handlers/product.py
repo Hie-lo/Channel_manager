@@ -162,19 +162,17 @@ async def prod_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # دکمه‌های هر محصول - با نوع محصول
     keyboard = []
     for product in page_products:
-        # ساخت متن دکمه: نوع + نام
         category = subcategory_names.get(product.sub_category_key, "")
 
-        # اسم دکمه با محدودیت طول
+        # ساخت متن دکمه بدون قطع کردن اجباری
         if category:
-            # مثلاً: "💻 لپتاپ - IdeaPad 5"
-            button_text = f"{category[:15]} - {product.product_name[:25]}"
+            button_text = f"{category} - {product.product_name}"
         else:
-            button_text = f"👁 {product.product_name[:35]}"
+            button_text = f"👁 {product.product_name}"
 
-        # محدود کردن طول کلی به ۶۴ کاراکتر (محدودیت تلگرام)
-        if len(button_text) > 60:
-            button_text = button_text[:57] + "..."
+        # فقط اگه واقعاً طولانی بود، محدود کن (تلگرام حداکثر ~۶۴ کاراکتر)
+        if len(button_text) > 64:
+            button_text = button_text[:61] + "..."
 
         keyboard.append([
             InlineKeyboardButton(
@@ -227,8 +225,10 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
             await query.edit_message_text("❌ محصول پیدا نشد!")
             return
 
-        # چک عکس آپلود شده
-        uploaded_media = await get_customer_uploaded_media(session, product_id)
+        # چک عکس‌های آپلود شده
+        from app.services.product_media_service import get_product_medias, count_product_medias
+        uploaded_medias = await get_product_medias(session, product_id, Platform.TELEGRAM)
+        media_count = len(uploaded_medias)
 
         # چک اشتراک
         subscription = await get_active_subscription(session, customer.id)
@@ -238,8 +238,8 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
     published = "📤 منتشر شده" if product.publish_status == ProductPublishStatus.PUBLISHED else "⏳ منتشر نشده"
 
     # وضعیت عکس
-    if uploaded_media:
-        image_status = "🖼 عکس آپلود شده ✅"
+    if media_count > 0:
+        image_status = f"🖼 {media_count} عکس آپلود شده ✅"
     elif product.image_url and product.image_url.strip():
         image_status = "🔗 عکس از لینک ✅"
     else:
@@ -276,7 +276,7 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
         ])
 
     # دکمه‌های عکس
-    if uploaded_media:
+    if media_count > 0:
         keyboard.append([
             InlineKeyboardButton(
                 "🖼 تغییر عکس آپلود شده",
@@ -457,22 +457,32 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def _publish_or_edit(bot, product, channel, caption):
     """
-    اگه محصول قبلاً در این کانال پست شده → ویرایش
-    اگه نه → ارسال جدید
+    اگه محصول قبلاً در این کانال پست شده → ویرایش کپشن
+    اگه نه → ارسال جدید (تک عکس یا آلبوم)
 
-    از عکس آپلود شده (اگه هست) استفاده می‌کنه، وگرنه از image_url
+    از عکس‌های آپلود شده (اگه هست) استفاده می‌کنه، وگرنه از image_url
     """
+    from app.services.product_media_service import (
+        get_product_medias,
+        get_photo_sources_for_platform,
+    )
+    from app.services.publisher.telegram_publisher import (
+        publish_media_group_to_telegram,
+    )
+
     async with AsyncSessionLocal() as session:
         # چک قبلاً پست شده
         existing = await get_posted_message(session, product.id, channel.id)
 
-        # گرفتن عکس (اولویت با آپلود شده)
-        uploaded_media = await get_customer_uploaded_media(session, product.id)
-        photo_source = get_photo_source_for_platform(product, uploaded_media)
+        # گرفتن عکس‌ها (اولویت با آپلود شده)
+        uploaded_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
+        photo_sources = get_photo_sources_for_platform(product, uploaded_medias)
 
+    # ═══════════════════════════════════════════
+    # حالت ۱: قبلاً پست شده → ویرایش کپشن
+    # ═══════════════════════════════════════════
     if existing and existing.telegram_message_id:
-        # ویرایش
-        has_photo = bool(photo_source)
+        has_photo = bool(photo_sources)
         result = await edit_post_in_telegram(
             bot=bot,
             channel_identifier=channel.channel_identifier,
@@ -493,24 +503,40 @@ async def _publish_or_edit(bot, product, channel, caption):
                         new_stock_qty=product.stock_qty,
                     )
         return result
+
+    # ═══════════════════════════════════════════
+    # حالت ۲: پست جدید
+    # ═══════════════════════════════════════════
+
+    # اگه چند عکس هست → آلبوم
+    if len(photo_sources) > 1:
+        result = await publish_media_group_to_telegram(
+            bot=bot,
+            channel_identifier=channel.channel_identifier,
+            caption=caption,
+            photo_sources=photo_sources,
+        )
+    # اگه یه عکس یا بدون عکس
     else:
-        # ارسال جدید
+        photo_url = photo_sources[0] if photo_sources else None
         result = await publish_post_to_telegram(
             bot=bot,
             channel_identifier=channel.channel_identifier,
             caption=caption,
-            photo_url=photo_source,  # ← از عکس درست استفاده می‌کنه
+            photo_url=photo_url,
         )
 
-        if result.success and result.message_id:
-            async with AsyncSessionLocal() as session:
-                await create_posted_message(
-                    session=session,
-                    product_id=product.id,
-                    channel_id=channel.id,
-                    telegram_message_id=result.message_id,
-                    caption=caption,
-                    price=int(product.price),
-                    stock_qty=product.stock_qty,
-                )
-        return result
+    # ذخیره در دیتابیس (برای هر دو حالت)
+    if result.success and result.message_id:
+        async with AsyncSessionLocal() as session:
+            await create_posted_message(
+                session=session,
+                product_id=product.id,
+                channel_id=channel.id,
+                telegram_message_id=result.message_id,
+                caption=caption,
+                price=int(product.price),
+                stock_qty=product.stock_qty,
+            )
+
+    return result

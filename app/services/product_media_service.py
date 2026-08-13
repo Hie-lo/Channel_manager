@@ -1,8 +1,8 @@
 """
-سرویس مدیریت عکس‌های محصول برای پلتفرم‌های مختلف
+سرویس مدیریت عکس‌های محصول (تک عکس یا چند عکس / آلبوم)
 """
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ProductPlatformMedia, Platform
@@ -10,48 +10,53 @@ from app.utils.logger import log
 from app.utils.time import utc_now_naive
 
 
-async def get_product_media(
+MAX_PHOTOS_PER_PRODUCT = 10  # محدودیت تلگرام برای media group
+
+
+async def get_product_medias(
     session: AsyncSession,
     product_id: int,
-    platform: Platform,
-) -> ProductPlatformMedia | None:
-    """گرفتن عکس محصول برای یک پلتفرم خاص"""
+    platform: Platform = Platform.TELEGRAM,
+) -> list[ProductPlatformMedia]:
+    """گرفتن همه عکس‌های محصول برای یه پلتفرم (به ترتیب order)"""
     result = await session.execute(
-        select(ProductPlatformMedia).where(
+        select(ProductPlatformMedia)
+        .where(
             ProductPlatformMedia.product_id == product_id,
             ProductPlatformMedia.platform == platform,
         )
+        .order_by(ProductPlatformMedia.media_order.asc())
     )
-    return result.scalar_one_or_none()
+    return list(result.scalars().all())
 
 
-async def set_product_media(
+async def add_product_media(
     session: AsyncSession,
     product_id: int,
-    platform: Platform,
     file_id: str,
-    uploaded_by_customer: bool = False,
-) -> ProductPlatformMedia:
+    platform: Platform = Platform.TELEGRAM,
+    uploaded_by_customer: bool = True,
+) -> ProductPlatformMedia | None:
     """
-    ذخیره یا آپدیت file_id عکس محصول برای یک پلتفرم
+    اضافه کردن یه عکس جدید به آخر لیست
+    اگه از حد مجاز بیشتر بشه، None برمی‌گرده
     """
-    existing = await get_product_media(session, product_id, platform)
+    existing = await get_product_medias(session, product_id, platform)
 
-    if existing:
-        existing.file_id = file_id
-        existing.uploaded_by_customer = uploaded_by_customer
-        existing.updated_at = utc_now_naive()
-        await session.commit()
-        await session.refresh(existing)
-        log.info(
-            f"📷 عکس محصول {product_id} برای {platform.value} آپدیت شد"
+    if len(existing) >= MAX_PHOTOS_PER_PRODUCT:
+        log.warning(
+            f"محصول {product_id} به حداکثر تعداد عکس ({MAX_PHOTOS_PER_PRODUCT}) رسیده"
         )
-        return existing
+        return None
+
+    # ترتیب جدید = آخرین + 1
+    next_order = max([m.media_order for m in existing], default=-1) + 1
 
     media = ProductPlatformMedia(
         product_id=product_id,
         platform=platform,
         file_id=file_id,
+        media_order=next_order,
         uploaded_by_customer=uploaded_by_customer,
         created_at=utc_now_naive(),
     )
@@ -59,25 +64,22 @@ async def set_product_media(
     await session.commit()
     await session.refresh(media)
     log.info(
-        f"📷 عکس محصول {product_id} برای {platform.value} ذخیره شد"
+        f"📷 عکس جدید (order={next_order}) به محصول {product_id} اضافه شد"
     )
     return media
 
 
-async def remove_product_media(
+async def remove_all_product_media(
     session: AsyncSession,
     product_id: int,
     platform: Platform | None = None,
 ) -> int:
     """
-    حذف عکس محصول
-    اگه platform مشخص باشه، فقط اون پلتفرم
-    اگه None باشه، همه پلتفرم‌ها
+    حذف همه عکس‌های آپلود شده مشتری
     """
     query = select(ProductPlatformMedia).where(
         ProductPlatformMedia.product_id == product_id
     )
-
     if platform:
         query = query.where(ProductPlatformMedia.platform == platform)
 
@@ -95,45 +97,35 @@ async def remove_product_media(
     return count
 
 
-async def get_customer_uploaded_media(
+async def count_product_medias(
     session: AsyncSession,
     product_id: int,
-) -> ProductPlatformMedia | None:
-    """
-    گرفتن عکس آپلود شده توسط مشتری (اگه هست)
-    """
-    result = await session.execute(
-        select(ProductPlatformMedia).where(
-            ProductPlatformMedia.product_id == product_id,
-            ProductPlatformMedia.uploaded_by_customer == True,
-        )
-    )
-    return result.scalar_one_or_none()
+    platform: Platform = Platform.TELEGRAM,
+) -> int:
+    """شمارش تعداد عکس‌های محصول"""
+    medias = await get_product_medias(session, product_id, platform)
+    return len(medias)
 
 
-def get_photo_source_for_platform(
+def get_photo_sources_for_platform(
     product,
-    telegram_media: ProductPlatformMedia | None = None,
-) -> str | None:
+    medias: list[ProductPlatformMedia],
+) -> list[str]:
     """
-    گرفتن منبع عکس برای ارسال به تلگرام
+    گرفتن لیست منابع عکس برای ارسال
     اولویت:
-    1. عکس آپلود شده توسط مشتری (file_id تلگرام)
-    2. لینک image_url در اکسل/شیت
-
-    Args:
-        product: آبجکت محصول
-        telegram_media: عکس تلگرام (اگه از قبل گرفته شده)
+    1. عکس‌های آپلود شده توسط مشتری (لیست file_id ها)
+    2. لینک image_url در اکسل/شیت (یک URL)
 
     Returns:
-        file_id یا URL یا None
+        لیست از file_id یا URL ها (یا لیست خالی اگه هیچی نبود)
     """
-    # اولویت ۱: عکس آپلود شده
-    if telegram_media and telegram_media.file_id:
-        return telegram_media.file_id
+    # اولویت ۱: عکس‌های آپلود شده
+    if medias:
+        return [m.file_id for m in medias]
 
     # اولویت ۲: لینک image_url
     if product.image_url and product.image_url.strip():
-        return product.image_url.strip()
+        return [product.image_url.strip()]
 
-    return None
+    return []

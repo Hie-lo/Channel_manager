@@ -2,7 +2,7 @@
 انتشار پست در کانال تلگرام
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from telegram import Bot
 from telegram.error import TelegramError, BadRequest
 from app.utils.validators import is_valid_image_url
@@ -19,8 +19,9 @@ class PublishResult:
     """نتیجه انتشار پست"""
     success: bool
     message_id: int | None = None
+    message_ids: list[int] = field(default_factory=list)  # ← جدید (برای media group)
     error_message: str = ""
-    used_fallback: bool = False  # آیا از fallback (بدون عکس) استفاده شد
+    used_fallback: bool = False
 
 
 async def publish_post_to_telegram(
@@ -249,3 +250,73 @@ def _translate_telegram_error(error_msg: str) -> str:
         return "پست قابل ویرایش پیدا نشد"
 
     return f"خطا: {error_msg[:100]}"
+
+async def publish_media_group_to_telegram(
+    bot: Bot,
+    channel_identifier: str,
+    caption: str,
+    photo_sources: list[str],
+) -> PublishResult:
+    """
+    ارسال چند عکس به صورت آلبوم (media group)
+    photo_sources: لیست file_id ها یا URL ها
+    """
+    from telegram import InputMediaPhoto
+
+    if not photo_sources:
+        return await _send_text_only(bot, channel_identifier, caption)
+
+    # اگه فقط یه عکس بود، از تابع تک‌عکس استفاده کن
+    if len(photo_sources) == 1:
+        return await publish_post_to_telegram(
+            bot=bot,
+            channel_identifier=channel_identifier,
+            caption=caption,
+            photo_url=photo_sources[0],
+        )
+
+    # کوتاه کردن کپشن
+    if len(caption) > MAX_CAPTION_LENGTH:
+        caption = caption[:MAX_CAPTION_LENGTH - 3] + "..."
+
+    # ساخت InputMediaPhoto لیست
+    # کپشن فقط روی اولی
+    media_list = []
+    for i, source in enumerate(photo_sources[:10]):  # حداکثر ۱۰ عکس
+        if i == 0:
+            media_list.append(InputMediaPhoto(media=source, caption=caption))
+        else:
+            media_list.append(InputMediaPhoto(media=source))
+
+    try:
+        messages = await bot.send_media_group(
+            chat_id=channel_identifier,
+            media=media_list,
+        )
+
+        message_ids = [msg.message_id for msg in messages]
+        log.info(
+            f"آلبوم با {len(messages)} عکس ارسال شد به {channel_identifier}"
+        )
+
+        return PublishResult(
+            success=True,
+            message_id=message_ids[0],
+            message_ids=message_ids,  # ← همه ID ها
+            used_fallback=False,
+        )
+    except (BadRequest, TelegramError) as e:
+        error_msg = str(e).lower()
+        log.error(f"خطا در ارسال آلبوم: {e}")
+
+        if _is_photo_error(error_msg):
+            log.warning("Fallback به متنی")
+            return await _fallback_to_text(bot, channel_identifier, caption)
+
+        return PublishResult(
+            success=False,
+            error_message=_translate_telegram_error(str(e)),
+        )
+    except Exception as e:
+        log.error(f"خطای غیرمنتظره در آلبوم: {e}", exc_info=True)
+        return await _fallback_to_text(bot, channel_identifier, caption)

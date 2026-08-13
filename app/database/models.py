@@ -202,7 +202,10 @@ class PostedMessage(Base):
     )
     # ✅ BigInteger برای message_id تلگرام
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-
+    # آیدی همه پیام‌های media group (اگه آلبوم بود)
+    # به صورت JSON list: [123, 124, 125]
+    telegram_message_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    
     last_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_price: Mapped[Numeric | None] = mapped_column(Numeric(18, 0), nullable=True)
     last_stock_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -338,11 +341,16 @@ class Tutorial(Base):
 class ProductPlatformMedia(Base):
     """
     ذخیره file_id عکس‌های محصول برای هر پلتفرم
-    این طراحی آینده‌نگره - می‌تونیم بعداً برای ایتا/بله هم استفاده کنیم
+    یک محصول می‌تونه چند عکس داشته باشه (order مشخص می‌کنه ترتیب)
     """
     __tablename__ = "product_platform_media"
     __table_args__ = (
-        UniqueConstraint("product_id", "platform", name="uq_product_platform_media"),
+        UniqueConstraint(
+            "product_id",
+            "platform",
+            "media_order",
+            name="uq_product_platform_media_order",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -353,8 +361,11 @@ class ProductPlatformMedia(Base):
         default=Platform.TELEGRAM,
     )
 
-    # file_id عکس در اون پلتفرم
+    # file_id عکس
     file_id: Mapped[str] = mapped_column(String(300))
+
+    # ترتیب عکس (0 = اول، 1 = دوم، ...)
+    media_order: Mapped[int] = mapped_column(Integer, default=0)
 
     # آپلود شده توسط مشتری یا از URL دانلود شده
     uploaded_by_customer: Mapped[bool] = mapped_column(Boolean, default=False)
