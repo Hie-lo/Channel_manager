@@ -45,7 +45,11 @@ class Settings:
     
     # Google Sheets
     GOOGLE_CREDENTIALS_FILE: str = os.getenv("GOOGLE_CREDENTIALS_FILE", "secrets/google_service_account.json")
-   
+
+    # Eitaa
+    EITAA_API_BASE: str = os.getenv("EITAA_API_BASE", "https://eitaayar.ir/api")
+    EITAA_TIMEOUT: int = int(os.getenv("EITAA_TIMEOUT", "30"))
+    EITAA_MAX_RETRIES: int = int(os.getenv("EITAA_MAX_RETRIES", "2"))
 
 
 settings = Settings()

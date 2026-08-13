@@ -175,18 +175,46 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
             "یا -100123456789"
         )
     elif platform_str == "EITAA":
-        set_user_state(user.id, UserState.WAITING_CHANNEL_ID_EITAA)
-        log.info(f"✅ [DEBUG] state ست شد: WAITING_CHANNEL_ID_EITAA")
-        text = (
-            "📢 اتصال کانال ایتا\n"
-            "━━━━━━━━━━━━━━━\n\n"
-            "⚠️ <b>توجه</b>: این پلتفرم به زودی فعال میشه.\n"
-            "الان کانال رو ثبت می‌کنید و وقت فعال شدن،\n"
-            "خودکار شروع به کار می‌کنه.\n\n"
-            "لطفاً لینک یا آیدی کانال ایتا رو بفرستید:\n"
-            "مثال: eitaa.com/my_channel\n"
-            "یا: @my_channel"
-        )
+        # چک کن مشتری قبلاً توکن ایتا داده یا نه
+        async with AsyncSessionLocal() as session:
+            from app.services.customer_service import get_customer_eitaa_token
+            eitaa_token = await get_customer_eitaa_token(session, customer.id)
+
+        if not eitaa_token:
+            # اولین بار - توکن رو بگیر
+            set_user_state(user.id, UserState.WAITING_EITAA_TOKEN)
+            log.info(f"✅ [DEBUG] state ست شد: WAITING_EITAA_TOKEN")
+            text = (
+                "📢 <b>اتصال کانال ایتا - مرحله ۱ از ۲</b>\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                "🔑 <b>ابتدا توکن ربات ایتا رو نیاز داریم</b>\n\n"
+                "📝 <b>راهنمای دریافت توکن:</b>\n\n"
+                "1️⃣ به سایت <b>eitaayar.ir</b> برید و ثبت‌نام کنید\n\n"
+                "2️⃣ در پنل، کانال ایتای خودتون رو اضافه کنید\n\n"
+                "3️⃣ ربات ایتایار رو به عنوان ادمین به کانال اضافه کنید\n\n"
+                "4️⃣ توکن API رو از پنل کپی کنید\n"
+                "(چیزی شبیه: <code>bot123456:xxxx-xxxx-xxxx</code>)\n\n"
+                "5️⃣ توکن رو اینجا ارسال کنید\n\n"
+                "━━━━━━━━━━━━━━━\n"
+                "💡 <b>نکته:</b> توکن فقط یک بار گرفته میشه\n"
+                "و برای همه کانال‌های ایتای شما استفاده میشه."
+            )
+        else:
+            # توکن قبلاً داده شده - فقط chat_id
+            set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
+            log.info(f"✅ [DEBUG] state ست شد: WAITING_EITAA_CHAT_ID")
+            text = (
+                "📢 <b>اتصال کانال ایتا</b>\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                "✅ توکن ایتا از قبل ذخیره شده.\n\n"
+                "🆔 <b>لطفاً chat_id کانال ایتا رو ارسال کنید</b>\n\n"
+                "📝 <b>راهنما:</b>\n"
+                "1️⃣ به پنل ایتایار برید (eitaayar.ir)\n"
+                "2️⃣ کانالتون رو انتخاب کنید\n"
+                "3️⃣ chat_id عددی رو کپی کنید\n"
+                "(مثال: <code>11226043</code>)\n\n"
+                "4️⃣ اینجا ارسال کنید"
+            )
     elif platform_str == "BALE":
         set_user_state(user.id, UserState.WAITING_CHANNEL_ID_BALE)
         log.info(f"✅ [DEBUG] state ست شد: WAITING_CHANNEL_ID_BALE")
@@ -222,22 +250,18 @@ async def channel_id_received_handler(update: Update, context: ContextTypes.DEFA
 
     log.info(f"🎯 [DEBUG] channel_id_received_handler اجرا شد: state={state}")
 
-    # چک state
     if state == UserState.WAITING_CHANNEL_ID_TELEGRAM:
-        log.info(f"➡️ [DEBUG] رفتن به _handle_telegram_channel")
         await _handle_telegram_channel(update, context)
-    elif state == UserState.WAITING_CHANNEL_ID_EITAA:
-        log.info(f"➡️ [DEBUG] رفتن به _handle_eitaa_channel")
-        await _handle_eitaa_channel(update, context)
+    elif state == UserState.WAITING_EITAA_TOKEN:
+        await _handle_eitaa_token(update, context)
+    elif state == UserState.WAITING_EITAA_CHAT_ID:
+        await _handle_eitaa_chat_id(update, context)
     elif state == UserState.WAITING_CHANNEL_ID_BALE:
-        log.info(f"➡️ [DEBUG] رفتن به _handle_bale_channel")
         await _handle_bale_channel(update, context)
     elif state == UserState.WAITING_CHANNEL_ID:
-        log.info(f"➡️ [DEBUG] state قدیمی، رفتن به _handle_telegram_channel")
         await _handle_telegram_channel(update, context)
     else:
-        log.warning(f"⚠️ [DEBUG] state نامعتبر: {state}")
-
+        log.warning(f"⚠️ state نامعتبر: {state}")
 
 # ═══════════════════════════════════════════════════════════
 # پردازش کانال تلگرام (با احراز واقعی)
@@ -320,7 +344,208 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
         f"حالا می‌تونید محصولات رو در این کانال منتشر کنید."
     )
 
+async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    مرحله ۱: دریافت توکن ربات ایتا
+    """
+    user = update.effective_user
+    token_input = update.message.text.strip()
 
+    log.info(f"🔍 [Eitaa Token] دریافت شد: {token_input[:20]}...")
+
+    # اعتبارسنجی فرمت توکن
+    if not token_input.startswith("bot") or ":" not in token_input:
+        await update.message.reply_text(
+            "❌ فرمت توکن اشتباه است!\n\n"
+            "توکن باید با <b>bot</b> شروع بشه و شامل <b>:</b> باشه.\n\n"
+            "مثال:\n"
+            "<code>bot123456:xxxxx-xxxxx-xxxxx</code>\n\n"
+            "دوباره ارسال کنید یا لغو کنید.",
+            parse_mode="HTML",
+        )
+        return
+
+    if len(token_input) < 30:
+        await update.message.reply_text(
+            "❌ توکن خیلی کوتاه است!\n\n"
+            "لطفاً توکن کامل رو کپی کنید."
+        )
+        return
+
+    # تست توکن با یه درخواست ساده
+    checking_msg = await update.message.reply_text(
+        "🔍 در حال بررسی توکن..."
+    )
+
+    # تست: تلاش برای گرفتن اطلاعات ربات
+    from app.services.publisher.eitaa_client import EitaaClient
+
+    try:
+        client = EitaaClient(token=token_input)
+        # چون getMe نداریم، یه پیام کوتاه به یه chat_id اشتباه می‌فرستیم
+        # اگه توکن غلط باشه، error_code=401 برمی‌گردونه
+        # اگه توکن درست باشه ولی chat_id غلط، error_code=400 برمی‌گردونه
+        test_result = await client.send_message(chat_id="0", text="test")
+
+        # اگه 401 برگشت، توکن مشکل داره
+        if test_result.error_code == 401:
+            await checking_msg.edit_text(
+                f"❌ توکن نامعتبر است!\n\n"
+                f"دلیل: {test_result.error_message}\n\n"
+                f"لطفاً توکن رو دوباره از پنل ایتایار کپی کنید."
+            )
+            return
+
+        # هر پاسخ دیگه‌ای (حتی 400) یعنی توکن OK هست
+        log.info(f"✅ [Eitaa Token] توکن معتبر (error_code={test_result.error_code})")
+
+    except Exception as e:
+        log.error(f"[Eitaa Token] خطا در بررسی: {e}")
+        await checking_msg.edit_text(
+            f"⚠️ خطا در بررسی توکن:\n{str(e)[:200]}\n\n"
+            f"لطفاً دوباره تلاش کنید."
+        )
+        return
+
+    # ذخیره توکن
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await checking_msg.edit_text("❌ خطا!")
+            clear_user_state(user.id)
+            return
+
+        from app.services.customer_service import set_customer_eitaa_token
+        await set_customer_eitaa_token(session, customer.id, token_input)
+
+    # حالا chat_id رو بگیر
+    set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
+
+    await checking_msg.edit_text(
+        "✅ توکن ذخیره شد!\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        "📢 <b>مرحله ۲ از ۲</b>\n\n"
+        "🆔 حالا <b>chat_id کانال ایتا</b> رو ارسال کنید:\n\n"
+        "📝 <b>راهنما:</b>\n"
+        "1️⃣ به پنل ایتایار برید\n"
+        "2️⃣ کانالتون رو انتخاب کنید\n"
+        "3️⃣ chat_id عددی رو کپی کنید\n"
+        "(مثال: <code>11226043</code>)\n\n"
+        "4️⃣ اینجا ارسال کنید",
+        parse_mode="HTML",
+    )
+
+
+async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    مرحله ۲: دریافت chat_id کانال ایتا و ذخیره
+    """
+    user = update.effective_user
+    chat_id_input = update.message.text.strip()
+
+    log.info(f"🔍 [Eitaa Chat ID] دریافت شد: {chat_id_input}")
+
+    # اعتبارسنجی: باید عددی باشه
+    if not chat_id_input.lstrip("-").isdigit():
+        await update.message.reply_text(
+            "❌ فرمت chat_id اشتباه است!\n\n"
+            "chat_id باید فقط عدد باشه.\n"
+            "مثال: <code>11226043</code>\n\n"
+            "دوباره ارسال کنید.",
+            parse_mode="HTML",
+        )
+        return
+
+    checking_msg = await update.message.reply_text(
+        "🔍 در حال بررسی کانال..."
+    )
+
+    # گرفتن مشتری و توکن
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await checking_msg.edit_text("❌ خطا!")
+            clear_user_state(user.id)
+            return
+
+        from app.services.customer_service import get_customer_eitaa_token
+        eitaa_token = await get_customer_eitaa_token(session, customer.id)
+
+        if not eitaa_token:
+            await checking_msg.edit_text(
+                "❌ توکن ایتا پیدا نشد! از اول شروع کنید."
+            )
+            clear_user_state(user.id)
+            return
+
+        # چک تکراری
+        already_exists = await check_channel_already_exists(
+            session, customer.id, chat_id_input
+        )
+        if already_exists:
+            await checking_msg.edit_text(
+                "⚠️ این کانال قبلاً اضافه شده است."
+            )
+            clear_user_state(user.id)
+            return
+
+    # تست ارسال یه پیام تست
+    from app.services.publisher.eitaa_client import EitaaClient
+
+    try:
+        client = EitaaClient(token=eitaa_token)
+        test_result = await client.send_message(
+            chat_id=chat_id_input,
+            text="✅ اتصال با موفقیت برقرار شد!\n\nاز این پس محصولات شما در این کانال منتشر می‌شوند.",
+        )
+
+        if not test_result.ok:
+            await checking_msg.edit_text(
+                f"❌ اتصال به کانال ناموفق!\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"دلیل: {test_result.error_message}\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+                f"⚠️ <b>مطمئن شوید:</b>\n"
+                f"• chat_id درست باشه\n"
+                f"• ربات ایتایار در کانال ادمین باشه\n"
+                f"• کانال فعال باشه\n\n"
+                f"دوباره تلاش کنید.",
+                parse_mode="HTML",
+            )
+            return
+
+        log.info(f"✅ [Eitaa] تست موفق: message_id={test_result.message_id}")
+
+    except Exception as e:
+        log.error(f"[Eitaa Chat] خطا در تست: {e}", exc_info=True)
+        await checking_msg.edit_text(
+            f"⚠️ خطا در تست:\n{str(e)[:200]}\n\n"
+            f"لطفاً دوباره تلاش کنید."
+        )
+        return
+
+    # ذخیره کانال
+    async with AsyncSessionLocal() as session:
+        channel = await add_channel_for_customer(
+            session=session,
+            customer_id=customer.id,
+            channel_identifier=chat_id_input,
+            platform=Platform.EITAA,
+            activation_status="ACTIVE",  # ← الان ACTIVE چون تست شده
+        )
+
+    clear_user_state(user.id)
+
+    await checking_msg.edit_text(
+        f"✅ کانال ایتا با موفقیت متصل شد!\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📢 پلتفرم: ایتا\n"
+        f"🆔 chat_id: {chat_id_input}\n"
+        f"✅ وضعیت: فعال\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"💡 یک پیام تستی به کانال ارسال شد.\n"
+        f"از الان محصولات شما در این کانال ایتا هم منتشر میشن."
+    )
 # ═══════════════════════════════════════════════════════════
 # پردازش کانال ایتا (فقط ثبت)
 # ═══════════════════════════════════════════════════════════

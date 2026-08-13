@@ -28,6 +28,8 @@ class UserState(Enum):
     ADMIN_REPLYING_TO_SUPPORT = "admin_replying_to_support"
     VIEWING_SYNC_PREVIEW = "viewing_sync_preview"
     WAITING_EDIT_POSTS_DECISION = "waiting_edit_posts_decision"
+    WAITING_EITAA_TOKEN = "waiting_eitaa_token"
+    WAITING_EITAA_CHAT_ID = "waiting_eitaa_chat_id"
 @dataclass
 class UserContext:
     state: UserState = UserState.IDLE

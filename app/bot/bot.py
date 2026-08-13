@@ -193,7 +193,10 @@ async def text_router(update, context):
         UserState.WAITING_CHANNEL_ID_TELEGRAM,
         UserState.WAITING_CHANNEL_ID_EITAA,
         UserState.WAITING_CHANNEL_ID_BALE,
+        UserState.WAITING_EITAA_TOKEN,       # ← جدید
+        UserState.WAITING_EITAA_CHAT_ID,     # ← جدید
     ):
+        await channel_id_received_handler(update, context)
         await channel_id_received_handler(update, context)
     elif state == UserState.WAITING_CHANNEL_ID_EITAA:
         await channel_id_received_handler(update, context)

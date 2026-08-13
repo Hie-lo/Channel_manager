@@ -105,3 +105,42 @@ async def get_all_pending_customers(
         select(Customer).where(Customer.customer_status == CustomerStatus.PENDING)
     )
     return list(result.scalars().all())
+
+async def set_customer_eitaa_token(
+    session: AsyncSession,
+    customer_id: int,
+    eitaa_token: str,
+) -> Customer | None:
+    """ذخیره توکن ایتای مشتری"""
+    result = await session.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer:
+        return None
+
+    customer.eitaa_bot_token = eitaa_token
+    customer.updated_at = utc_now_naive()
+
+    await session.commit()
+    await session.refresh(customer)
+
+    log.info(f"توکن ایتا برای مشتری {customer_id} ذخیره شد")
+    return customer
+
+
+async def get_customer_eitaa_token(
+    session: AsyncSession,
+    customer_id: int,
+) -> str | None:
+    """گرفتن توکن ایتای مشتری"""
+    result = await session.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer:
+        return None
+
+    return customer.eitaa_bot_token
