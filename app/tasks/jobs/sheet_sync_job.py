@@ -63,25 +63,41 @@ async def run_sheet_sync_job(bot: Bot) -> dict:
 
             for conn in connections:
                 try:
-                    result = await sync_customer_sheet(bot, conn.customer_id)
+                    # sync با ادیت خودکار پست‌ها
+                    sync_result = await sync_customer_sheet(
+                        bot,
+                        conn.customer_id,
+                        edit_posts_now=True,
+                    )
 
-                    if result.get("error"):
+                    if sync_result.get("error"):
                         stats["failed_count"] += 1
                         stats["details"].append(
-                            f"مشتری {conn.customer_id}: ❌ {result['error'][:50]}"
+                            f"مشتری {conn.customer_id}: ❌ {sync_result['error'][:50]}"
                         )
                     else:
                         stats["success_count"] += 1
-                        changes = (
-                            result.get("new_count", 0)
-                            + result.get("updated_count", 0)
-                        )
-                        stats["details"].append(
-                            f"مشتری {conn.customer_id}: ✅ {changes} تغییر"
-                        )
+                        new_count = sync_result.get("new_count", 0)
+                        updated_count = sync_result.get("updated_count", 0)
+                        edited_count = sync_result.get("edited_posts_count", 0)
+
+                        details = f"مشتری {conn.customer_id}: ✅"
+                        if new_count > 0:
+                            details += f" جدید={new_count}"
+                        if updated_count > 0:
+                            details += f" آپدیت={updated_count}"
+                        if edited_count > 0:
+                            details += f" ادیت‌پست={edited_count}"
+                        if new_count == 0 and updated_count == 0 and edited_count == 0:
+                            details += " بدون تغییر"
+
+                        stats["details"].append(details)
                 except Exception as e:
-                    log.error(f"خطا در sync مشتری {conn.customer_id}: {e}")
+                    log.error(f"خطا در sync مشتری {conn.customer_id}: {e}", exc_info=True)
                     stats["failed_count"] += 1
+                    stats["details"].append(
+                        f"مشتری {conn.customer_id}: ❌ خطا: {str(e)[:50]}"
+                    )
 
         log.info(
             f"✅ [Sheet Sync Job] پایان - "
@@ -216,26 +232,23 @@ async def sync_customer_sheet(
     # ═══════════════════════════════════════
 
     if result["price_changes"] or result["stock_changes"]:
-        changed_product_ids = set()
-        for change in result["price_changes"] + result["stock_changes"]:
-            changed_product_ids.add(change["product_id"])
-
-        # شمارش پست‌های PUBLISHED (که نیاز به ادیت دارن)
-        published_product_ids = await _count_published_products(
-            list(changed_product_ids)
-        )
+        changed_product_ids = list(set(
+            change["product_id"]
+            for change in result["price_changes"] + result["stock_changes"]
+        ))
 
         if edit_posts_now:
-            # الان ادیت کن
+            # الان ادیت کن (Job خودکار)
             edited_count = await _edit_published_posts(
                 bot=bot,
                 customer_id=customer_id,
-                product_ids=list(changed_product_ids),
+                product_ids=changed_product_ids,
             )
             result["edited_posts_count"] = edited_count
         else:
-            # فقط شمارش کن، ادیت نکن
-            result["pending_edits_count"] = published_product_ids
+            # فقط شمارش کن که چند تا از این محصولات PUBLISHED هستن
+            published_count = await _count_published_products(changed_product_ids)
+            result["pending_edits_count"] = published_count
 
     # آپدیت وضعیت sync
     async with AsyncSessionLocal() as session:
@@ -262,43 +275,72 @@ async def _edit_published_posts(
     customer_id: int,
     product_ids: list[int],
 ) -> int:
-    """ویرایش پست‌های منتشر شده"""
+    """
+    ویرایش پست‌های منتشر شده در همه کانال‌های مشتری
+    برای محصولاتی که در product_ids هستن
+    """
     edited_count = 0
 
     async with AsyncSessionLocal() as session:
+        # اطلاعات مشتری
         customer_result = await session.execute(
             select(Customer).where(Customer.id == customer_id)
         )
         customer = customer_result.scalar_one_or_none()
         if not customer:
+            log.warning(f"[Edit Posts] مشتری {customer_id} پیدا نشد")
             return 0
 
         business_config = get_business_config_for_customer(customer)
         business = await get_business_for_customer(session, customer.id)
-        channels = await get_customer_channels(session, customer.id, only_active=True)
+        channels = await get_customer_channels(session, customer.id)
 
+        if not channels:
+            log.warning(f"[Edit Posts] مشتری {customer_id} کانال نداره")
+            return 0
+
+        # فقط کانال‌های ACTIVE
+        active_channels = [c for c in channels if c.activation_status == "ACTIVE"]
+
+        if not active_channels:
+            log.warning(f"[Edit Posts] مشتری {customer_id} کانال ACTIVE نداره")
+            return 0
+
+        # محصولات
         from app.database.models import Product
         products_result = await session.execute(
             select(Product).where(Product.id.in_(product_ids))
         )
         products = list(products_result.scalars().all())
 
-    for product in products:
-        # فقط محصولات منتشر شده رو ویرایش کن
-        if product.publish_status != ProductPublishStatus.PUBLISHED:
-            continue
+    log.info(
+        f"[Edit Posts] شروع ادیت: {len(products)} محصول، "
+        f"{len(active_channels)} کانال"
+    )
 
+    for product in products:
+        # ساخت کپشن جدید
         caption = build_post_caption(product, business_config, business)
 
-        for channel in channels:
+        for channel in active_channels:
+            # پیدا کن پست قبلی
             async with AsyncSessionLocal() as session:
                 posted = await get_posted_message(session, product.id, channel.id)
 
             if not posted or not posted.telegram_message_id:
+                log.info(
+                    f"[Edit Posts] محصول {product.sku} در کانال "
+                    f"{channel.channel_identifier} پست نشده، رد شد"
+                )
                 continue
 
-            has_photo = bool(product.image_url)
+            # چک عکس داره یا نه
+            from app.services.product_media_service import get_product_medias
+            async with AsyncSessionLocal() as session:
+                medias = await get_product_medias(session, product.id, channel.platform)
+            has_photo = len(medias) > 0 or bool(product.image_url)
 
+            # ادیت
             edit_result = await edit_post_in_telegram(
                 bot=bot,
                 channel_identifier=channel.channel_identifier,
@@ -308,8 +350,11 @@ async def _edit_published_posts(
             )
 
             if edit_result.success:
+                # آپدیت posted_message با مقادیر جدید
                 async with AsyncSessionLocal() as session:
-                    posted_fresh = await get_posted_message(session, product.id, channel.id)
+                    posted_fresh = await get_posted_message(
+                        session, product.id, channel.id
+                    )
                     if posted_fresh:
                         await update_posted_message(
                             session=session,
@@ -320,16 +365,16 @@ async def _edit_published_posts(
                         )
                 edited_count += 1
                 log.info(
-                    f"✅ [Sync] پست ویرایش شد: "
-                    f"{channel.channel_identifier} - {product.sku}"
+                    f"✅ [Edit Posts] {product.sku} در "
+                    f"{channel.channel_identifier} ادیت شد"
                 )
             else:
                 log.error(
-                    f"❌ [Sync] ویرایش ناموفق: "
-                    f"{channel.channel_identifier} - {product.sku}: "
-                    f"{edit_result.error_message}"
+                    f"❌ [Edit Posts] خطا در {product.sku} - "
+                    f"{channel.channel_identifier}: {edit_result.error_message}"
                 )
 
+    log.info(f"[Edit Posts] پایان: {edited_count} پست ادیت شد")
     return edited_count
 
 
@@ -373,10 +418,14 @@ async def apply_pending_post_edits(bot: Bot, customer_id: int) -> dict:
     """
     ادیت پست‌های تلگرام برای محصولاتی که در دیتابیس تغییر کردن
     ولی هنوز پست تلگرامشون آپدیت نشده
+
+    منطق: مقایسه product.price/stock_qty با posted_message.last_price/last_stock_qty
     """
+    from app.database.models import Product, ProductPublishStatus, PostedMessage
+    from decimal import Decimal
+
     async with AsyncSessionLocal() as session:
-        # پیدا کن همه محصولاتی که PUBLISHED هستن
-        from app.database.models import Product, ProductPublishStatus, PostedMessage
+        # همه محصولات PUBLISHED مشتری
         products_result = await session.execute(
             select(Product).where(
                 Product.customer_id == customer_id,
@@ -388,25 +437,52 @@ async def apply_pending_post_edits(bot: Bot, customer_id: int) -> dict:
         if not published_products:
             return {"edited_count": 0, "message": "محصول منتشر شده‌ای نیست"}
 
-        # چک کن کدوم‌هاشون قیمت/موجودی تغییر کرده نسبت به posted_messages
+        # پیدا کن محصولاتی که نیاز به ادیت دارن
         products_needing_edit = []
+
         for product in published_products:
+            # همه posted_messages این محصول
             posted_result = await session.execute(
                 select(PostedMessage).where(PostedMessage.product_id == product.id)
             )
             posted_messages = list(posted_result.scalars().all())
 
-            for pm in posted_messages:
-                # اگه قیمت یا موجودی فرق داره، نیاز به ادیت
-                price_changed = pm.last_price is not None and int(pm.last_price) != int(product.price)
-                stock_changed = pm.last_stock_qty is not None and pm.last_stock_qty != product.stock_qty
+            if not posted_messages:
+                continue
 
-                if price_changed or stock_changed:
+            for pm in posted_messages:
+                # قیمت فعلی محصول
+                current_price = int(product.price) if product.price else 0
+
+                # قیمت ذخیره شده در آخرین پست
+                # اگه last_price None باشه، حتماً نیاز به ادیت داره
+                if pm.last_price is None:
                     products_needing_edit.append(product.id)
+                    log.info(
+                        f"[Pending Edit] محصول {product.sku}: "
+                        f"last_price=None، نیاز به ادیت"
+                    )
+                    break
+
+                last_price = int(pm.last_price)
+
+                # موجودی
+                current_stock = product.stock_qty or 0
+                last_stock = pm.last_stock_qty if pm.last_stock_qty is not None else -1
+
+                if current_price != last_price or current_stock != last_stock:
+                    products_needing_edit.append(product.id)
+                    log.info(
+                        f"[Pending Edit] محصول {product.sku}: "
+                        f"قیمت {last_price} → {current_price}, "
+                        f"موجودی {last_stock} → {current_stock}"
+                    )
                     break
 
     if not products_needing_edit:
         return {"edited_count": 0, "message": "همه پست‌ها به‌روز هستن"}
+
+    log.info(f"[Pending Edit] {len(products_needing_edit)} محصول نیاز به ادیت دارن")
 
     # ادیت
     edited_count = await _edit_published_posts(
