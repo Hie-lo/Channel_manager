@@ -42,8 +42,12 @@ from app.utils.logger import log
 from app.utils.time import utc_now_naive
 from app.database.models import Product, Platform
 from app.services.product_media_service import (
-    get_customer_uploaded_media,
-    get_photo_source_for_platform,
+    get_product_medias,
+    get_photo_sources_for_platform,
+)
+from app.services.publisher.telegram_publisher import (
+    publish_post_to_telegram,
+    publish_media_group_to_telegram,
 )
 
 async def run_auto_publish_job(bot: Bot) -> dict:

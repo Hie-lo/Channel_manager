@@ -32,10 +32,10 @@ from app.services.publisher.posted_message_service import (
 from app.utils.logger import log
 from sqlalchemy import select
 from app.services.product_media_service import (
-    get_customer_uploaded_media,
-    get_photo_source_for_platform,
+    get_product_medias,
+    get_photo_sources_for_platform,
+    count_product_medias,
 )
-
 PRODUCTS_PER_PAGE = 5
 
 
