@@ -63,7 +63,7 @@ async def run_sheet_sync_job(bot: Bot) -> dict:
 
             for conn in connections:
                 try:
-                    # sync با ادیت خودکار پست‌ها
+                    # ۱. sync شیت
                     sync_result = await sync_customer_sheet(
                         bot,
                         conn.customer_id,
@@ -75,23 +75,31 @@ async def run_sheet_sync_job(bot: Bot) -> dict:
                         stats["details"].append(
                             f"مشتری {conn.customer_id}: ❌ {sync_result['error'][:50]}"
                         )
-                    else:
-                        stats["success_count"] += 1
-                        new_count = sync_result.get("new_count", 0)
-                        updated_count = sync_result.get("updated_count", 0)
-                        edited_count = sync_result.get("edited_posts_count", 0)
+                        continue
 
-                        details = f"مشتری {conn.customer_id}: ✅"
-                        if new_count > 0:
-                            details += f" جدید={new_count}"
-                        if updated_count > 0:
-                            details += f" آپدیت={updated_count}"
-                        if edited_count > 0:
-                            details += f" ادیت‌پست={edited_count}"
-                        if new_count == 0 and updated_count == 0 and edited_count == 0:
-                            details += " بدون تغییر"
+                    # ۲. ادیت پست‌های معلق (اگه از قبل sync دستی شده ولی پست‌ها ادیت نشدن)
+                    from app.tasks.jobs.sheet_sync_job import apply_pending_post_edits
+                    pending_result = await apply_pending_post_edits(bot, conn.customer_id)
+                    pending_edited = pending_result.get("edited_count", 0)
 
-                        stats["details"].append(details)
+                    # ۳. جمع‌بندی
+                    stats["success_count"] += 1
+                    new_count = sync_result.get("new_count", 0)
+                    updated_count = sync_result.get("updated_count", 0)
+                    edited_count = sync_result.get("edited_posts_count", 0) + pending_edited
+
+                    details = f"مشتری {conn.customer_id}: ✅"
+                    if new_count > 0:
+                        details += f" جدید={new_count}"
+                    if updated_count > 0:
+                        details += f" آپدیت={updated_count}"
+                    if edited_count > 0:
+                        details += f" ادیت‌پست={edited_count}"
+                    if new_count == 0 and updated_count == 0 and edited_count == 0:
+                        details += " بدون تغییر"
+
+                    stats["details"].append(details)
+
                 except Exception as e:
                     log.error(f"خطا در sync مشتری {conn.customer_id}: {e}", exc_info=True)
                     stats["failed_count"] += 1
