@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 5
 
-    bot:
+  bot:
     build: .
     container_name: channel_manager_bot
     restart: unless-stopped
@@ -27,7 +27,7 @@ services:
     env_file:
       - .env.production
     volumes:
-      - ./app:/app/app                                            # ← کد اصلی mount شد
+      - ./app:/app/app
       - ./logs:/app/logs
       - ./secrets:/app/secrets:ro
     environment:
