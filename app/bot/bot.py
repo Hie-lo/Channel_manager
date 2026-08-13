@@ -3,6 +3,7 @@
 """
 
 
+from celery import app
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -71,6 +72,7 @@ from app.bot.handlers.admin import (
     admin_test_reminder_job_handler,
     admin_test_sheet_sync_handler,
     admin_test_daily_report_handler,
+    admin_force_ai_test_handler
 )
 from app.bot.handlers.sheet_connection import (
     sheet_menu_handler,
@@ -295,7 +297,8 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(admin_broadcast_confirm_callback, pattern="^admin_broadcast_confirm$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast_cancel_callback, pattern="^admin_broadcast_cancel$"))
     app.add_handler(CallbackQueryHandler(admin_cancel_callback, pattern="^admin_cancel$"))
-
+    app.add_handler(CommandHandler("force_ai_test", admin_force_ai_test_handler))
+    
     # ─── کالبک‌های ادمین - مدیریت اشتراک ───
     # ⚠️ ترتیب مهم! confirm ها قبل از parent
     app.add_handler(CallbackQueryHandler(admin_sub_cancel_confirm_callback, pattern="^admin_sub_cancel_confirm_"))
