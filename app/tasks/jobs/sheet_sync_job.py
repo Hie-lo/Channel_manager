@@ -98,14 +98,14 @@ async def run_sheet_sync_job(bot: Bot) -> dict:
 async def sync_customer_sheet(
     bot: Bot,
     customer_id: int,
-    apply_changes: bool = True,   # ← جدید: اگه False، فقط گزارش میده
+    edit_posts_now: bool = True,   # ← جدید: اگه False، پست‌ها ادیت نمیشن
 ) -> dict:
     """
-    همگام‌سازی شیت یک مشتری خاص
+    همگام‌سازی شیت یک مشتری
 
     Args:
-        apply_changes: اگه True، تغییرات اعمال میشن
-                      اگه False، فقط تغییرات شناسایی و برگردانده میشن (preview)
+        edit_posts_now: اگه True، پست‌های تلگرام هم ادیت میشن
+                       اگه False، فقط دیتابیس آپدیت میشه (پست‌ها بعداً ادیت میشن)
     """
     result = {
         "new_count": 0,
@@ -114,12 +114,11 @@ async def sync_customer_sheet(
         "error_count": 0,
         "price_changes": [],
         "stock_changes": [],
-        "applied": apply_changes,
-        "new_products_data": [],  # ← جدید: داده‌های محصولات جدید
+        "edited_posts_count": 0,
+        "pending_edits_count": 0,   # ← جدید: تعداد پست‌هایی که نیاز به ادیت دارن ولی نکردیم
     }
 
     async with AsyncSessionLocal() as session:
-        # گرفتن اطلاعات
         customer_result = await session.execute(
             select(Customer).where(Customer.id == customer_id)
         )
@@ -143,7 +142,6 @@ async def sync_customer_sheet(
         business = await get_business_for_customer(session, customer.id)
         plan = get_plan(subscription.plan_key)
 
-        # گرفتن محصولات قبلی
         existing_products = await get_all_products_by_customer(session, customer.id)
         existing_by_sku = {p.sku: p for p in existing_products}
 
@@ -158,26 +156,21 @@ async def sync_customer_sheet(
     if sheet_data.is_empty and sheet_data.has_errors:
         first_error = sheet_data.all_errors[0] if sheet_data.all_errors else None
         error_msg = f"خطا در خواندن شیت: {first_error.message}" if first_error else "شیت خالی است"
-        if apply_changes:
-            async with AsyncSessionLocal() as session:
-                await update_sync_status(session, customer_id, False, error_msg)
+        async with AsyncSessionLocal() as session:
+            await update_sync_status(session, customer_id, False, error_msg)
         result["error"] = error_msg
         return result
 
-    # تشخیص تغییرات + محصولات جدید
+    # تشخیص تغییرات
     for product_data in sheet_data.all_products:
         sku = product_data.get("sku")
         if not sku:
             continue
 
         existing = existing_by_sku.get(sku)
-
         if not existing:
-            # محصول جدید
-            result["new_products_data"].append(product_data)
             continue
 
-        # محصول موجود - تشخیص تغییرات
         detection = detect_product_changes(existing, product_data)
 
         if detection.price_changed:
@@ -198,19 +191,8 @@ async def sync_customer_sheet(
                 "product_id": existing.id,
             })
 
-    result["new_count"] = len(result["new_products_data"])
-
-    # اگه فقط preview هست، همینجا برگرد
-    if not apply_changes:
-        log.info(
-            f"[Sync Customer {customer_id}] Preview - "
-            f"جدید: {result['new_count']}, قیمت: {len(result['price_changes'])}, "
-            f"موجودی: {len(result['stock_changes'])}"
-        )
-        return result
-
     # ═══════════════════════════════════════
-    # اعمال تغییرات
+    # همیشه: ذخیره محصولات در دیتابیس
     # ═══════════════════════════════════════
 
     async with AsyncSessionLocal() as session:
@@ -224,38 +206,55 @@ async def sync_customer_sheet(
             max_products_limit=plan.max_products,
         )
 
+        result["new_count"] = save_result.new_count
         result["updated_count"] = save_result.updated_count
         result["unchanged_count"] = save_result.unchanged_count
         result["error_count"] = save_result.error_count
 
-    # ویرایش پست‌های موجود
+    # ═══════════════════════════════════════
+    # ادیت پست‌های موجود (فقط اگه edit_posts_now=True)
+    # ═══════════════════════════════════════
+
     if result["price_changes"] or result["stock_changes"]:
         changed_product_ids = set()
         for change in result["price_changes"] + result["stock_changes"]:
             changed_product_ids.add(change["product_id"])
 
-        edited_count = await _edit_published_posts(
-            bot=bot,
-            customer_id=customer_id,
-            product_ids=list(changed_product_ids),
+        # شمارش پست‌های PUBLISHED (که نیاز به ادیت دارن)
+        published_product_ids = await _count_published_products(
+            list(changed_product_ids)
         )
-        result["edited_posts_count"] = edited_count
+
+        if edit_posts_now:
+            # الان ادیت کن
+            edited_count = await _edit_published_posts(
+                bot=bot,
+                customer_id=customer_id,
+                product_ids=list(changed_product_ids),
+            )
+            result["edited_posts_count"] = edited_count
+        else:
+            # فقط شمارش کن، ادیت نکن
+            result["pending_edits_count"] = published_product_ids
 
     # آپدیت وضعیت sync
     async with AsyncSessionLocal() as session:
         await update_sync_status(session, customer_id, True, None)
 
-    # ارسال گزارش
-    total_changes = (
-        result["new_count"]
-        + len(result["price_changes"])
-        + len(result["stock_changes"])
-    )
-
-    if total_changes > 0:
-        await _send_sync_report(bot, customer.telegram_user_id, result)
-
     return result
+
+
+async def _count_published_products(product_ids: list[int]) -> int:
+    """شمارش محصولاتی که publish شدن (نیاز به ادیت پست دارن)"""
+    async with AsyncSessionLocal() as session:
+        from app.database.models import Product, ProductPublishStatus
+        result = await session.execute(
+            select(Product).where(
+                Product.id.in_(product_ids),
+                Product.publish_status == ProductPublishStatus.PUBLISHED,
+            )
+        )
+        return len(list(result.scalars().all()))
 
 
 async def _edit_published_posts(
@@ -369,3 +368,51 @@ async def _send_sync_report(bot: Bot, telegram_user_id: int, result: dict) -> No
         await bot.send_message(chat_id=telegram_user_id, text=text)
     except Exception as e:
         log.error(f"خطا در ارسال گزارش sync: {e}")
+
+async def apply_pending_post_edits(bot: Bot, customer_id: int) -> dict:
+    """
+    ادیت پست‌های تلگرام برای محصولاتی که در دیتابیس تغییر کردن
+    ولی هنوز پست تلگرامشون آپدیت نشده
+    """
+    async with AsyncSessionLocal() as session:
+        # پیدا کن همه محصولاتی که PUBLISHED هستن
+        from app.database.models import Product, ProductPublishStatus, PostedMessage
+        products_result = await session.execute(
+            select(Product).where(
+                Product.customer_id == customer_id,
+                Product.publish_status == ProductPublishStatus.PUBLISHED,
+            )
+        )
+        published_products = list(products_result.scalars().all())
+
+        if not published_products:
+            return {"edited_count": 0, "message": "محصول منتشر شده‌ای نیست"}
+
+        # چک کن کدوم‌هاشون قیمت/موجودی تغییر کرده نسبت به posted_messages
+        products_needing_edit = []
+        for product in published_products:
+            posted_result = await session.execute(
+                select(PostedMessage).where(PostedMessage.product_id == product.id)
+            )
+            posted_messages = list(posted_result.scalars().all())
+
+            for pm in posted_messages:
+                # اگه قیمت یا موجودی فرق داره، نیاز به ادیت
+                price_changed = pm.last_price is not None and int(pm.last_price) != int(product.price)
+                stock_changed = pm.last_stock_qty is not None and pm.last_stock_qty != product.stock_qty
+
+                if price_changed or stock_changed:
+                    products_needing_edit.append(product.id)
+                    break
+
+    if not products_needing_edit:
+        return {"edited_count": 0, "message": "همه پست‌ها به‌روز هستن"}
+
+    # ادیت
+    edited_count = await _edit_published_posts(
+        bot=bot,
+        customer_id=customer_id,
+        product_ids=products_needing_edit,
+    )
+
+    return {"edited_count": edited_count}

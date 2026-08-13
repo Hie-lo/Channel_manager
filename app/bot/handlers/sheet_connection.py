@@ -473,13 +473,17 @@ async def sheet_delete_confirm_callback(update: Update, context: ContextTypes.DE
 
 
 async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """همگام‌سازی دستی - نمایش preview قبل از اعمال"""
+    """
+    همگام‌سازی دستی
+    داده‌ها فوری آپدیت میشن
+    برای ادیت پست‌ها از مشتری تایید می‌گیریم
+    """
     query = update.callback_query
     await query.answer()
 
     user = query.from_user
 
-    await query.edit_message_text("🔄 در حال بررسی تغییرات...")
+    await query.edit_message_text("🔄 در حال همگام‌سازی از Google Sheet...")
 
     try:
         from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
@@ -491,11 +495,11 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("❌ خطا!")
             return
 
-        # فقط preview بگیر
+        # sync با ادیت پست‌ها = False (فقط دیتابیس آپدیت میشه)
         sync_result = await sync_customer_sheet(
             context.bot,
             customer.id,
-            apply_changes=False,
+            edit_posts_now=False,   # ← پست‌ها ادیت نشن
         )
 
         if sync_result.get("error"):
@@ -505,123 +509,101 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
             )
             return
 
+        # ساخت متن گزارش
         new_count = sync_result.get("new_count", 0)
+        updated_count = sync_result.get("updated_count", 0)
+        unchanged_count = sync_result.get("unchanged_count", 0)
         price_changes = sync_result.get("price_changes", [])
         stock_changes = sync_result.get("stock_changes", [])
+        pending_edits = sync_result.get("pending_edits_count", 0)
 
-        total_changes = new_count + len(price_changes) + len(stock_changes)
+        text = (
+            f"✅ همگام‌سازی انجام شد\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📊 نتیجه:\n"
+            f"├── 🆕 محصول جدید: {new_count}\n"
+            f"├── 🔄 آپدیت شده: {updated_count}\n"
+            f"├── ✅ بدون تغییر: {unchanged_count}\n"
+        )
 
-        if total_changes == 0:
+        if price_changes:
+            text += f"├── 💰 تغییر قیمت: {len(price_changes)}\n"
+        if stock_changes:
+            text += f"└── 📦 تغییر موجودی: {len(stock_changes)}\n"
+        else:
+            text += "\n"
+
+        text += "━━━━━━━━━━━━━━━\n"
+
+        # اگه پست‌های منتشر شده نیاز به ادیت دارن
+        if pending_edits > 0:
+            text += (
+                f"\n⚠️ <b>توجه:</b>\n"
+                f"📤 <b>{pending_edits} پست منتشر شده</b> در کانال، \n"
+                f"با تغییرات جدید هنوز آپدیت نشده.\n\n"
+                f"می‌خوای الان پست‌ها رو در کانال آپدیت کنم\n"
+                f"یا صبر کنی در همگام‌سازی خودکار بعدی انجام بشه؟"
+            )
+
+            # ذخیره در state
+            set_user_state(
+                user.id,
+                UserState.WAITING_EDIT_POSTS_DECISION,
+                data={"customer_id": customer.id},
+            )
+
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        "✏️ الان آپدیت کن",
+                        callback_data="sync_edit_posts_now"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        "⏰ بعداً (خودکار)",
+                        callback_data="sync_edit_posts_later"
+                    )
+                ],
+            ]
+
             await query.edit_message_text(
-                "✅ همه چیز به‌روزه!\n"
-                "━━━━━━━━━━━━━━━\n"
-                "هیچ تغییری در شیت شناسایی نشد.",
+                text,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+        else:
+            # هیچ پست منتشر شده‌ای نیاز به ادیت نداره
+            if price_changes or stock_changes:
+                text += (
+                    f"\n💡 محصولاتی که تغییر کردن، هنوز در کانال\n"
+                    f"منتشر نشدن. وقتی منتشر بشن، با قیمت جدید ارسال می‌شن."
+                )
+            else:
+                text += "\n✅ همه چیز به‌روزه!"
+
+            await query.edit_message_text(
+                text,
+                parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔙 بازگشت", callback_data="sheet_back_to_menu")]
                 ]),
             )
-            return
-
-        # ذخیره در state برای اعمال بعدی
-        set_user_state(
-            user.id,
-            UserState.VIEWING_SYNC_PREVIEW,
-            data={"customer_id": customer.id},
-        )
-
-        # ساخت متن گزارش
-        text = (
-            f"🔍 پیش‌نمایش تغییرات\n"
-            f"━━━━━━━━━━━━━━━\n"
-        )
-
-        if new_count > 0:
-            text += f"🆕 محصولات جدید: {new_count}\n"
-
-        if price_changes:
-            text += f"💰 تغییرات قیمت: {len(price_changes)}\n"
-
-        if stock_changes:
-            text += f"📦 تغییرات موجودی: {len(stock_changes)}\n"
-
-        text += f"━━━━━━━━━━━━━━━\n\n"
-
-        # جزئیات تغییرات قیمت (حداکثر ۵)
-        if price_changes:
-            text += "💰 <b>تغییرات قیمت:</b>\n"
-            for change in price_changes[:5]:
-                arrow = "📈" if change["new"] > change["old"] else "📉"
-                text += (
-                    f"{arrow} {change['name'][:30]}\n"
-                    f"   {change['old']:,} → {change['new']:,}\n"
-                )
-            if len(price_changes) > 5:
-                text += f"... و {len(price_changes) - 5} مورد دیگر\n"
-            text += "\n"
-
-        # جزئیات تغییرات موجودی (حداکثر ۵)
-        if stock_changes:
-            text += "📦 <b>تغییرات موجودی:</b>\n"
-            for change in stock_changes[:5]:
-                status = "❌ ناموجود" if change["new"] == 0 else f"✅ {change['new']}"
-                text += f"• {change['name'][:30]}: {status}\n"
-            if len(stock_changes) > 5:
-                text += f"... و {len(stock_changes) - 5} مورد دیگر\n"
-            text += "\n"
-
-        # جزئیات محصولات جدید (حداکثر ۵)
-        if new_count > 0:
-            text += "🆕 <b>محصولات جدید:</b>\n"
-            for prod_data in sync_result["new_products_data"][:5]:
-                name = prod_data.get("product_name", "?")[:40]
-                text += f"• {name}\n"
-            if new_count > 5:
-                text += f"... و {new_count - 5} محصول دیگر\n"
-            text += "\n"
-
-        text += (
-            f"━━━━━━━━━━━━━━━\n"
-            f"⚠️ <b>توجه:</b>\n"
-            f"• تغییرات قیمت/موجودی روی پست‌های موجود اعمال میشه\n"
-            f"• محصولات جدید به سیستم اضافه میشن\n"
-            f"• اگه AI خودکار فعال باشه، برای محصولات جدید توضیحات می‌سازه"
-        )
-
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    "✅ تایید و اعمال",
-                    callback_data="sync_apply_changes"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    "❌ رد تغییرات",
-                    callback_data="sync_reject_changes"
-                )
-            ],
-        ]
-
-        await query.edit_message_text(
-            text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
 
     except Exception as e:
-        log.error(f"خطا در sync preview: {e}", exc_info=True)
+        log.error(f"خطا در sync دستی: {e}", exc_info=True)
         await query.edit_message_text(f"❌ خطا: {str(e)[:200]}")
 
 
-async def sync_apply_changes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """تایید و اعمال تغییرات"""
+async def sync_edit_posts_now_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """آپدیت الان پست‌های منتشر شده"""
     query = update.callback_query
     await query.answer()
 
     user = query.from_user
 
-    if get_user_state(user.id) != UserState.VIEWING_SYNC_PREVIEW:
-        await query.edit_message_text("❌ درخواست منقضی شده. لطفاً دوباره همگام‌سازی کنید.")
+    if get_user_state(user.id) != UserState.WAITING_EDIT_POSTS_DECISION:
+        await query.edit_message_text("❌ درخواست منقضی شده.")
         return
 
     user_data = get_user_data(user.id)
@@ -633,52 +615,34 @@ async def sync_apply_changes_callback(update: Update, context: ContextTypes.DEFA
         await query.edit_message_text("❌ خطا!")
         return
 
-    await query.edit_message_text("⏳ در حال اعمال تغییرات...")
+    await query.edit_message_text("⏳ در حال آپدیت پست‌های کانال...")
 
     try:
-        from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
+        from app.tasks.jobs.sheet_sync_job import apply_pending_post_edits
 
-        sync_result = await sync_customer_sheet(
-            context.bot,
-            customer_id,
-            apply_changes=True,
-        )
+        result = await apply_pending_post_edits(context.bot, customer_id)
 
-        if sync_result.get("error"):
+        edited_count = result.get("edited_count", 0)
+
+        if edited_count > 0:
             await query.edit_message_text(
-                f"❌ خطا در اعمال تغییرات\n"
-                f"━━━━━━━━━━━━━━━\n{sync_result['error']}"
+                f"✅ پست‌ها آپدیت شدن!\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"✏️ تعداد پست‌های ویرایش شده: {edited_count}\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+                f"💡 قیمت‌ها و موجودی‌های جدید در کانال اعمال شد."
             )
-            return
-
-        text = (
-            f"✅ تغییرات اعمال شد!\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🆕 محصول جدید: {sync_result.get('new_count', 0)}\n"
-            f"🔄 آپدیت شده: {sync_result.get('updated_count', 0)}\n"
-            f"✅ بدون تغییر: {sync_result.get('unchanged_count', 0)}\n"
-            f"❌ خطا: {sync_result.get('error_count', 0)}\n"
-        )
-
-        edited = sync_result.get('edited_posts_count', 0)
-        if edited > 0:
-            text += f"\n✏️ پست‌های ویرایش شده: {edited}\n"
-
-        text += (
-            f"━━━━━━━━━━━━━━━\n\n"
-            f"💡 اگه محصولات جدید داری، وقت پست بعدی\n"
-            f"در کانال منتشر میشن."
-        )
-
-        await query.edit_message_text(text)
+        else:
+            message = result.get("message", "همه پست‌ها به‌روز بودن.")
+            await query.edit_message_text(f"ℹ️ {message}")
 
     except Exception as e:
-        log.error(f"خطا در اعمال تغییرات: {e}", exc_info=True)
+        log.error(f"خطا در ادیت پست‌ها: {e}", exc_info=True)
         await query.edit_message_text(f"❌ خطا: {str(e)[:200]}")
 
 
-async def sync_reject_changes_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """رد تغییرات"""
+async def sync_edit_posts_later_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """رد ادیت الان - بعداً در sync خودکار انجام میشه"""
     query = update.callback_query
     await query.answer()
 
@@ -686,9 +650,11 @@ async def sync_reject_changes_callback(update: Update, context: ContextTypes.DEF
     clear_user_state(user.id)
 
     await query.edit_message_text(
-        "❌ تغییرات رد شد.\n\n"
-        "💡 محصولات و قیمت‌ها بدون تغییر باقی موندن.\n"
-        "هر وقت خواستید، دوباره '🔃 همگام‌سازی الان' رو بزنید."
+        "⏰ باشه، بعداً!\n"
+        "━━━━━━━━━━━━━━━\n"
+        "💡 پست‌های کانال در همگام‌سازی خودکار بعدی\n"
+        "(هر ۲ ساعت) آپدیت می‌شن.\n\n"
+        "📊 داده‌های محصولات در سیستم ذخیره شدن."
     )
 
 

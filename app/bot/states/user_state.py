@@ -27,6 +27,7 @@ class UserState(Enum):
     WAITING_SUPPORT_MESSAGE = "waiting_support_message"
     ADMIN_REPLYING_TO_SUPPORT = "admin_replying_to_support"
     VIEWING_SYNC_PREVIEW = "viewing_sync_preview"
+    WAITING_EDIT_POSTS_DECISION = "waiting_edit_posts_decision"
 @dataclass
 class UserContext:
     state: UserState = UserState.IDLE

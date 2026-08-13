@@ -85,8 +85,8 @@ from app.bot.handlers.sheet_connection import (
     sheet_sync_now_callback,
     sheet_get_template_callback,
     sheet_back_to_menu_callback,
-    sync_apply_changes_callback,   # ← جدید
-    sync_reject_changes_callback,  # ← جدید
+    sync_edit_posts_now_callback,     # ← جدید
+    sync_edit_posts_later_callback,   # ← جدید
 )
 from app.bot.handlers.ai_tokens import (
     ai_tokens_menu_handler,
@@ -369,9 +369,9 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(sheet_cancel_callback, pattern="^sheet_cancel$"))
     app.add_handler(CallbackQueryHandler(sheet_get_template_callback, pattern="^sheet_get_template$"))
     app.add_handler(CallbackQueryHandler(sheet_back_to_menu_callback, pattern="^sheet_back_to_menu$"))
-    # ─── کالبک‌های sync preview ───
-    app.add_handler(CallbackQueryHandler(sync_apply_changes_callback, pattern="^sync_apply_changes$"))
-    app.add_handler(CallbackQueryHandler(sync_reject_changes_callback, pattern="^sync_reject_changes$"))
+    # ─── کالبک‌های ادیت پست‌ها بعد از sync ───
+    app.add_handler(CallbackQueryHandler(sync_edit_posts_now_callback, pattern="^sync_edit_posts_now$"))
+    app.add_handler(CallbackQueryHandler(sync_edit_posts_later_callback, pattern="^sync_edit_posts_later$"))
     # ─── کالبک‌های AI Tokens ───
     app.add_handler(CallbackQueryHandler(ai_admin_approve_callback, pattern="^ai_admin_approve_"))
     app.add_handler(CallbackQueryHandler(ai_admin_reject_callback, pattern="^ai_admin_reject_"))
