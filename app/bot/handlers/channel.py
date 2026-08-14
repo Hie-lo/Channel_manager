@@ -32,7 +32,26 @@ from app.bot.states.user_state import (
 )
 from app.utils.logger import log
 
+# ─── جلوگیری از پردازش دوباره یک message ───
+_processed_messages: set = set()
+_MAX_TRACKED = 1000
 
+
+def _is_message_processed(message_id: int) -> bool:
+    """چک کن این message قبلاً پردازش شده"""
+    if message_id in _processed_messages:
+        return True
+
+    _processed_messages.add(message_id)
+
+    # پاکسازی اگه خیلی بزرگ شد
+    if len(_processed_messages) > _MAX_TRACKED:
+        # نگه دار فقط 500 تای آخر
+        sorted_ids = sorted(_processed_messages)
+        _processed_messages.clear()
+        _processed_messages.update(sorted_ids[-500:])
+
+    return False
 # ═══════════════════════════════════════════════════════════
 # منوی اصلی کانال
 # ═══════════════════════════════════════════════════════════
@@ -349,6 +368,11 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
     مرحله ۱: دریافت توکن ربات ایتا
     """
     user = update.effective_user
+    message_id = update.message.message_id
+
+    if _is_message_processed(message_id):
+        log.warning(f"[Eitaa Token] message {message_id} قبلاً پردازش شده")
+        return
     token_input = update.message.text.strip()
 
     log.info(f"🔍 [Eitaa Token] دریافت شد از user={user.id}")
@@ -455,6 +479,12 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
     مرحله ۲: دریافت chat_id کانال ایتا و ذخیره
     """
     user = update.effective_user
+    message_id = update.message.message_id
+
+    # جلوگیری از پردازش دوباره
+    if _is_message_processed(message_id):
+        log.warning(f"[Eitaa Chat ID] message {message_id} قبلاً پردازش شده")
+        return
     chat_id_input = update.message.text.strip()
 
     log.info(f"🔍 [Eitaa Chat ID] دریافت شد: {chat_id_input}")

@@ -326,6 +326,16 @@ async def _edit_published_posts(
         f"{len(active_channels)} کانال"
     )
 
+    # گرفتن توکن ایتا (اگه لازمه)
+    from app.services.publisher.publisher_manager import edit_channel_post
+
+    eitaa_token = None
+    has_eitaa = any(ch.platform == Platform.EITAA for ch in active_channels)
+    if has_eitaa:
+        async with AsyncSessionLocal() as session:
+            from app.services.customer_service import get_customer_eitaa_token
+            eitaa_token = await get_customer_eitaa_token(session, customer.id)
+
     for product in products:
         # ساخت کپشن جدید
         caption = build_post_caption(product, business_config, business)
@@ -337,25 +347,49 @@ async def _edit_published_posts(
 
             if not posted or not posted.telegram_message_id:
                 log.info(
-                    f"[Edit Posts] محصول {product.sku} در کانال "
+                    f"[Edit Posts] محصول {product.sku} در {channel.platform.value}: "
                     f"{channel.channel_identifier} پست نشده، رد شد"
                 )
                 continue
 
-            # چک عکس داره یا نه
-            from app.services.product_media_service import get_product_medias
-            async with AsyncSessionLocal() as session:
-                medias = await get_product_medias(session, product.id, channel.platform)
-            has_photo = len(medias) > 0 or bool(product.image_url)
-
-            # ادیت
-            edit_result = await edit_post_in_telegram(
+            # ادیت با publisher manager
+            edit_result = await edit_channel_post(
                 bot=bot,
-                channel_identifier=channel.channel_identifier,
-                message_id=posted.telegram_message_id,
+                channel=channel,
+                product=product,
                 new_caption=caption,
-                has_photo=has_photo,
+                old_message_id=posted.telegram_message_id,
+                eitaa_token=eitaa_token,
             )
+
+            if edit_result.success:
+                # آپدیت posted_message
+                async with AsyncSessionLocal() as session:
+                    posted_fresh = await get_posted_message(
+                        session, product.id, channel.id
+                    )
+                    if posted_fresh:
+                        # برای ایتا: message_id عوض میشه
+                        if edit_result.message_id:
+                            posted_fresh.telegram_message_id = edit_result.message_id
+                        await update_posted_message(
+                            session=session,
+                            posted_message=posted_fresh,
+                            new_caption=caption,
+                            new_price=int(product.price),
+                            new_stock_qty=product.stock_qty,
+                        )
+                edited_count += 1
+                log.info(
+                    f"✅ [Edit Posts] {product.sku} در "
+                    f"{channel.platform.value}: {channel.channel_identifier} ادیت شد"
+                )
+            else:
+                log.error(
+                    f"❌ [Edit Posts] خطا در {product.sku} - "
+                    f"{channel.platform.value}: {channel.channel_identifier}: "
+                    f"{edit_result.error_message}"
+                )
 
             if edit_result.success:
                 # آپدیت posted_message با مقادیر جدید

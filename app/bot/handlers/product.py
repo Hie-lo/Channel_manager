@@ -457,44 +457,60 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def _publish_or_edit(bot, product, channel, caption):
     """
-    اگه محصول قبلاً در این کانال پست شده → ویرایش کپشن
-    اگه نه → ارسال جدید (تک عکس یا آلبوم)
+    اگه محصول قبلاً در این کانال پست شده → ویرایش
+    اگه نه → ارسال جدید
 
-    از عکس‌های آپلود شده (اگه هست) استفاده می‌کنه، وگرنه از image_url
+    پشتیبانی از تلگرام و ایتا
     """
-    from app.services.product_media_service import (
-        get_product_medias,
-        get_photo_sources_for_platform,
+    from app.services.publisher.publisher_manager import (
+        publish_to_channel,
+        edit_channel_post,
     )
-    from app.services.publisher.telegram_publisher import (
-        publish_media_group_to_telegram,
-    )
+    from app.database.models import Platform
 
     async with AsyncSessionLocal() as session:
         # چک قبلاً پست شده
         existing = await get_posted_message(session, product.id, channel.id)
 
-        # گرفتن عکس‌ها (اولویت با آپلود شده)
-        uploaded_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
-        photo_sources = get_photo_sources_for_platform(product, uploaded_medias)
+        # گرفتن توکن ایتا (اگه کانال ایتاست)
+        eitaa_token = None
+        if channel.platform == Platform.EITAA:
+            from app.services.customer_service import (
+                get_customer_by_telegram_id,
+                get_customer_eitaa_token,
+            )
+            # از طریق customer_id کانال
+            from app.database.models import Customer
+            customer_result = await session.execute(
+                select(Customer).where(Customer.id == channel.customer_id)
+            )
+            customer = customer_result.scalar_one_or_none()
 
-    # ═══════════════════════════════════════════
-    # حالت ۱: قبلاً پست شده → ویرایش کپشن
-    # ═══════════════════════════════════════════
+            if customer:
+                eitaa_token = await get_customer_eitaa_token(session, customer.id)
+
+    # ─── حالت ویرایش ───
     if existing and existing.telegram_message_id:
-        has_photo = bool(photo_sources)
-        result = await edit_post_in_telegram(
+        result = await edit_channel_post(
             bot=bot,
-            channel_identifier=channel.channel_identifier,
-            message_id=existing.telegram_message_id,
+            channel=channel,
+            product=product,
             new_caption=caption,
-            has_photo=has_photo,
+            old_message_id=existing.telegram_message_id,
+            eitaa_token=eitaa_token,
         )
 
+        # اگه ویرایش موفق بود
         if result.success:
+            # برای ایتا: message_id عوض میشه (delete + repost)
+            # برای تلگرام: message_id همون قبلی می‌مونه
+            new_msg_id = result.message_id if result.message_id else existing.telegram_message_id
+
             async with AsyncSessionLocal() as session:
                 posted_fresh = await get_posted_message(session, product.id, channel.id)
                 if posted_fresh:
+                    # آپدیت message_id (برای ایتا حتماً عوض شده)
+                    posted_fresh.telegram_message_id = new_msg_id
                     await update_posted_message(
                         session=session,
                         posted_message=posted_fresh,
@@ -502,31 +518,26 @@ async def _publish_or_edit(bot, product, channel, caption):
                         new_price=int(product.price),
                         new_stock_qty=product.stock_qty,
                     )
-        return result
 
-    # ═══════════════════════════════════════════
-    # حالت ۲: پست جدید
-    # ═══════════════════════════════════════════
-
-    # اگه چند عکس هست → آلبوم
-    if len(photo_sources) > 1:
-        result = await publish_media_group_to_telegram(
-            bot=bot,
-            channel_identifier=channel.channel_identifier,
-            caption=caption,
-            photo_sources=photo_sources,
-        )
-    # اگه یه عکس یا بدون عکس
-    else:
-        photo_url = photo_sources[0] if photo_sources else None
-        result = await publish_post_to_telegram(
-            bot=bot,
-            channel_identifier=channel.channel_identifier,
-            caption=caption,
-            photo_url=photo_url,
+        # تبدیل UnifiedPublishResult به فرمت سازگار
+        from app.services.publisher.telegram_publisher import PublishResult
+        return PublishResult(
+            success=result.success,
+            message_id=result.message_id,
+            error_message=result.error_message,
+            used_fallback=result.used_fallback,
         )
 
-    # ذخیره در دیتابیس (برای هر دو حالت)
+    # ─── حالت ارسال جدید ───
+    result = await publish_to_channel(
+        bot=bot,
+        channel=channel,
+        product=product,
+        caption=caption,
+        eitaa_token=eitaa_token,
+    )
+
+    # ذخیره در دیتابیس
     if result.success and result.message_id:
         async with AsyncSessionLocal() as session:
             await create_posted_message(
@@ -539,4 +550,11 @@ async def _publish_or_edit(bot, product, channel, caption):
                 stock_qty=product.stock_qty,
             )
 
-    return result
+    # تبدیل UnifiedPublishResult به PublishResult سازگار
+    from app.services.publisher.telegram_publisher import PublishResult
+    return PublishResult(
+        success=result.success,
+        message_id=result.message_id,
+        error_message=result.error_message,
+        used_fallback=result.used_fallback,
+    )

@@ -304,39 +304,65 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
 
     # ارسال به هر کانال
     any_success = False
-    # گرفتن عکس‌ها (اولویت با آپلود شده)
-    from app.services.product_media_service import (
-        get_product_medias,
-        get_photo_sources_for_platform,
-    )
-    from app.services.publisher.telegram_publisher import (
-        publish_media_group_to_telegram,
-    )
+    # ارسال به همه کانال‌های ACTIVE (تلگرام + ایتا)
+    from app.services.publisher.publisher_manager import publish_to_channel
+    from app.services.publisher.posted_message_service import create_posted_message
 
-    async with AsyncSessionLocal() as session:
-        uploaded_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
+    # گرفتن توکن ایتا (اگه کانال ایتا داره)
+    eitaa_token = None
+    has_eitaa_channel = any(ch.platform == Platform.EITAA for ch in channels)
 
-    photo_sources = get_photo_sources_for_platform(product, uploaded_medias)
+    if has_eitaa_channel:
+        async with AsyncSessionLocal() as session:
+            from app.services.customer_service import get_customer_eitaa_token
+            eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
+    any_success = False
     for channel in channels:
         try:
-            # آلبوم یا تک عکس
-            if len(photo_sources) > 1:
-                result = await publish_media_group_to_telegram(
-                    bot=bot,
-                    channel_identifier=channel.channel_identifier,
-                    caption=caption,
-                    photo_sources=photo_sources,
+            log.info(
+                f"[Customer {customer_id}] ارسال {product.sku} به "
+                f"{channel.platform.value}: {channel.channel_identifier}"
+            )
+
+            result = await publish_to_channel(
+                bot=bot,
+                channel=channel,
+                product=product,
+                caption=caption,
+                eitaa_token=eitaa_token,
+            )
+
+            if result.success and result.message_id:
+                # ذخیره در posted_messages
+                async with AsyncSessionLocal() as session:
+                    await create_posted_message(
+                        session=session,
+                        product_id=product.id,
+                        channel_id=channel.id,
+                        telegram_message_id=result.message_id,
+                        caption=caption,
+                        price=int(product.price),
+                        stock_qty=product.stock_qty,
+                    )
+                any_success = True
+                log.info(
+                    f"✅ [Customer {customer_id}] پست شد در "
+                    f"{channel.platform.value}: {channel.channel_identifier}"
                 )
             else:
-                photo_url = photo_sources[0] if photo_sources else None
-                result = await publish_post_to_telegram(
-                    bot=bot,
-                    channel_identifier=channel.channel_identifier,
-                    caption=caption,
-                    photo_url=photo_url,
+                log.error(
+                    f"❌ [Customer {customer_id}] ارسال به "
+                    f"{channel.platform.value}: {channel.channel_identifier} "
+                    f"ناموفق: {result.error_message}"
                 )
 
+        except Exception as e:
+            log.error(
+                f"❌ [Customer {customer_id}] خطا در ارسال به "
+                f"{channel.channel_identifier}: {e}",
+                exc_info=True,
+            )
             if result.success and result.message_id:
                 async with AsyncSessionLocal() as session:
                     await create_posted_message(
