@@ -68,11 +68,13 @@ class Customer(Base):
     username: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     business_type_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    eitaa_bot_token: Mapped[str | None] = mapped_column(String(200), nullable=True)
     customer_status: Mapped[CustomerStatus] = mapped_column(
         SAEnum(CustomerStatus),
         default=CustomerStatus.PENDING
     )
-
+    # توکن ربات ایتا (برای ارسال به کانال‌های ایتا)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -205,7 +207,7 @@ class PostedMessage(Base):
     # آیدی همه پیام‌های media group (اگه آلبوم بود)
     # به صورت JSON list: [123, 124, 125]
     telegram_message_ids: Mapped[list] = mapped_column(JSONB, default=list)
-    
+
     last_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_price: Mapped[Numeric | None] = mapped_column(Numeric(18, 0), nullable=True)
     last_stock_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
