@@ -6,7 +6,7 @@ from telegram import Bot
 from sqlalchemy import select
 
 from app.database.connection import AsyncSessionLocal
-from app.database.models import Customer, CustomerStatus, ProductPublishStatus
+from app.database.models import Customer, CustomerStatus, Platform, ProductPublishStatus
 from app.services.customer_service import get_customer_by_telegram_id
 from app.services.subscription.service import get_active_subscription
 from app.services.sheet_connection_service import (
