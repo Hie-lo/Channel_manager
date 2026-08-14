@@ -218,7 +218,6 @@ async def prod_finish_upload_callback(update: Update, context: ContextTypes.DEFA
     async with AsyncSessionLocal() as session:
         total_count = await count_product_medias(session, product_id)
 
-        # چک کن این محصول قبلاً پست شده یا نه
         result = await session.execute(
             select(Product).where(Product.id == product_id)
         )
@@ -248,7 +247,6 @@ async def prod_finish_upload_callback(update: Update, context: ContextTypes.DEFA
         )
         return
 
-    # اگه محصول قبلاً منتشر شده، بپرس repost کنه یا نه
     if is_published:
         text += (
             f"⚠️ <b>این محصول قبلاً در کانال‌ها منتشر شده.</b>\n\n"
@@ -276,7 +274,6 @@ async def prod_finish_upload_callback(update: Update, context: ContextTypes.DEFA
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
     else:
-        # محصول هنوز منتشر نشده
         text += (
             f"💡 این محصول هنوز در کانال منتشر نشده.\n"
             f"می‌تونی الان بفرستیش."
