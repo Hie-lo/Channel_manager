@@ -68,7 +68,7 @@ class Customer(Base):
     username: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     business_type_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    eitaa_bot_token: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    eitaa_bot_token: Mapped[str | None] = mapped_column(String(500), nullable=True)
     customer_status: Mapped[CustomerStatus] = mapped_column(
         SAEnum(CustomerStatus),
         default=CustomerStatus.PENDING

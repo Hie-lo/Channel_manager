@@ -111,7 +111,9 @@ async def set_customer_eitaa_token(
     customer_id: int,
     eitaa_token: str,
 ) -> Customer | None:
-    """ذخیره توکن ایتای مشتری"""
+    """ذخیره توکن ایتای مشتری (با رمزنگاری)"""
+    from app.utils.encryption import encrypt_text, mask_token
+
     result = await session.execute(
         select(Customer).where(Customer.id == customer_id)
     )
@@ -120,15 +122,40 @@ async def set_customer_eitaa_token(
     if not customer:
         return None
 
-    customer.eitaa_bot_token = eitaa_token
+    # رمزنگاری قبل از ذخیره
+    encrypted_token = encrypt_text(eitaa_token)
+    customer.eitaa_bot_token = encrypted_token
     customer.updated_at = utc_now_naive()
 
     await session.commit()
     await session.refresh(customer)
 
-    log.info(f"توکن ایتا برای مشتری {customer_id} ذخیره شد")
+    # لاگ با masked token
+    log.info(
+        f"توکن ایتا برای مشتری {customer_id} ذخیره شد "
+        f"({mask_token(eitaa_token)})"
+    )
     return customer
 
+
+async def get_customer_eitaa_token(
+    session: AsyncSession,
+    customer_id: int,
+) -> str | None:
+    """گرفتن توکن ایتای مشتری (رمزگشایی شده)"""
+    from app.utils.encryption import decrypt_text
+
+    result = await session.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer or not customer.eitaa_bot_token:
+        return None
+
+    # رمزگشایی
+    decrypted = decrypt_text(customer.eitaa_bot_token)
+    return decrypted if decrypted else None
 
 async def get_customer_eitaa_token(
     session: AsyncSession,

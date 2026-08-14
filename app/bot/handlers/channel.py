@@ -351,7 +351,7 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = update.effective_user
     token_input = update.message.text.strip()
 
-    log.info(f"🔍 [Eitaa Token] دریافت شد: {token_input[:20]}...")
+    log.info(f"🔍 [Eitaa Token] دریافت شد از user={user.id}")
 
     # اعتبارسنجی فرمت توکن
     if not token_input.startswith("bot") or ":" not in token_input:
@@ -362,63 +362,77 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
             "<code>bot123456:xxxxx-xxxxx-xxxxx</code>\n\n"
             "دوباره ارسال کنید یا لغو کنید.",
             parse_mode="HTML",
+            reply_markup=get_cancel_channel_add_keyboard(),
         )
         return
 
     if len(token_input) < 30:
         await update.message.reply_text(
             "❌ توکن خیلی کوتاه است!\n\n"
-            "لطفاً توکن کامل رو کپی کنید."
+            "لطفاً توکن کامل رو از پنل ایتایار کپی کنید.",
+            reply_markup=get_cancel_channel_add_keyboard(),
         )
         return
 
-    # تست توکن با یه درخواست ساده
+    # ⚠️ ابتدا state رو تغییر بده تا اگه پیام دوم اومد، اشتباه هندل نشه
+    # این کار جلوگیری از دوبار پاسخ می‌کنه
+    from app.bot.states.user_state import UserState
+    set_user_state(user.id, UserState.IDLE)   # موقتاً IDLE
+
     checking_msg = await update.message.reply_text(
         "🔍 در حال بررسی توکن..."
     )
 
-    # تست: تلاش برای گرفتن اطلاعات ربات
+    # تست توکن
     from app.services.publisher.eitaa_client import EitaaClient
 
     try:
         client = EitaaClient(token=token_input)
-        # چون getMe نداریم، یه پیام کوتاه به یه chat_id اشتباه می‌فرستیم
-        # اگه توکن غلط باشه، error_code=401 برمی‌گردونه
-        # اگه توکن درست باشه ولی chat_id غلط، error_code=400 برمی‌گردونه
-        test_result = await client.send_message(chat_id="0", text="test")
+        # پیام تست به chat_id="0" (احتمالاً وجود نداره)
+        # اگه توکن غلط باشه: 401
+        # اگه توکن درست باشه: 400 (chat_id غلط) یا موفق
+        test_result = await client.send_message(chat_id="0", text=".")
 
-        # اگه 401 برگشت، توکن مشکل داره
+        # فقط 401 یعنی توکن غلطه
         if test_result.error_code == 401:
+            # برگردون state رو تا مشتری بتونه دوباره امتحان کنه
+            set_user_state(user.id, UserState.WAITING_EITAA_TOKEN)
+
             await checking_msg.edit_text(
                 f"❌ توکن نامعتبر است!\n\n"
                 f"دلیل: {test_result.error_message}\n\n"
-                f"لطفاً توکن رو دوباره از پنل ایتایار کپی کنید."
+                f"لطفاً توکن رو دوباره از پنل ایتایار کپی کنید.",
+                reply_markup=get_cancel_channel_add_keyboard(),
             )
             return
 
-        # هر پاسخ دیگه‌ای (حتی 400) یعنی توکن OK هست
-        log.info(f"✅ [Eitaa Token] توکن معتبر (error_code={test_result.error_code})")
+        log.info(f"✅ [Eitaa Token] توکن معتبر برای user={user.id}")
 
     except Exception as e:
-        log.error(f"[Eitaa Token] خطا در بررسی: {e}")
+        log.error(f"[Eitaa Token] خطا در بررسی: {e}", exc_info=True)
+
+        # برگردون state
+        set_user_state(user.id, UserState.WAITING_EITAA_TOKEN)
+
         await checking_msg.edit_text(
             f"⚠️ خطا در بررسی توکن:\n{str(e)[:200]}\n\n"
-            f"لطفاً دوباره تلاش کنید."
+            f"لطفاً دوباره تلاش کنید.",
+            reply_markup=get_cancel_channel_add_keyboard(),
         )
         return
 
-    # ذخیره توکن
+    # ذخیره توکن (با رمزنگاری)
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
-            await checking_msg.edit_text("❌ خطا!")
+            await checking_msg.edit_text("❌ خطا! لطفاً /start بزنید.")
             clear_user_state(user.id)
             return
 
         from app.services.customer_service import set_customer_eitaa_token
         await set_customer_eitaa_token(session, customer.id, token_input)
 
-    # حالا chat_id رو بگیر
+    # حالا state رو تنظیم کن برای گرفتن chat_id
     set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
 
     await checking_msg.edit_text(
@@ -433,8 +447,8 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
         "(مثال: <code>11226043</code>)\n\n"
         "4️⃣ اینجا ارسال کنید",
         parse_mode="HTML",
+        reply_markup=get_cancel_channel_add_keyboard(),
     )
-
 
 async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -453,8 +467,13 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
             "مثال: <code>11226043</code>\n\n"
             "دوباره ارسال کنید.",
             parse_mode="HTML",
+            reply_markup=get_cancel_channel_add_keyboard(),
         )
         return
+
+    # ⚠️ state رو موقتاً IDLE کن تا پیام‌های اضافه نره به این handler
+    from app.bot.states.user_state import UserState
+    set_user_state(user.id, UserState.IDLE)
 
     checking_msg = await update.message.reply_text(
         "🔍 در حال بررسی کانال..."
@@ -473,7 +492,9 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
 
         if not eitaa_token:
             await checking_msg.edit_text(
-                "❌ توکن ایتا پیدا نشد! از اول شروع کنید."
+                "❌ توکن ایتا پیدا نشد!\n"
+                "لطفاً از اول شروع کنید.",
+                reply_markup=get_channel_management_keyboard(),
             )
             clear_user_state(user.id)
             return
@@ -483,13 +504,14 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
             session, customer.id, chat_id_input
         )
         if already_exists:
-            await checking_msg.edit_text(
-                "⚠️ این کانال قبلاً اضافه شده است."
-            )
             clear_user_state(user.id)
+            await checking_msg.edit_text(
+                "⚠️ این کانال قبلاً اضافه شده است.",
+                reply_markup=get_channel_management_keyboard(),
+            )
             return
 
-    # تست ارسال یه پیام تست
+    # تست ارسال یه پیام تست به chat_id
     from app.services.publisher.eitaa_client import EitaaClient
 
     try:
@@ -500,6 +522,9 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
         if not test_result.ok:
+            # برگردون state
+            set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
+
             await checking_msg.edit_text(
                 f"❌ اتصال به کانال ناموفق!\n"
                 f"━━━━━━━━━━━━━━━\n"
@@ -511,6 +536,7 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
                 f"• کانال فعال باشه\n\n"
                 f"دوباره تلاش کنید.",
                 parse_mode="HTML",
+                reply_markup=get_cancel_channel_add_keyboard(),
             )
             return
 
@@ -518,9 +544,14 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
 
     except Exception as e:
         log.error(f"[Eitaa Chat] خطا در تست: {e}", exc_info=True)
+
+        # برگردون state
+        set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
+
         await checking_msg.edit_text(
             f"⚠️ خطا در تست:\n{str(e)[:200]}\n\n"
-            f"لطفاً دوباره تلاش کنید."
+            f"لطفاً دوباره تلاش کنید.",
+            reply_markup=get_cancel_channel_add_keyboard(),
         )
         return
 
@@ -531,7 +562,7 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
             customer_id=customer.id,
             channel_identifier=chat_id_input,
             platform=Platform.EITAA,
-            activation_status="ACTIVE",  # ← الان ACTIVE چون تست شده
+            activation_status="ACTIVE",
         )
 
     clear_user_state(user.id)
