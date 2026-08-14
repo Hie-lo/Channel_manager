@@ -279,14 +279,8 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
     if media_count > 0:
         keyboard.append([
             InlineKeyboardButton(
-                "🖼 تغییر عکس آپلود شده",
+                f"🖼 مدیریت عکس‌ها ({media_count})",
                 callback_data=f"prod_upload_image_{product.id}"
-            )
-        ])
-        keyboard.append([
-            InlineKeyboardButton(
-                "❌ حذف عکس آپلود شده",
-                callback_data=f"prod_remove_image_{product.id}"
             )
         ])
     else:

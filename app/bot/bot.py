@@ -151,6 +151,9 @@ from app.bot.handlers.product_image import (
     prod_remove_image_callback,
     product_image_received_handler,
     prod_finish_upload_callback,
+    prod_img_replace_callback,        # ← جدید
+    prod_img_add_callback,            # ← جدید
+    prod_repost_callback,             # ← جدید
 )
 from app.bot.handlers.support import (
     support_menu_handler,
@@ -347,6 +350,11 @@ def create_bot() -> Application:
     # ─── کالبک‌های عکس محصول ───
     app.add_handler(CallbackQueryHandler(prod_upload_image_callback, pattern="^prod_upload_image_"))
     app.add_handler(CallbackQueryHandler(prod_remove_image_callback, pattern="^prod_remove_image_"))
+    app.add_handler(CallbackQueryHandler(prod_finish_upload_callback, pattern="^prod_finish_upload_"))
+    # جدید:
+    app.add_handler(CallbackQueryHandler(prod_img_replace_callback, pattern="^prod_img_replace_"))
+    app.add_handler(CallbackQueryHandler(prod_img_add_callback, pattern="^prod_img_add_"))
+    app.add_handler(CallbackQueryHandler(prod_repost_callback, pattern="^prod_repost_"))
     # ─── کالبک‌های محصولات ───
     app.add_handler(CallbackQueryHandler(prod_preview_callback, pattern="^prod_preview_"))
     app.add_handler(CallbackQueryHandler(prod_publish_callback, pattern="^prod_publish_"))
