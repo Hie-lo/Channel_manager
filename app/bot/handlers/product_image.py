@@ -298,48 +298,6 @@ async def prod_finish_upload_callback(update: Update, context: ContextTypes.DEFA
         )
 
 
-async def prod_finish_upload_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """پایان آپلود عکس‌ها"""
-    query = update.callback_query
-    await query.answer()
-
-    product_id = int(query.data.replace("prod_finish_upload_", ""))
-    user = query.from_user
-
-    user_data = get_user_data(user.id)
-    uploaded_count = user_data.get("uploaded_count", 0)
-
-    clear_user_state(user.id)
-
-    async with AsyncSessionLocal() as session:
-        total_count = await count_product_medias(session, product_id)
-
-    text = (
-        f"✅ آپلود عکس تمام شد!\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"📷 عکس‌های اضافه شده: {uploaded_count}\n"
-        f"📊 مجموع عکس‌های محصول: {total_count}\n"
-        f"━━━━━━━━━━━━━━━\n\n"
-    )
-
-    if uploaded_count > 0:
-        text += (
-            f"🎯 این عکس‌ها به صورت آلبوم در کانال ارسال میشن.\n\n"
-            f"💡 نتیجه رو ببینید:"
-        )
-    else:
-        text += "هیچ عکسی اضافه نشد."
-
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("👁 پیش‌نمایش پست", callback_data=f"prod_preview_{product_id}")],
-            [InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"prod_publish_{product_id}")],
-            [InlineKeyboardButton("🔙 بازگشت به محصول", callback_data=f"prod_view_{product_id}")],
-        ]),
-    )
-
-
 async def prod_remove_image_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """حذف همه عکس‌های آپلود شده"""
     query = update.callback_query
