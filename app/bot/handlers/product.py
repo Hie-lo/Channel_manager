@@ -447,7 +447,13 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
             if p:
                 p.publish_status = ProductPublishStatus.PUBLISHED
                 await session.commit()
-
+    # ارسال منوی محصول به صورت پیام جدید برای دسترسی راحت‌تر
+    if success_count > 0:
+        try:
+            from app.bot.handlers.product_image import _send_product_menu_message
+            await _send_product_menu_message(context, user.id, product_id)
+        except Exception as e:
+            log.warning(f"خطا در ارسال منوی محصول: {e}")
 
 async def _publish_or_edit(bot, product, channel, caption):
     """
