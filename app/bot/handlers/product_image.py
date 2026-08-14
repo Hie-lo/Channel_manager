@@ -263,7 +263,7 @@ async def prod_finish_upload_callback(update: Update, context: ContextTypes.DEFA
                 callback_data=f"prod_repost_{product_id}"
             )],
             [InlineKeyboardButton(
-                "⏰ نه، فقط دیتابیس",
+                "⏰ نه، برای بعدا ذخیره کن",
                 callback_data=f"prod_view_{product_id}"
             )],
         ]
