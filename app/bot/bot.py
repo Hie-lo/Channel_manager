@@ -165,6 +165,7 @@ from app.bot.handlers.support import (
 )
 from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
 from app.bot.states.user_state import get_user_state, UserState
+from app.utils.admin_check import is_admin
 from app.utils.logger import log
 
 
@@ -238,7 +239,7 @@ async def document_router(update, context):
         await payment_receipt_handler(update, context)
     elif state == UserState.WAITING_AI_TOKEN_RECEIPT:
         await ai_token_receipt_handler(update, context)
-    elif user.id == settings.ADMIN_CHAT_ID:
+    elif is_admin(user.id):
             # اگه ادمین در حالتی نبود و فایلی فرستاد، file_id رو بده
         await admin_get_file_id_handler(update, context)
 
@@ -253,7 +254,7 @@ async def photo_router(update, context):
         await ai_token_receipt_handler(update, context)
     elif state == UserState.WAITING_PRODUCT_IMAGE:
         await product_image_received_handler(update, context)
-    elif user.id == settings.ADMIN_CHAT_ID:
+    elif is_admin(user.id):
         # اگه ادمین در حالتی نبود، file_id بگیر
         from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
         await admin_get_file_id_handler(update, context)
@@ -261,7 +262,7 @@ async def photo_router(update, context):
 async def video_router(update, context):
     """مسیریاب ویدیوها - فقط برای گرفتن file_id توسط ادمین"""
     user = update.effective_user
-    if user.id == settings.ADMIN_CHAT_ID:
+    if is_admin(user.id):
         await admin_get_file_id_handler(update, context)
 
 def create_bot() -> Application:

@@ -2,7 +2,7 @@
 هندلر دستور /start
 اولین تعامل کاربر با ربات
 """
-
+from app.utils.admin_check import is_admin
 from telegram import Update
 from telegram.ext import ContextTypes
 from app.config import settings
@@ -29,7 +29,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     log.info(f"دستور /start از کاربر: {telegram_id} - {user.first_name}")
 
     # چک کن آیا سوپر ادمین است
-    if telegram_id == settings.ADMIN_CHAT_ID:
+    if is_admin(telegram_id):
         await update.message.reply_text(
             f"👑 سلام ادمین عزیز!\n"
             f"به پنل مدیریت خوش آمدید.",

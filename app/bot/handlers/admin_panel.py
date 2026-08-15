@@ -43,7 +43,8 @@ CUSTOMERS_PER_PAGE = 8
 
 def _is_admin(user_id: int) -> bool:
     """چک کن آیا کاربر ادمینه"""
-    return user_id == settings.ADMIN_CHAT_ID
+    from app.utils.admin_check import is_admin
+    return is_admin(user_id)
 
 
 # ═══════════════════════════════════════════════
