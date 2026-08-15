@@ -51,6 +51,12 @@ class Settings:
     EITAA_TIMEOUT: int = int(os.getenv("EITAA_TIMEOUT", "30"))
     EITAA_MAX_RETRIES: int = int(os.getenv("EITAA_MAX_RETRIES", "2"))
 
-
+    # Bale Bot
+    BALE_BOT_TOKEN: str = os.getenv("BALE_BOT_TOKEN", "")
+    BALE_API_BASE: str = os.getenv("BALE_API_BASE", "https://tapi.bale.ai/bot")
+    BALE_FILE_API_BASE: str = os.getenv("BALE_FILE_API_BASE", "https://tapi.bale.ai/file/bot")
+    BALE_ENABLED: bool = os.getenv("BALE_ENABLED", "False").lower() == "true"
+    # Bale Admin (اگه ادمین در بله هم حساب داره)
+    BALE_ADMIN_CHAT_ID: int = int(os.getenv("BALE_ADMIN_CHAT_ID", "0"))
 settings = Settings()
 

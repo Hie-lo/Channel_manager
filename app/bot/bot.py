@@ -274,7 +274,10 @@ def create_bot() -> Application:
         .post_init(on_startup)
         .build()
     )
-
+    _register_all_handlers(app)
+    log.info("✅ ربات تلگرام آماده است")
+    return app
+def _register_all_handlers(app: Application) -> None:
     # ═══════════════════════════════════════════════════════════
     # ۱. Commands (اولویت اول)
     # ═══════════════════════════════════════════════════════════
@@ -283,7 +286,7 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("test_reminder", admin_test_reminder_job_handler))
     app.add_handler(CommandHandler("test_sheet_sync", admin_test_sheet_sync_handler))
     app.add_handler(CommandHandler("test_daily_report", admin_test_daily_report_handler))
-
+    app.add_handler(CommandHandler("force_ai_test", admin_force_ai_test_handler))
     # ═══════════════════════════════════════════════════════════
     # ۲. Callback Queries (دکمه‌های Inline)
     # ⚠️ ترتیب مهمه: از خاص‌ترین به عام‌ترین
