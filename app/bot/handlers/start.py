@@ -55,6 +55,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         customer = await get_customer_by_platform_id(session, user_id, platform)
 
         if not customer:
+            # ⚠️ مهم: platform رو پاس بده
             await _handle_new_customer(update, context, session, user, platform)
             return
 
@@ -88,14 +89,17 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def _handle_new_customer(update, context, session, user, platform) -> None:
     """مدیریت مشتری جدید - ثبت‌نام"""
 
+    log.info(f"[NEW CUSTOMER] platform={platform}, user_id={user.id}")
+
     # ساخت مشتری در دیتابیس
+    # ⚠️ مهم: platform حتماً پاس داده بشه
     await create_customer(
         session=session,
         user_id=user.id,
         first_name=user.first_name,
         last_name=user.last_name,
         username=user.username,
-        platform=platform,
+        platform=platform,   # ← این مهمه!
     )
 
     platform_name = "تلگرام" if platform == "TELEGRAM" else "بله"
