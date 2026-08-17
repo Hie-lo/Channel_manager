@@ -38,18 +38,53 @@ async def _run_bots():
     """اجرای همزمان ربات‌های تلگرام و بله"""
     from app.bot.bot import create_bot
     from app.bot.bot_bale import create_bale_bot
+    from app.database.init_db import init_db
 
-    # ساخت ربات تلگرام
+    # ═══════════════════════════════════════════
+    # ۱. راه‌اندازی دیتابیس (قبل از هر چیز)
+    # ═══════════════════════════════════════════
+    log.info("🗄 در حال اتصال به دیتابیس...")
+    try:
+        await init_db()
+        log.info("✅ دیتابیس آماده است")
+    except Exception as e:
+        log.error(f"❌ خطا در راه‌اندازی دیتابیس: {e}", exc_info=True)
+        return
+
+    # ═══════════════════════════════════════════
+    # ۲. Seed آموزش‌ها
+    # ═══════════════════════════════════════════
+    try:
+        from app.database.connection import AsyncSessionLocal
+        from app.services.tutorial_seeder import seed_default_tutorials
+
+        async with AsyncSessionLocal() as session:
+            await seed_default_tutorials(session)
+    except Exception as e:
+        log.warning(f"خطا در seed آموزش‌ها: {e}")
+
+    # ═══════════════════════════════════════════
+    # ۳. ساخت ربات‌ها
+    # ═══════════════════════════════════════════
     telegram_bot = create_bot()
-
-    # ساخت ربات بله (اختیاری)
     bale_bot = create_bale_bot()
 
     log.info(f"👑 ادمین: {settings.ADMIN_CHAT_ID}")
     log.info(f"🤖 ربات تلگرام: فعال")
     log.info(f"🤖 ربات بله: {'فعال' if bale_bot else 'غیرفعال'}")
 
-    # راه‌اندازی
+    # ═══════════════════════════════════════════
+    # ۴. راه‌اندازی Scheduler
+    # ═══════════════════════════════════════════
+    try:
+        from app.tasks.scheduler import start_scheduler
+        start_scheduler(telegram_bot.bot)
+    except Exception as e:
+        log.warning(f"خطا در راه‌اندازی scheduler: {e}")
+
+    # ═══════════════════════════════════════════
+    # ۵. Initialize و شروع polling
+    # ═══════════════════════════════════════════
     await telegram_bot.initialize()
     await telegram_bot.start()
 
@@ -57,7 +92,7 @@ async def _run_bots():
         await bale_bot.initialize()
         await bale_bot.start()
 
-    # شروع polling برای هر دو
+    # شروع polling
     await telegram_bot.updater.start_polling(drop_pending_updates=True)
     log.info("🚀 ربات تلگرام شروع به کار کرد!")
 
@@ -65,9 +100,10 @@ async def _run_bots():
         await bale_bot.updater.start_polling(drop_pending_updates=True)
         log.info("🚀 ربات بله شروع به کار کرد!")
 
-    # نگه داشتن برنامه
+    # ═══════════════════════════════════════════
+    # ۶. نگه داشتن برنامه
+    # ═══════════════════════════════════════════
     try:
-        # منتظر بمون تا Ctrl+C
         stop_event = asyncio.Event()
         await stop_event.wait()
     except (KeyboardInterrupt, SystemExit):
