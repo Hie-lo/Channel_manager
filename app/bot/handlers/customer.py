@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.services.customer_service import (
-    get_customer_by_telegram_id,
+    get_customer_by_platform_id,
     set_customer_business_type,
     approve_customer,
     reject_customer,
@@ -20,6 +20,10 @@ from app.services.business_service import (
 from app.business.config import get_business
 from app.bot.keyboards.main_menu import get_pending_approval_keyboard
 from app.utils.logger import log
+from app.utils.admin_check import (
+    detect_platform_from_context,
+    get_admin_id_for_platform,
+)
 
 
 async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -30,37 +34,35 @@ async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     user = query.from_user
     data = query.data
-
-    # استخراج کلید کسب‌وکار
     business_key = data.replace("biz_", "")
     business_config = get_business(business_key)
 
     if not business_config:
-        # اگر "other" یا کسب‌وکار ناشناخته
         await query.edit_message_text(
-            "❌ این نوع کسب‌وکار در حال حاضر پشتیبانی نمی‌شود.\n"
-            "لطفاً یکی از موارد پشتیبانی شده را انتخاب کنید."
+            "❌ این نوع کسب‌وکار در حال حاضر پشتیبانی نمی‌شود."
         )
         return
 
+    # تشخیص پلتفرم
+    platform = detect_platform_from_context(context)
     business_name = f"{business_config.emoji} {business_config.name_fa}"
 
     async with AsyncSessionLocal() as session:
-        # ذخیره نوع کسب‌وکار در جدول Customer
+        # ذخیره نوع کسب‌وکار
         customer = await set_customer_business_type(
             session=session,
             telegram_user_id=user.id,
             business_type_key=business_key,
+            platform=platform,
         )
 
         if not customer:
             await query.edit_message_text("❌ خطا! لطفاً دوباره /start بزنید.")
             return
 
-        # ایجاد رکورد در جدول Business
+        # ایجاد رکورد Business
         existing_business = await get_business_for_customer(session, customer.id)
         if not existing_business:
-            # استفاده از نام کاربر به عنوان نام موقت کسب‌وکار
             business_name_for_db = f"کسب‌وکار {user.first_name or 'جدید'}"
             await create_business_for_customer(
                 session=session,
@@ -79,33 +81,57 @@ async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_T
         )
 
         # ارسال اطلاع به ادمین
-        await _notify_admin_new_customer(context, customer, business_name)
+        await _notify_admin_new_customer(
+            context, customer, business_name, platform, user.id
+        )
 
 
-async def _notify_admin_new_customer(context, customer, business_name: str) -> None:
+async def _notify_admin_new_customer(
+    context,
+    customer,
+    business_name: str,
+    platform: str,
+    user_id: int,
+) -> None:
     """ارسال اطلاع به ادمین درباره مشتری جدید"""
 
-    name = customer.first_name or ""
-    if customer.last_name:
-        name += f" {customer.last_name}"
+    # نام و اطلاعات از پلتفرم فعلی
+    if platform == "TELEGRAM":
+        name = customer.telegram_first_name or ""
+        if customer.telegram_last_name:
+            name += f" {customer.telegram_last_name}"
+        username_text = f"@{customer.telegram_username}" if customer.telegram_username else "ندارد"
+    else:
+        name = customer.bale_first_name or ""
+        if customer.bale_last_name:
+            name += f" {customer.bale_last_name}"
+        username_text = f"@{customer.bale_username}" if customer.bale_username else "ندارد"
 
-    username_text = f"@{customer.username}" if customer.username else "ندارد"
+    platform_icon = "📱" if platform == "TELEGRAM" else "💬"
+    platform_name = "تلگرام" if platform == "TELEGRAM" else "بله"
 
     message = (
         f"🔔 درخواست عضویت جدید\n"
         f"━━━━━━━━━━━━━━━\n"
+        f"{platform_icon} پلتفرم: {platform_name}\n"
         f"👤 نام: {name}\n"
         f"🔗 یوزرنیم: {username_text}\n"
-        f"🆔 آیدی: {customer.telegram_user_id}\n"
+        f"🆔 آیدی: {user_id}\n"
         f"🏢 کسب‌وکار: {business_name}\n"
         f"━━━━━━━━━━━━━━━"
     )
 
-    await context.bot.send_message(
-        chat_id=settings.ADMIN_CHAT_ID,
-        text=message,
-        reply_markup=get_pending_approval_keyboard(customer.telegram_user_id),
-    )
+    # ارسال به ادمین همون پلتفرم
+    admin_id = get_admin_id_for_platform(platform)
+
+    try:
+        await context.bot.send_message(
+            chat_id=admin_id,
+            text=message,
+            reply_markup=get_pending_approval_keyboard(user_id),
+        )
+    except Exception as e:
+        log.error(f"خطا در ارسال اطلاع به ادمین ({admin_id}): {e}")
 
 
 async def approve_customer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -114,22 +140,27 @@ async def approve_customer_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
 
-    customer_telegram_id = int(query.data.replace("approve_", ""))
+    user_id = int(query.data.replace("approve_", ""))
+    platform = detect_platform_from_context(context)
 
     async with AsyncSessionLocal() as session:
-        customer = await approve_customer(session, customer_telegram_id)
+        customer = await approve_customer(session, user_id, platform)
 
         if not customer:
             await query.edit_message_text("❌ مشتری پیدا نشد!")
             return
 
-        name = customer.first_name or "کاربر"
+        # نام از پلتفرم فعلی
+        if platform == "TELEGRAM":
+            name = customer.telegram_first_name or "کاربر"
+        else:
+            name = customer.bale_first_name or "کاربر"
 
         await query.edit_message_text(query.message.text + "\n\n✅ تایید شد")
 
         try:
             await context.bot.send_message(
-                chat_id=customer_telegram_id,
+                chat_id=user_id,
                 text=(
                     f"🎉 {name} عزیز!\n\n"
                     f"حساب شما تایید شد.\n"
@@ -146,10 +177,11 @@ async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
 
-    customer_telegram_id = int(query.data.replace("reject_", ""))
+    user_id = int(query.data.replace("reject_", ""))
+    platform = detect_platform_from_context(context)
 
     async with AsyncSessionLocal() as session:
-        customer = await reject_customer(session, customer_telegram_id)
+        customer = await reject_customer(session, user_id, platform)
 
         if not customer:
             await query.edit_message_text("❌ مشتری پیدا نشد!")
@@ -159,7 +191,7 @@ async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT
 
         try:
             await context.bot.send_message(
-                chat_id=customer_telegram_id,
+                chat_id=user_id,
                 text=(
                     "❌ متأسفانه درخواست شما تایید نشد.\n"
                     "برای اطلاعات بیشتر با پشتیبانی تماس بگیرید."

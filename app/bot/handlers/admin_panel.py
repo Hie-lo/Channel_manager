@@ -274,15 +274,44 @@ async def _show_customer_detail(query, customer_id: int) -> None:
     }
     status_text = status_emoji.get(customer.customer_status, "نامشخص")
 
+    # آیکون پلتفرم مبدا
+    source_icon = "📱" if customer.source_platform == "TELEGRAM" else "💬"
+    source_name = "تلگرام" if customer.source_platform == "TELEGRAM" else "بله"
+
+    # ساخت متن پلتفرم‌ها
+    from app.services.customer_service import get_customer_all_platforms
+    platforms = get_customer_all_platforms(customer)
+
+    platforms_text = ""
+    for p in platforms:
+        username_display = f"@{p['username']}" if p['username'] else "ندارد"
+        platforms_text += (
+            f"{p['icon']} {p['name']}:\n"
+            f"   🆔 {p['user_id']}\n"
+            f"   🔗 {username_display}\n"
+        )
+
+    # نام اصلی (اولویت با پلتفرم مبدا)
+    if customer.source_platform == "TELEGRAM":
+        display_name = customer.telegram_first_name or "بدون نام"
+        if customer.telegram_last_name:
+            display_name += f" {customer.telegram_last_name}"
+    else:
+        display_name = customer.bale_first_name or "بدون نام"
+        if customer.bale_last_name:
+            display_name += f" {customer.bale_last_name}"
+
     text = (
         f"👤 جزئیات مشتری\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"📛 نام: {name}\n"
-        f"🔗 یوزرنیم: {username_text}\n"
-        f"🆔 آیدی تلگرام: {customer.telegram_user_id}\n"
+        f"📛 نام: {display_name}\n"
+        f"{source_icon} پلتفرم اصلی: {source_name}\n"
         f"🎯 وضعیت: {status_text}\n"
         f"📅 عضویت: {customer.created_at.strftime('%Y/%m/%d')}\n"
         f"🏢 کسب‌وکار: {customer.business_type_key or 'نامشخص'}\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🔗 پلتفرم‌های متصل:\n"
+        f"{platforms_text}"
         f"━━━━━━━━━━━━━━━\n"
     )
 

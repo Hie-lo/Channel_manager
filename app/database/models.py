@@ -60,21 +60,44 @@ class Customer(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # ✅ BigInteger برای پشتیبانی از آیدی‌های بزرگ تلگرام
-    telegram_user_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    # ─── آیدی‌های پلتفرم‌ها ───
+    telegram_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, unique=True, index=True, nullable=True
+    )
+    bale_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, unique=True, index=True, nullable=True
+    )
+    # آماده برای آینده:
+    # rubika_user_id, eitaa_user_id, ...
 
+    # ─── اطلاعات تلگرام ───
+    telegram_first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    telegram_last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # ─── اطلاعات بله ───
+    bale_first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bale_last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bale_username: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # ─── سازگاری با کد قدیمی (برای انتقال ساده) ───
+    # این‌ها فیلدهای مجازی هستن که به فیلدهای پلتفرم اصلی اشاره می‌کنن
+    # (property تعریف نمی‌کنیم چون در query استفاده میشن)
+    # به جاش، همون first_name/last_name/username رو نگه می‌داریم:
     first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     username: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # ─── سایر ───
+    source_platform: Mapped[str] = mapped_column(String(20), default="TELEGRAM")
     business_type_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
     eitaa_bot_token: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     customer_status: Mapped[CustomerStatus] = mapped_column(
         SAEnum(CustomerStatus),
         default=CustomerStatus.PENDING
     )
-    # توکن ربات ایتا (برای ارسال به کانال‌های ایتا)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

@@ -82,12 +82,28 @@ def get_customers_list_keyboard(
     keyboard = []
 
     for customer in customers:
-        name = customer.first_name or "بدون نام"
-        if customer.username:
-            name += f" (@{customer.username})"
+        # نام از پلتفرم مبدا
+        if customer.source_platform == "TELEGRAM":
+            name = customer.telegram_first_name or customer.first_name or "بدون نام"
+            username = customer.telegram_username or customer.username
+        else:
+            name = customer.bale_first_name or "بدون نام"
+            username = customer.bale_username
+
+        if username:
+            name += f" (@{username})"
+
+        # آیکون پلتفرم مبدا
+        source_icon = "📱" if customer.source_platform == "TELEGRAM" else "💬"
+
+        # اگه چند پلتفرم داره، نشون بده
+        multi_indicator = ""
+        if customer.telegram_user_id and customer.bale_user_id:
+            multi_indicator = " 🔗"  # دو پلتفرم متصل
+
         keyboard.append([
             InlineKeyboardButton(
-                f"👤 {name[:35]}",
+                f"{source_icon}{multi_indicator} {name[:30]}",
                 callback_data=f"admin_customer_view_{customer.id}"
             )
         ])

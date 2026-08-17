@@ -1,14 +1,15 @@
 """
 هندلر دستور /start
-اولین تعامل کاربر با ربات
+اولین تعامل کاربر با ربات (تلگرام یا بله)
 """
-from app.utils.admin_check import is_admin
+
 from telegram import Update
 from telegram.ext import ContextTypes
+
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.services.customer_service import (
-    get_customer_by_telegram_id,
+    get_customer_by_platform_id,
     create_customer,
 )
 from app.database.models import CustomerStatus
@@ -16,37 +17,48 @@ from app.bot.keyboards.main_menu import (
     get_customer_main_menu,
     get_business_type_keyboard,
 )
-from app.bot.keyboards.admin import get_admin_main_menu  
+from app.bot.keyboards.admin import get_admin_main_menu
 from app.utils.logger import log
+from app.utils.admin_check import (
+    is_admin,
+    detect_platform_from_context,
+)
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """هندلر دستور /start"""
 
     user = update.effective_user
-    telegram_id = user.id
+    user_id = user.id
 
-    log.info(f"دستور /start از کاربر: {telegram_id} - {user.first_name}")
+    # تشخیص پلتفرم
+    platform = detect_platform_from_context(context)
+    platform_name = "تلگرام" if platform == "TELEGRAM" else "بله"
 
-    # چک کن آیا سوپر ادمین است
-    if is_admin(telegram_id):
+    log.info(
+        f"دستور /start از کاربر: {user_id} - {user.first_name} "
+        f"در پلتفرم {platform_name}"
+    )
+
+    # چک ادمین
+    if is_admin(user_id):
         await update.message.reply_text(
             f"👑 سلام ادمین عزیز!\n"
-            f"به پنل مدیریت خوش آمدید.",
+            f"به پنل مدیریت خوش آمدید.\n"
+            f"🤖 پلتفرم: {platform_name}",
             reply_markup=get_admin_main_menu(),
         )
         return
 
     # بررسی وضعیت مشتری در دیتابیس
     async with AsyncSessionLocal() as session:
-        customer = await get_customer_by_telegram_id(session, telegram_id)
+        customer = await get_customer_by_platform_id(session, user_id, platform)
 
-        # مشتری جدید است
         if not customer:
-            await _handle_new_customer(update, context, session, user)
+            await _handle_new_customer(update, context, session, user, platform)
             return
 
-        # مشتری قبلاً ثبت‌نام کرده - بررسی وضعیت
+        # مشتری قبلاً ثبت‌نام کرده
         if customer.customer_status == CustomerStatus.PENDING:
             await update.message.reply_text(
                 "⏳ حساب شما در انتظار تایید است.\n"
@@ -73,22 +85,26 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             )
 
 
-async def _handle_new_customer(update, context, session, user) -> None:
+async def _handle_new_customer(update, context, session, user, platform) -> None:
     """مدیریت مشتری جدید - ثبت‌نام"""
 
-    # ساخت مشتری در دیتابیس با وضعیت PENDING
+    # ساخت مشتری در دیتابیس
     await create_customer(
         session=session,
-        telegram_user_id=user.id,
+        user_id=user.id,
         first_name=user.first_name,
         last_name=user.last_name,
         username=user.username,
+        platform=platform,
     )
 
-    # درخواست نام کسب‌وکار
+    platform_name = "تلگرام" if platform == "TELEGRAM" else "بله"
+
+    # درخواست نوع کسب‌وکار
     await update.message.reply_text(
         f"👋 سلام {user.first_name} عزیز!\n\n"
-        f"به ربات مدیریت کانال خوش آمدید.\n\n"
+        f"به ربات مدیریت کانال خوش آمدید.\n"
+        f"🤖 پلتفرم: {platform_name}\n\n"
         f"برای شروع، لطفاً نوع کسب‌وکار خود را انتخاب کنید:",
         reply_markup=get_business_type_keyboard(),
     )
