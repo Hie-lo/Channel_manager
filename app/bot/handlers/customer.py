@@ -2,7 +2,11 @@
 هندلرهای مربوط به مشتری
 """
 
-from telegram import Update
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 from telegram.ext import ContextTypes
 
 from app.config import settings
@@ -18,12 +22,39 @@ from app.services.business_service import (
     get_business_for_customer,
 )
 from app.business.config import get_business
-from app.bot.keyboards.main_menu import get_pending_approval_keyboard
 from app.utils.logger import log
 from app.utils.admin_check import (
     detect_platform_from_context,
     get_admin_id_for_platform,
 )
+
+
+def _get_approval_keyboard_with_chat(user_id: int, platform: str) -> InlineKeyboardMarkup:
+    """
+    کیبورد تایید/رد + چت با کاربر
+    برای تلگرام از tg://user?id= استفاده می‌کنیم
+    برای بله فعلاً فقط نمایش آیدی
+    """
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ تایید", callback_data=f"approve_{user_id}"),
+            InlineKeyboardButton("❌ رد", callback_data=f"reject_{user_id}"),
+        ]
+    ]
+
+    # دکمه چت مستقیم
+    if platform == "TELEGRAM":
+        # تلگرام از tg://user?id= پشتیبانی می‌کنه
+        keyboard.append([
+            InlineKeyboardButton(
+                "💬 چت با کاربر",
+                url=f"tg://user?id={user_id}"
+            )
+        ])
+    # برای بله، ممکنه پشتیبانی نکنه، پس دکمه نذاریم
+    # (بعداً اگه بله deep link داشت، اضافه می‌کنیم)
+
+    return InlineKeyboardMarkup(keyboard)
 
 
 async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -46,6 +77,8 @@ async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_T
     # تشخیص پلتفرم
     platform = detect_platform_from_context(context)
     business_name = f"{business_config.emoji} {business_config.name_fa}"
+
+    log.info(f"[BIZ SELECT] user={user.id}, platform={platform}, biz={business_key}")
 
     async with AsyncSessionLocal() as session:
         # ذخیره نوع کسب‌وکار
@@ -128,7 +161,7 @@ async def _notify_admin_new_customer(
         await context.bot.send_message(
             chat_id=admin_id,
             text=message,
-            reply_markup=get_pending_approval_keyboard(user_id),
+            reply_markup=_get_approval_keyboard_with_chat(user_id, platform),
         )
     except Exception as e:
         log.error(f"خطا در ارسال اطلاع به ادمین ({admin_id}): {e}")
@@ -143,11 +176,18 @@ async def approve_customer_callback(update: Update, context: ContextTypes.DEFAUL
     user_id = int(query.data.replace("approve_", ""))
     platform = detect_platform_from_context(context)
 
+    log.info(f"[APPROVE] user_id={user_id}, platform={platform}")
+
     async with AsyncSessionLocal() as session:
         customer = await approve_customer(session, user_id, platform)
 
         if not customer:
-            await query.edit_message_text("❌ مشتری پیدا نشد!")
+            log.warning(f"[APPROVE] مشتری پیدا نشد: user_id={user_id}, platform={platform}")
+            await query.edit_message_text(
+                f"❌ مشتری پیدا نشد!\n"
+                f"user_id: {user_id}\n"
+                f"platform: {platform}"
+            )
             return
 
         # نام از پلتفرم فعلی
@@ -156,8 +196,11 @@ async def approve_customer_callback(update: Update, context: ContextTypes.DEFAUL
         else:
             name = customer.bale_first_name or "کاربر"
 
-        await query.edit_message_text(query.message.text + "\n\n✅ تایید شد")
+        # آپدیت پیام ادمین
+        original_text = query.message.text or ""
+        await query.edit_message_text(original_text + "\n\n✅ تایید شد")
 
+        # اطلاع به مشتری
         try:
             await context.bot.send_message(
                 chat_id=user_id,
@@ -167,8 +210,9 @@ async def approve_customer_callback(update: Update, context: ContextTypes.DEFAUL
                     f"برای شروع دستور /start را بزنید."
                 ),
             )
+            log.info(f"[APPROVE] مشتری {user_id} تایید و مطلع شد")
         except Exception as e:
-            log.error(f"خطا در ارسال پیام: {e}")
+            log.error(f"خطا در ارسال پیام تایید به مشتری {user_id}: {e}")
 
 
 async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -180,14 +224,21 @@ async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = int(query.data.replace("reject_", ""))
     platform = detect_platform_from_context(context)
 
+    log.info(f"[REJECT] user_id={user_id}, platform={platform}")
+
     async with AsyncSessionLocal() as session:
         customer = await reject_customer(session, user_id, platform)
 
         if not customer:
-            await query.edit_message_text("❌ مشتری پیدا نشد!")
+            await query.edit_message_text(
+                f"❌ مشتری پیدا نشد!\n"
+                f"user_id: {user_id}\n"
+                f"platform: {platform}"
+            )
             return
 
-        await query.edit_message_text(query.message.text + "\n\n❌ رد شد")
+        original_text = query.message.text or ""
+        await query.edit_message_text(original_text + "\n\n❌ رد شد")
 
         try:
             await context.bot.send_message(
@@ -198,4 +249,4 @@ async def reject_customer_callback(update: Update, context: ContextTypes.DEFAULT
                 ),
             )
         except Exception as e:
-            log.error(f"خطا در ارسال پیام: {e}")
+            log.error(f"خطا در ارسال پیام رد به مشتری {user_id}: {e}")

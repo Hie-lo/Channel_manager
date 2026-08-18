@@ -50,7 +50,10 @@ def get_cancel_upload_keyboard() -> InlineKeyboardMarkup:
 async def upload_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش منوی آپلود محصولات"""
 
+    from app.utils.admin_check import detect_platform_from_context
+
     user = update.effective_user
+    platform = detect_platform_from_context(context)
 
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
@@ -74,6 +77,20 @@ async def upload_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         plan = get_plan(subscription.plan_key)
 
+    # ⚠️ اگه در بله هستیم، فقط Google Sheet
+    if platform == "BALE":
+        await update.message.reply_text(
+            f"📤 آپلود محصولات\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"🏢 کسب‌وکار: {business_config.emoji} {business_config.name_fa}\n"
+            f"📦 حداکثر محصول: {plan.max_products if plan.max_products < 9999 else 'نامحدود'}\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"💡 در بله، فقط از طریق Google Sheet می‌تونید محصولات رو آپلود کنید.\n\n"
+            f"از منوی '📊 اتصال Google Sheet' اقدام کنید."
+        )
+        return
+
+    # در تلگرام، همون منوی قبلی
     await update.message.reply_text(
         f"📤 آپلود محصولات\n"
         f"━━━━━━━━━━━━━━━\n"
