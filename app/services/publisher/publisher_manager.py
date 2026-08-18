@@ -309,10 +309,14 @@ async def _edit_telegram_post(
         log.error(f"[TG Edit] خطا در ساخت Bot تلگرام: {e}")
 
     try:
-        async with AsyncSessionLocal() as session:
-            medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
+        # چک کن پست عکس داره یا نه
+        # ⚠️ مهم: عکس‌ها ممکنه با هر platform ذخیره شده باشن
+        from app.services.product_media_service import get_all_product_medias
 
-        has_photo = len(medias) > 0 or bool(product.image_url)
+        async with AsyncSessionLocal() as session:
+            all_medias = await get_all_product_medias(session, product.id)
+
+        has_photo = len(all_medias) > 0 or bool(product.image_url)
 
         result = await edit_post_in_telegram(
             bot=actual_bot,
