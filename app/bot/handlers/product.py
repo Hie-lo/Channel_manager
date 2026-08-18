@@ -555,9 +555,10 @@ async def _publish_or_edit(bot, product, channel, caption):
                 stock_qty=product.stock_qty,
             )
 
-            # ذخیره message_ids آلبوم (اگه هست)
-            if result.message_ids and len(result.message_ids) > 1 and posted:
-                posted.telegram_message_ids = result.message_ids
+            # ذخیره message_ids آلبوم
+            all_ids = getattr(result, 'message_ids', [])
+            if all_ids and len(all_ids) > 1 and posted:
+                posted.telegram_message_ids = all_ids
                 await session.commit()
 
     # تبدیل UnifiedPublishResult به PublishResult سازگار

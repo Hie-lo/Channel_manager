@@ -680,9 +680,8 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
             if result.success and result.message_id:
-                # ذخیره پست جدید
                 async with AsyncSessionLocal() as session:
-                    await create_posted_message(
+                    posted = await create_posted_message(
                         session=session,
                         product_id=product.id,
                         channel_id=channel.id,
@@ -691,6 +690,12 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                         price=int(product.price),
                         stock_qty=product.stock_qty,
                     )
+
+                    # ذخیره message_ids آلبوم
+                    all_ids = getattr(result, 'message_ids', [])
+                    if all_ids and len(all_ids) > 1 and posted:
+                        posted.telegram_message_ids = all_ids
+                        await session.commit()
                 success_count += 1
                 results_list.append(
                     f"✅ {channel.platform.value}: {channel.channel_identifier}"

@@ -5,10 +5,11 @@
 import tempfile
 import os
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.database.models import Platform, Channel, Product
 from app.utils.logger import log
+
 
 
 @dataclass
@@ -16,6 +17,7 @@ class UnifiedPublishResult:
     """نتیجه یکسان برای همه پلتفرم‌ها"""
     success: bool
     message_id: int | None = None
+    message_ids: list[int] = field(default_factory=list)
     platform: Platform = Platform.TELEGRAM
     error_message: str = ""
     used_fallback: bool = False
@@ -119,16 +121,15 @@ async def _publish_to_telegram_channel(
     )
     from app.database.connection import AsyncSessionLocal
     from app.config import settings
+    import os
 
-    # ⚠️ مهم: مطمئن شو از Bot تلگرام استفاده می‌کنیم
-    # اگه bot فعلی ربات بله باشه، باید Bot تلگرام بسازیم
+    # ─── مرحله ۱: مطمئن شو Bot تلگرام داریم ───
     actual_bot = bot
     is_temp_bot = False
 
     try:
         base_url = str(getattr(bot, "base_url", "") or "")
         if "bale" in base_url.lower():
-            # ربات فعلی بله‌ست، Bot تلگرام بساز
             from telegram import Bot
             actual_bot = Bot(token=settings.BOT_TOKEN)
             await actual_bot.initialize()
@@ -138,7 +139,7 @@ async def _publish_to_telegram_channel(
         log.error(f"[TG Publish] خطا در ساخت Bot تلگرام: {e}")
 
     try:
-        # گرفتن عکس‌های تلگرام
+        # ─── مرحله ۲: عکس‌های تلگرام رو بگیر ───
         async with AsyncSessionLocal() as session:
             tg_medias = await get_product_medias(
                 session, product.id, Platform.TELEGRAM
@@ -146,7 +147,7 @@ async def _publish_to_telegram_channel(
 
         photo_sources = get_photo_sources_for_platform(product, tg_medias)
 
-        # اگه عکس تلگرام نبود → از بله دانلود و آپلود کن
+        # ─── مرحله ۳: اگه عکس تلگرام نیست، از بله دانلود کن ───
         if not photo_sources:
             async with AsyncSessionLocal() as session:
                 all_medias = await get_all_product_medias(session, product.id)
@@ -154,26 +155,17 @@ async def _publish_to_telegram_channel(
             bale_medias = [m for m in all_medias if m.platform == Platform.BALE]
 
             if bale_medias:
-                log.info(
-                    f"[TG Publish] دانلود {len(bale_medias)} عکس از بله..."
-                )
-
-                import os
-                import tempfile
+                log.info(f"[TG Publish] دانلود {len(bale_medias)} عکس از بله...")
                 temp_files = []
 
                 try:
-                    # دانلود همه عکس‌ها از بله
                     for media in bale_medias:
                         temp_path = await _download_bale_file(product, media.file_id)
                         if temp_path:
                             temp_files.append(temp_path)
 
-                    if len(temp_files) == 0:
-                        log.warning("[TG Publish] هیچ عکسی از بله دانلود نشد")
-
-                    elif len(temp_files) == 1:
-                        # تک عکس
+                    if len(temp_files) == 1:
+                        # ─── تک عکس ───
                         with open(temp_files[0], "rb") as f:
                             message = await actual_bot.send_photo(
                                 chat_id=channel.channel_identifier,
@@ -184,11 +176,12 @@ async def _publish_to_telegram_channel(
                         return UnifiedPublishResult(
                             success=True,
                             message_id=message.message_id,
+                            message_ids=[message.message_id],
                             platform=Platform.TELEGRAM,
                         )
 
-                    else:
-                        # آلبوم (چند عکس)
+                    elif len(temp_files) > 1:
+                        # ─── آلبوم ───
                         from telegram import InputMediaPhoto
 
                         media_list = []
@@ -210,18 +203,15 @@ async def _publish_to_telegram_channel(
                                 chat_id=channel.channel_identifier,
                                 media=media_list,
                             )
-
-                            all_msg_ids = [msg.message_id for msg in messages]
-
+                            all_ids = [msg.message_id for msg in messages]
                             log.info(
-                                f"✅ [TG Publish] آلبوم با {len(messages)} عکس ارسال شد "
-                                f"(ids: {all_msg_ids})"
+                                f"✅ [TG Publish] آلبوم {len(messages)} عکسی "
+                                f"ارسال شد (ids: {all_ids})"
                             )
-
                             return UnifiedPublishResult(
                                 success=True,
-                                message_id=all_msg_ids[0],
-                                message_ids=all_msg_ids,
+                                message_id=all_ids[0],
+                                message_ids=all_ids,
                                 platform=Platform.TELEGRAM,
                             )
                         finally:
@@ -230,7 +220,6 @@ async def _publish_to_telegram_channel(
 
                 except Exception as e:
                     log.error(f"[TG Publish] خطا در ارسال عکس بله: {e}")
-
                 finally:
                     for path in temp_files:
                         try:
@@ -238,16 +227,25 @@ async def _publish_to_telegram_channel(
                         except Exception:
                             pass
 
-            # fallback به image_url
-            if not photo_sources and product.image_url and product.image_url.strip():
+            # ─── fallback به image_url ───
+            if product.image_url and product.image_url.strip():
                 photo_sources = [product.image_url.strip()]
 
+        # ─── مرحله ۴: ارسال عادی ───
         if len(photo_sources) > 1:
             result = await publish_media_group_to_telegram(
                 bot=actual_bot,
                 channel_identifier=channel.channel_identifier,
                 caption=caption,
                 photo_sources=photo_sources,
+            )
+            return UnifiedPublishResult(
+                success=result.success,
+                message_id=result.message_id,
+                message_ids=getattr(result, 'message_ids', []),
+                platform=Platform.TELEGRAM,
+                error_message=result.error_message,
+                used_fallback=result.used_fallback,
             )
         else:
             photo_url = photo_sources[0] if photo_sources else None
@@ -257,17 +255,17 @@ async def _publish_to_telegram_channel(
                 caption=caption,
                 photo_url=photo_url,
             )
-
-        return UnifiedPublishResult(
-            success=result.success,
-            message_id=result.message_id,
-            platform=Platform.TELEGRAM,
-            error_message=result.error_message,
-            used_fallback=result.used_fallback,
-        )
+            msg_id = result.message_id
+            return UnifiedPublishResult(
+                success=result.success,
+                message_id=msg_id,
+                message_ids=[msg_id] if msg_id else [],
+                platform=Platform.TELEGRAM,
+                error_message=result.error_message,
+                used_fallback=result.used_fallback,
+            )
 
     finally:
-        # cleanup Bot موقت
         if is_temp_bot and actual_bot:
             try:
                 await actual_bot.shutdown()
