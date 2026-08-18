@@ -115,42 +115,79 @@ async def _publish_to_telegram_channel(
     from app.services.product_media_service import (
         get_product_medias,
         get_photo_sources_for_platform,
+        get_all_product_medias,
     )
     from app.database.connection import AsyncSessionLocal
+    from app.config import settings
 
-    # گرفتن عکس‌ها
-    async with AsyncSessionLocal() as session:
-        uploaded_medias = await get_product_medias(
-            session, product.id, Platform.TELEGRAM
+    # ⚠️ مهم: مطمئن شو از Bot تلگرام استفاده می‌کنیم
+    # اگه bot فعلی ربات بله باشه، باید Bot تلگرام بسازیم
+    actual_bot = bot
+    is_temp_bot = False
+
+    try:
+        base_url = str(getattr(bot, "base_url", "") or "")
+        if "bale" in base_url.lower():
+            # ربات فعلی بله‌ست، Bot تلگرام بساز
+            from telegram import Bot
+            actual_bot = Bot(token=settings.BOT_TOKEN)
+            await actual_bot.initialize()
+            is_temp_bot = True
+            log.info("[TG Publish] استفاده از Bot تلگرام (ساخته شده از بله)")
+    except Exception as e:
+        log.error(f"[TG Publish] خطا در ساخت Bot تلگرام: {e}")
+
+    try:
+        # گرفتن عکس‌های تلگرام
+        async with AsyncSessionLocal() as session:
+            tg_medias = await get_product_medias(
+                session, product.id, Platform.TELEGRAM
+            )
+
+        photo_sources = get_photo_sources_for_platform(product, tg_medias)
+
+        # اگه عکس تلگرام نبود، از بله دانلود کن و آپلود کن
+        if not photo_sources:
+            async with AsyncSessionLocal() as session:
+                all_medias = await get_all_product_medias(session, product.id)
+
+            if all_medias:
+                # عکس از پلتفرم دیگه داریم → دانلود و فرسته به تلگرام
+                # فعلاً fallback به image_url
+                if product.image_url and product.image_url.strip():
+                    photo_sources = [product.image_url.strip()]
+
+        if len(photo_sources) > 1:
+            result = await publish_media_group_to_telegram(
+                bot=actual_bot,
+                channel_identifier=channel.channel_identifier,
+                caption=caption,
+                photo_sources=photo_sources,
+            )
+        else:
+            photo_url = photo_sources[0] if photo_sources else None
+            result = await publish_post_to_telegram(
+                bot=actual_bot,
+                channel_identifier=channel.channel_identifier,
+                caption=caption,
+                photo_url=photo_url,
+            )
+
+        return UnifiedPublishResult(
+            success=result.success,
+            message_id=result.message_id,
+            platform=Platform.TELEGRAM,
+            error_message=result.error_message,
+            used_fallback=result.used_fallback,
         )
 
-    photo_sources = get_photo_sources_for_platform(product, uploaded_medias)
-
-    if len(photo_sources) > 1:
-        # آلبوم
-        result = await publish_media_group_to_telegram(
-            bot=bot,
-            channel_identifier=channel.channel_identifier,
-            caption=caption,
-            photo_sources=photo_sources,
-        )
-    else:
-        # تک عکس یا بدون عکس
-        photo_url = photo_sources[0] if photo_sources else None
-        result = await publish_post_to_telegram(
-            bot=bot,
-            channel_identifier=channel.channel_identifier,
-            caption=caption,
-            photo_url=photo_url,
-        )
-
-    return UnifiedPublishResult(
-        success=result.success,
-        message_id=result.message_id,
-        platform=Platform.TELEGRAM,
-        error_message=result.error_message,
-        used_fallback=result.used_fallback,
-    )
+    finally:
+        # cleanup Bot موقت
+        if is_temp_bot and actual_bot:
+            try:
+                await actual_bot.shutdown()
+            except Exception:
+                pass
 
 
 async def _edit_telegram_post(
@@ -160,30 +197,53 @@ async def _edit_telegram_post(
     new_caption: str,
     old_message_id: int,
 ) -> UnifiedPublishResult:
-    """ویرایش پست تلگرام (فقط کپشن)"""
+    """ویرایش پست تلگرام"""
     from app.services.publisher.telegram_publisher import edit_post_in_telegram
     from app.services.product_media_service import get_product_medias
     from app.database.connection import AsyncSessionLocal
+    from app.config import settings
 
-    async with AsyncSessionLocal() as session:
-        medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
+    # ⚠️ مطمئن شو از Bot تلگرام استفاده می‌کنیم
+    actual_bot = bot
+    is_temp_bot = False
 
-    has_photo = len(medias) > 0 or bool(product.image_url)
+    try:
+        base_url = str(getattr(bot, "base_url", "") or "")
+        if "bale" in base_url.lower():
+            from telegram import Bot
+            actual_bot = Bot(token=settings.BOT_TOKEN)
+            await actual_bot.initialize()
+            is_temp_bot = True
+    except Exception as e:
+        log.error(f"[TG Edit] خطا در ساخت Bot تلگرام: {e}")
 
-    result = await edit_post_in_telegram(
-        bot=bot,
-        channel_identifier=channel.channel_identifier,
-        message_id=old_message_id,
-        new_caption=new_caption,
-        has_photo=has_photo,
-    )
+    try:
+        async with AsyncSessionLocal() as session:
+            medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
 
-    return UnifiedPublishResult(
-        success=result.success,
-        message_id=result.message_id,
-        platform=Platform.TELEGRAM,
-        error_message=result.error_message,
-    )
+        has_photo = len(medias) > 0 or bool(product.image_url)
+
+        result = await edit_post_in_telegram(
+            bot=actual_bot,
+            channel_identifier=channel.channel_identifier,
+            message_id=old_message_id,
+            new_caption=new_caption,
+            has_photo=has_photo,
+        )
+
+        return UnifiedPublishResult(
+            success=result.success,
+            message_id=result.message_id,
+            platform=Platform.TELEGRAM,
+            error_message=result.error_message,
+        )
+
+    finally:
+        if is_temp_bot and actual_bot:
+            try:
+                await actual_bot.shutdown()
+            except Exception:
+                pass
 
 
 # ═══════════════════════════════════════════════════════════
