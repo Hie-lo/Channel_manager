@@ -40,6 +40,7 @@ from app.bot.states.user_state import (
     get_user_data,
     clear_user_state,
 )
+from app.utils.admin_check import detect_platform_from_context, get_admin_id_for_platform
 from app.utils.logger import log
 from sqlalchemy import select
 
@@ -274,7 +275,8 @@ async def payment_receipt_handler(update: Update, context: ContextTypes.DEFAULT_
     این handler فقط زمانی فعال میشه که state = WAITING_PAYMENT_RECEIPT باشه
     """
     user = update.effective_user
-
+    platform = detect_platform_from_context(context)
+    admin_id = get_admin_id_for_platform(platform)
     if get_user_state(user.id) != UserState.WAITING_PAYMENT_RECEIPT:
         return
 
@@ -334,14 +336,14 @@ async def payment_receipt_handler(update: Update, context: ContextTypes.DEFAULT_
             # عکس بزرگترین سایز
             photo = update.message.photo[-1]
             await context.bot.send_photo(
-                chat_id=settings.ADMIN_CHAT_ID,
+                chat_id=admin_id,
                 photo=photo.file_id,
                 caption=admin_text,
                 reply_markup=get_payment_confirmation_keyboard(subscription_id),
             )
         elif update.message.document:
             await context.bot.send_document(
-                chat_id=settings.ADMIN_CHAT_ID,
+                chat_id=admin_id,
                 document=update.message.document.file_id,
                 caption=admin_text,
                 reply_markup=get_payment_confirmation_keyboard(subscription_id),
@@ -349,7 +351,7 @@ async def payment_receipt_handler(update: Update, context: ContextTypes.DEFAULT_
         else:
             # فقط متن
             await context.bot.send_message(
-                chat_id=settings.ADMIN_CHAT_ID,
+                chat_id=admin_id,
                 text=admin_text + "\n\n⚠️ رسیدی ارسال نشد!",
                 reply_markup=get_payment_confirmation_keyboard(subscription_id),
             )

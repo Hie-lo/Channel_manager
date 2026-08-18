@@ -25,7 +25,10 @@ from app.bot.states.user_state import (
     clear_user_state,
 )
 from app.utils.logger import log
-
+from app.utils.admin_check import (
+        detect_platform_from_context,
+        get_admin_id_for_platform,
+    )
 
 # پکیج‌های توکن قابل خرید
 TOKEN_PACKAGES = [
@@ -313,30 +316,33 @@ async def ai_token_receipt_handler(update: Update, context: ContextTypes.DEFAULT
         ]
     ])
 
+    platform = detect_platform_from_context(context)
+    admin_id = get_admin_id_for_platform(platform)
+
     try:
         if update.message.photo:
             photo = update.message.photo[-1]
             await context.bot.send_photo(
-                chat_id=settings.ADMIN_CHAT_ID,
+                chat_id=admin_id,
                 photo=photo.file_id,
                 caption=admin_text,
                 reply_markup=admin_keyboard,
             )
         elif update.message.document:
             await context.bot.send_document(
-                chat_id=settings.ADMIN_CHAT_ID,
+                chat_id=admin_id,
                 document=update.message.document.file_id,
                 caption=admin_text,
                 reply_markup=admin_keyboard,
             )
         else:
             await context.bot.send_message(
-                chat_id=settings.ADMIN_CHAT_ID,
+                chat_id=admin_id,
                 text=admin_text + "\n\n⚠️ رسیدی ارسال نشد!",
                 reply_markup=admin_keyboard,
             )
     except Exception as e:
-        log.error(f"خطا در ارسال رسید توکن به ادمین: {e}")
+        log.error(f"خطا در ارسال رسید توکن به ادمین {admin_id}: {e}")
 
     clear_user_state(user.id)
 

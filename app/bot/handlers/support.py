@@ -4,7 +4,10 @@
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
-
+from app.utils.admin_check import (
+        detect_platform_from_context,
+        get_admin_id_for_platform,
+    )
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.database.models import CustomerStatus
@@ -102,11 +105,20 @@ async def support_message_received_handler(update: Update, context: ContextTypes
         f"━━━━━━━━━━━━━━━"
     )
 
+    platform = detect_platform_from_context(context)
+    admin_id = get_admin_id_for_platform(platform)
+
+    # آیدی مشتری بر اساس پلتفرم (برای دکمه پاسخ)
+    customer_user_id = (
+        customer.telegram_user_id if platform == "TELEGRAM"
+        else customer.bale_user_id
+    )
+
     try:
         await context.bot.send_message(
-            chat_id=settings.ADMIN_CHAT_ID,
+            chat_id=admin_id,
             text=admin_text,
-            reply_markup=_get_reply_support_keyboard(customer.telegram_user_id),
+            reply_markup=_get_reply_support_keyboard(customer_user_id),
         )
 
         await update.message.reply_text(
