@@ -150,13 +150,23 @@ async def support_cancel_callback(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
-async def support_reply_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ادمین می‌خواد پاسخ بده"""
+async def support_reply_callback(update, context):
     query = update.callback_query
     await query.answer()
 
-    if query.from_user.id != settings.ADMIN_CHAT_ID:
+    # چک ادمین (چند پلتفرمی)
+    from app.utils.admin_check import is_admin
+    if not is_admin(query.from_user.id):
         return
+
+    customer_telegram_id = int(query.data.replace("support_reply_", ""))
+
+    # ذخیره در state
+    set_user_state(
+        query.from_user.id,
+        UserState.ADMIN_REPLYING_TO_SUPPORT,
+        data={"target_customer_telegram_id": customer_telegram_id},
+    )
 
     customer_telegram_id = int(query.data.replace("support_reply_", ""))
 
@@ -188,15 +198,11 @@ async def support_reply_cancel_callback(update: Update, context: ContextTypes.DE
 
     await query.edit_message_text("❌ لغو شد.")
 
-
-async def admin_reply_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    دریافت متن پاسخ ادمین
-    فقط وقتی state = ADMIN_REPLYING_TO_SUPPORT
-    """
+async def admin_reply_message_handler(update, context):
     user = update.effective_user
 
-    if user.id != settings.ADMIN_CHAT_ID:
+    from app.utils.admin_check import is_admin
+    if not is_admin(user.id):
         return
 
     if get_user_state(user.id) != UserState.ADMIN_REPLYING_TO_SUPPORT:

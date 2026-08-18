@@ -2,6 +2,7 @@
 هندلرهای آپلود و مدیریت عکس محصول (چند عکس)
 """
 
+from alembic import context
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from sqlalchemy import select
@@ -24,7 +25,8 @@ from app.bot.states.user_state import (
     clear_user_state,
 )
 from app.utils.logger import log
-
+from app.utils.admin_check import detect_platform_from_context
+from app.database.models import Platform
 
 async def prod_upload_image_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
@@ -355,7 +357,9 @@ async def product_image_received_handler(update: Update, context: ContextTypes.D
     # گرفتن بزرگترین سایز
     photo = update.message.photo[-1]
     file_id = photo.file_id
-
+    from app.utils.admin_check import detect_platform_from_context
+    platform = detect_platform_from_context(context)
+    log.info(f"🔍 [PHOTO UPLOAD] platform={platform}, file_id={file_id[:30]}, user={user.id}")
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
@@ -375,13 +379,18 @@ async def product_image_received_handler(update: Update, context: ContextTypes.D
             await update.message.reply_text("❌ محصول پیدا نشد!")
             clear_user_state(user.id)
             return
-
+        current_platform_str = detect_platform_from_context(context)
         # اضافه کردن عکس
+        if current_platform_str == "BALE":
+            media_platform = Platform.BALE
+        else:
+            media_platform = Platform.TELEGRAM
+
         media = await add_product_media(
             session=session,
             product_id=product_id,
             file_id=file_id,
-            platform=Platform.TELEGRAM,
+            platform=media_platform,
             uploaded_by_customer=True,
         )
 

@@ -347,21 +347,22 @@ async def ai_token_receipt_handler(update: Update, context: ContextTypes.DEFAULT
     clear_user_state(user.id)
 
 
-async def ai_admin_approve_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ادمین خرید توکن رو تایید می‌کنه"""
+async def ai_admin_approve_callback(update, context):
     query = update.callback_query
     await query.answer()
 
-    # data: ai_admin_approve_{customer_id}_{amount}
+    log.info(f"[AI ADMIN APPROVE] callback_data={query.data}")
+
     parts = query.data.replace("ai_admin_approve_", "").split("_")
+    log.info(f"[AI ADMIN APPROVE] parts={parts}")
+
     if len(parts) != 2:
+        log.error(f"⚠️ parts اشتباه: {parts}")
         return
 
-    try:
-        customer_id = int(parts[0])
-        amount = int(parts[1])
-    except ValueError:
-        return
+    customer_id = int(parts[0])
+    amount = int(parts[1])
+    log.info(f"[AI ADMIN APPROVE] customer_id={customer_id}, amount={amount}")
 
     async with AsyncSessionLocal() as session:
         # افزودن توکن

@@ -425,9 +425,9 @@ async def sub_admin_approve_callback(update: Update, context: ContextTypes.DEFAU
         log.error(f"خطا در آپدیت پیام ادمین: {e}")
 
     # اطلاع به مشتری
+    # اطلاع به مشتری
     if customer and activated:
         try:
-            # ساخت متن
             welcome_text = (
                 f"🎉 تبریک! اشتراک شما فعال شد!\n"
                 f"━━━━━━━━━━━━━━━\n"
@@ -446,10 +446,21 @@ async def sub_admin_approve_callback(update: Update, context: ContextTypes.DEFAU
                 f"از الان می‌تونید از همه امکانات استفاده کنید! 🚀"
             )
 
-            await context.bot.send_message(
-                chat_id=customer.telegram_user_id,
-                text=welcome_text,
+            # ⚠️ آیدی مشتری بر اساس platform
+            customer_chat_id = (
+                customer.telegram_user_id
+                if customer.source_platform == "TELEGRAM"
+                else customer.bale_user_id
             )
+
+            if customer_chat_id:
+                await context.bot.send_message(
+                    chat_id=customer_chat_id,
+                    text=welcome_text,
+                )
+                log.info(f"✅ پیام فعال شدن اشتراک به {customer_chat_id} ارسال شد")
+            else:
+                log.warning(f"⚠️ مشتری {customer.id} آیدی معتبر نداره")
         except Exception as e:
             log.error(f"خطا در ارسال به مشتری: {e}")
 
