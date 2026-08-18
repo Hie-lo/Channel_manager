@@ -545,11 +545,12 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     deleted_count = 0
     delete_errors = []
 
-    # ⚠️ برای حذف پست تلگرام از بله، باید Bot تلگرام بسازیم
+    # ⚠️ برای حذف پست‌ها، ممکنه Bot های مختلف لازم باشه
     from app.utils.admin_check import detect_platform_from_context
     from app.config import settings
     current_platform = detect_platform_from_context(context)
 
+    # Bot تلگرام (برای حذف پست‌های تلگرام از بله)
     tg_bot = None
     if current_platform == "BALE":
         try:
@@ -559,6 +560,20 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             log.warning(f"⚠️ [Repost] خطا در ساخت Bot تلگرام: {e}")
 
+    # Bot بله (برای حذف پست‌های بله از تلگرام)
+    bale_bot = None
+    if current_platform == "TELEGRAM" and settings.BALE_BOT_TOKEN:
+        try:
+            from telegram import Bot
+            bale_bot = Bot(
+                token=settings.BALE_BOT_TOKEN,
+                base_url=settings.BALE_API_BASE,
+                base_file_url=settings.BALE_FILE_API_BASE,
+            )
+            await bale_bot.initialize()
+        except Exception as e:
+            log.warning(f"⚠️ [Repost] خطا در ساخت Bot بله: {e}")
+
     for pm in posted_messages:
         channel = next((c for c in channels if c.id == pm.channel_id), None)
         if not channel:
@@ -566,12 +581,10 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         try:
             if channel.platform == Platform.TELEGRAM:
+                # حذف پست تلگرام
                 delete_bot = tg_bot if tg_bot else context.bot
 
-                # لیست همه message_id ها (آلبوم + تکی)
                 msg_ids_to_delete = []
-
-                # اول message_ids آلبوم (JSONB)
                 if pm.telegram_message_ids and isinstance(pm.telegram_message_ids, list):
                     msg_ids_to_delete = list(pm.telegram_message_ids)
                     log.info(
@@ -579,7 +592,6 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                         f"از {channel.channel_identifier}"
                     )
                 else:
-                    # تکی
                     msg_ids_to_delete = [pm.telegram_message_id]
                     log.info(
                         f"[Repost] حذف پست تلگرام {pm.telegram_message_id} "
@@ -596,9 +608,10 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     except Exception as del_err:
                         log.warning(f"⚠️ حذف msg {mid} fail: {del_err}")
 
-                log.info(f"✅ [Repost] {len(msg_ids_to_delete)} پیام تلگرام حذف شد")
+                log.info(f"✅ [Repost] پست‌های تلگرام حذف شد")
 
             elif channel.platform == Platform.EITAA and eitaa_token:
+                # حذف پست ایتا
                 log.info(
                     f"[Repost] حذف پست ایتا {pm.telegram_message_id} "
                     f"از {channel.channel_identifier}"
@@ -613,15 +626,64 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                     deleted_count += 1
                     log.info(f"✅ [Repost] پست ایتا حذف شد")
 
+            elif channel.platform == Platform.BALE:
+                # حذف پست بله
+                delete_bale = bale_bot if bale_bot else context.bot
+
+                # چک کن Bot فعلی بله‌ست
+                try:
+                    bot_base = str(getattr(delete_bale, "base_url", "") or "")
+                    if "bale" not in bot_base.lower() and settings.BALE_BOT_TOKEN:
+                        from telegram import Bot
+                        delete_bale = Bot(
+                            token=settings.BALE_BOT_TOKEN,
+                            base_url=settings.BALE_API_BASE,
+                            base_file_url=settings.BALE_FILE_API_BASE,
+                        )
+                        await delete_bale.initialize()
+                except Exception:
+                    pass
+
+                msg_ids_to_delete = []
+                if pm.telegram_message_ids and isinstance(pm.telegram_message_ids, list):
+                    msg_ids_to_delete = list(pm.telegram_message_ids)
+                    log.info(
+                        f"[Repost] حذف آلبوم بله ({len(msg_ids_to_delete)} پیام) "
+                        f"از {channel.channel_identifier}"
+                    )
+                else:
+                    msg_ids_to_delete = [pm.telegram_message_id]
+                    log.info(
+                        f"[Repost] حذف پست بله {pm.telegram_message_id} "
+                        f"از {channel.channel_identifier}"
+                    )
+
+                for mid in msg_ids_to_delete:
+                    try:
+                        await delete_bale.delete_message(
+                            chat_id=channel.channel_identifier,
+                            message_id=mid,
+                        )
+                        deleted_count += 1
+                    except Exception as del_err:
+                        log.warning(f"⚠️ حذف msg بله {mid} fail: {del_err}")
+
+                log.info(f"✅ [Repost] پست‌های بله حذف شد")
+
         except Exception as e:
             log.warning(f"⚠️ [Repost] خطا در حذف: {e}")
             delete_errors.append(f"{channel.platform.value}: {str(e)[:50]}")
             continue
 
-    # cleanup Bot تلگرام
+    # cleanup Bot های موقت
     if tg_bot:
         try:
             await tg_bot.shutdown()
+        except Exception:
+            pass
+    if bale_bot:
+        try:
+            await bale_bot.shutdown()
         except Exception:
             pass
 
