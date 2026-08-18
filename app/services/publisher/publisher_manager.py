@@ -173,13 +173,23 @@ async def _publish_to_telegram_channel(
                             temp_files.append(temp_path)
 
                     if len(temp_files) == 1:
-                        # ─── تک عکس ───
                         with open(temp_files[0], "rb") as f:
                             message = await actual_bot.send_photo(
                                 chat_id=channel.channel_identifier,
                                 photo=f,
                                 caption=caption,
                             )
+
+                        # ⚠️ کش file_id تلگرام
+                        if message.photo:
+                            tg_file_id = message.photo[-1].file_id
+                            await _cache_file_id(
+                                product.id,
+                                Platform.TELEGRAM,
+                                tg_file_id,
+                            )
+                            log.info(f"💾 [Cache] file_id تلگرام ذخیره شد")
+
                         log.info(f"✅ [TG Publish] پست با ۱ عکس ارسال شد")
                         return UnifiedPublishResult(
                             success=True,
@@ -860,3 +870,28 @@ async def _edit_eitaa_post(
         )
     finally:
         _cleanup_temp_file(temp_photo_path)
+
+async def _cache_file_id(
+    product_id: int,
+    platform: Platform,
+    file_id: str,
+) -> None:
+    """
+    کش کردن file_id یک پلتفرم
+    وقتی عکس از پلتفرم A دانلود و به پلتفرم B آپلود شد،
+    file_id پلتفرم B رو ذخیره کن تا دفعه بعد نیازی به دانلود نباشه
+    """
+    from app.services.product_media_service import set_product_media
+    from app.database.connection import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as session:
+            await set_product_media(
+                session=session,
+                product_id=product_id,
+                platform=platform,
+                file_id=file_id,
+                uploaded_by_customer=False,  # سیستم ذخیره کرده
+            )
+    except Exception as e:
+        log.warning(f"[Cache] خطا در ذخیره file_id: {e}")

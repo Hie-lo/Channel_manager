@@ -138,8 +138,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
     platform_str = query.data.replace("channel_platform_", "")
     user = query.from_user
 
-    log.info(f"🎯 [DEBUG] پلتفرم انتخاب شد: {platform_str}")
-
     # چک محدودیت پلن
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
@@ -179,7 +177,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
     # تنظیم state
     if platform_str == "TELEGRAM":
         set_user_state(user.id, UserState.WAITING_CHANNEL_ID_TELEGRAM)
-        log.info(f"✅ [DEBUG] state ست شد: WAITING_CHANNEL_ID_TELEGRAM")
         text = (
             "📱 اتصال کانال تلگرام\n"
             "━━━━━━━━━━━━━━━\n\n"
@@ -202,7 +199,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
         if not eitaa_token:
             # اولین بار - توکن رو بگیر
             set_user_state(user.id, UserState.WAITING_EITAA_TOKEN)
-            log.info(f"✅ [DEBUG] state ست شد: WAITING_EITAA_TOKEN")
             text = (
                 "📢 <b>اتصال کانال ایتا - مرحله ۱ از ۲</b>\n"
                 "━━━━━━━━━━━━━━━\n\n"
@@ -221,7 +217,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
         else:
             # توکن قبلاً داده شده - فقط chat_id
             set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
-            log.info(f"✅ [DEBUG] state ست شد: WAITING_EITAA_CHAT_ID")
             text = (
                 "📢 <b>اتصال کانال ایتا</b>\n"
                 "━━━━━━━━━━━━━━━\n\n"
@@ -236,7 +231,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
             )
     elif platform_str == "BALE":
         set_user_state(user.id, UserState.WAITING_CHANNEL_ID_BALE)
-        log.info(f"✅ [DEBUG] state ست شد: WAITING_CHANNEL_ID_BALE")
         text = (
             "🔵 اتصال کانال بله\n"
             "━━━━━━━━━━━━━━━\n\n"
@@ -267,7 +261,6 @@ async def channel_id_received_handler(update: Update, context: ContextTypes.DEFA
     user = update.effective_user
     state = get_user_state(user.id)
 
-    log.info(f"🎯 [DEBUG] channel_id_received_handler اجرا شد: state={state}")
 
     if state == UserState.WAITING_CHANNEL_ID_TELEGRAM:
         await _handle_telegram_channel(update, context)
@@ -296,7 +289,6 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
         return
 
     channel_input = update.message.text.strip()
-    log.info(f"🔍 [DEBUG] _handle_telegram_channel: input={channel_input}")
 
     # اعتبارسنجی
     if not channel_input.startswith("@") and not channel_input.startswith("-100"):
@@ -403,7 +395,6 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     token_input = update.message.text.strip()
 
-    log.info(f"🔍 [Eitaa Token] دریافت شد از user={user.id}")
 
     # اعتبارسنجی فرمت توکن
     if not token_input.startswith("bot") or ":" not in token_input:
@@ -458,7 +449,6 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        log.info(f"✅ [Eitaa Token] توکن معتبر برای user={user.id}")
 
     except Exception as e:
         log.error(f"[Eitaa Token] خطا در بررسی: {e}", exc_info=True)
@@ -515,7 +505,6 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
         return
     chat_id_input = update.message.text.strip()
 
-    log.info(f"🔍 [Eitaa Chat ID] دریافت شد: {chat_id_input}")
 
     # اعتبارسنجی: باید عددی باشه
     if not chat_id_input.lstrip("-").isdigit():
@@ -598,7 +587,6 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
 
-        log.info(f"✅ [Eitaa] تست موفق: message_id={test_result.message_id}")
 
     except Exception as e:
         log.error(f"[Eitaa Chat] خطا در تست: {e}", exc_info=True)
@@ -643,8 +631,6 @@ async def _handle_eitaa_channel(update: Update, context: ContextTypes.DEFAULT_TY
     """پردازش کانال ایتا (فقط ثبت، بدون احراز)"""
     user = update.effective_user
     channel_input = update.message.text.strip()
-
-    log.info(f"🔍 [DEBUG] _handle_eitaa_channel: input={channel_input}")
 
     # اعتبارسنجی
     valid_prefixes = ["eitaa.com/", "https://eitaa.com/", "http://eitaa.com/", "@"]
@@ -712,8 +698,6 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
     if _is_message_processed(message_id):
         log.warning(f"[Channel TG] message {message_id} قبلاً پردازش شده")
         return
-
-    log.info(f"🔍 [DEBUG] _handle_bale_channel: input={channel_input}")
 
     valid_prefixes = ["ble.ir/", "https://ble.ir/", "http://ble.ir/", "@"]
     is_valid = any(channel_input.startswith(p) for p in valid_prefixes)

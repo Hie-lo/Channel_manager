@@ -225,7 +225,6 @@ async def text_router(update, context):
     elif state == UserState.ADMIN_REPLYING_TO_SUPPORT:  # ← جدید
         await admin_reply_message_handler(update, context)
     else:
-        log.info(f"⚠️ [DEBUG] پیام بدون state خاص: {update.message.text[:50]}")
 
 
 async def document_router(update, context):
@@ -570,22 +569,6 @@ def _register_all_handlers(app: Application) -> None:
     # ۶. Error Handler (آخرین)
     # ═══════════════════════════════════════════════════════════
     app.add_error_handler(error_handler)
-    # ⚠️ DEBUG - handler آخرین برای لاگ همه پیام‌ها
-    async def _debug_all_messages(update, context):
-        """DEBUG: لاگ کردن همه پیام‌های ثبت نشده"""
-        msg = update.message
-        if not msg:
-            return
 
-        info = {
-            "user_id": update.effective_user.id if update.effective_user else None,
-            "has_text": bool(msg.text),
-            "has_photo": bool(msg.photo),
-            "has_document": bool(msg.document),
-            "has_video": bool(msg.video),
-        }
-        log.info(f"🔍 [ALL MSG DEBUG] {info}")
-
-    app.add_handler(MessageHandler(filters.ALL, _debug_all_messages), group=999)
     log.info("✅ ربات آماده است")
     return app

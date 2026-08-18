@@ -157,3 +157,30 @@ async def get_all_product_medias(
         )
     )
     return list(result.scalars().all())
+
+async def set_product_media(
+    session: AsyncSession,
+    product_id: int,
+    platform: Platform,
+    file_id: str,
+    uploaded_by_customer: bool = False,
+) -> ProductPlatformMedia:
+    """ذخیره یا آپدیت file_id"""
+    # چک کن آیا قبلاً هست
+    existing = await get_product_medias(session, product_id, platform)
+
+    if existing and not uploaded_by_customer:
+        # فقط اولین عکس رو آپدیت کن (کش)
+        existing[0].file_id = file_id
+        existing[0].updated_at = utc_now_naive()
+        await session.commit()
+        return existing[0]
+
+    # اگه نبود، اضافه کن
+    return await add_product_media(
+        session=session,
+        product_id=product_id,
+        file_id=file_id,
+        platform=platform,
+        uploaded_by_customer=uploaded_by_customer,
+    )

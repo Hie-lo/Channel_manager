@@ -33,10 +33,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # تشخیص پلتفرم
     platform = detect_platform_from_context(context)
-    # ⚠️ DEBUG
-    log.info(f"🔍 [DEBUG] bot.username: {context.bot.username}")
-    log.info(f"🔍 [DEBUG] bot.base_url: {getattr(context.bot, 'base_url', 'N/A')}")
-    log.info(f"🔍 [DEBUG] detected platform: {platform}")
+
     platform_display = "تلگرام" if platform == "TELEGRAM" else "بله"
 
     log.info(
