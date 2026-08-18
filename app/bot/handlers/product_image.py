@@ -566,18 +566,37 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         try:
             if channel.platform == Platform.TELEGRAM:
-                # استفاده از Bot تلگرام (نه بله)
                 delete_bot = tg_bot if tg_bot else context.bot
-                log.info(
-                    f"[Repost] حذف پست تلگرام {pm.telegram_message_id} "
-                    f"از {channel.channel_identifier}"
-                )
-                await delete_bot.delete_message(
-                    chat_id=channel.channel_identifier,
-                    message_id=pm.telegram_message_id,
-                )
-                deleted_count += 1
-                log.info(f"✅ [Repost] پست تلگرام حذف شد")
+
+                # لیست همه message_id ها (آلبوم + تکی)
+                msg_ids_to_delete = []
+
+                # اول message_ids آلبوم (JSONB)
+                if pm.telegram_message_ids and isinstance(pm.telegram_message_ids, list):
+                    msg_ids_to_delete = list(pm.telegram_message_ids)
+                    log.info(
+                        f"[Repost] حذف آلبوم تلگرام ({len(msg_ids_to_delete)} پیام) "
+                        f"از {channel.channel_identifier}"
+                    )
+                else:
+                    # تکی
+                    msg_ids_to_delete = [pm.telegram_message_id]
+                    log.info(
+                        f"[Repost] حذف پست تلگرام {pm.telegram_message_id} "
+                        f"از {channel.channel_identifier}"
+                    )
+
+                for mid in msg_ids_to_delete:
+                    try:
+                        await delete_bot.delete_message(
+                            chat_id=channel.channel_identifier,
+                            message_id=mid,
+                        )
+                        deleted_count += 1
+                    except Exception as del_err:
+                        log.warning(f"⚠️ حذف msg {mid} fail: {del_err}")
+
+                log.info(f"✅ [Repost] {len(msg_ids_to_delete)} پیام تلگرام حذف شد")
 
             elif channel.platform == Platform.EITAA and eitaa_token:
                 log.info(

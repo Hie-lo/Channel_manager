@@ -545,7 +545,7 @@ async def _publish_or_edit(bot, product, channel, caption):
     # ذخیره در دیتابیس
     if result.success and result.message_id:
         async with AsyncSessionLocal() as session:
-            await create_posted_message(
+            posted = await create_posted_message(
                 session=session,
                 product_id=product.id,
                 channel_id=channel.id,
@@ -554,6 +554,11 @@ async def _publish_or_edit(bot, product, channel, caption):
                 price=int(product.price),
                 stock_qty=product.stock_qty,
             )
+
+            # ذخیره message_ids آلبوم (اگه هست)
+            if result.message_ids and len(result.message_ids) > 1 and posted:
+                posted.telegram_message_ids = result.message_ids
+                await session.commit()
 
     # تبدیل UnifiedPublishResult به PublishResult سازگار
     from app.services.publisher.telegram_publisher import PublishResult

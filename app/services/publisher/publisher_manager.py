@@ -210,12 +210,18 @@ async def _publish_to_telegram_channel(
                                 chat_id=channel.channel_identifier,
                                 media=media_list,
                             )
+
+                            all_msg_ids = [msg.message_id for msg in messages]
+
                             log.info(
-                                f"✅ [TG Publish] آلبوم با {len(messages)} عکس ارسال شد"
+                                f"✅ [TG Publish] آلبوم با {len(messages)} عکس ارسال شد "
+                                f"(ids: {all_msg_ids})"
                             )
+
                             return UnifiedPublishResult(
                                 success=True,
-                                message_id=messages[0].message_id,
+                                message_id=all_msg_ids[0],
+                                message_ids=all_msg_ids,
                                 platform=Platform.TELEGRAM,
                             )
                         finally:
