@@ -129,3 +129,31 @@ def get_photo_sources_for_platform(
         return [product.image_url.strip()]
 
     return []
+async def count_all_product_medias(
+    session: AsyncSession,
+    product_id: int,
+) -> int:
+    """شمارش کل عکس‌های محصول در همه پلتفرم‌ها"""
+    result = await session.execute(
+        select(ProductPlatformMedia).where(
+            ProductPlatformMedia.product_id == product_id
+        )
+    )
+    medias = list(result.scalars().all())
+    return len(medias)
+
+
+async def get_all_product_medias(
+    session: AsyncSession,
+    product_id: int,
+) -> list[ProductPlatformMedia]:
+    """گرفتن همه عکس‌های محصول در همه پلتفرم‌ها"""
+    result = await session.execute(
+        select(ProductPlatformMedia)
+        .where(ProductPlatformMedia.product_id == product_id)
+        .order_by(
+            ProductPlatformMedia.platform.asc(),
+            ProductPlatformMedia.media_order.asc(),
+        )
+    )
+    return list(result.scalars().all())

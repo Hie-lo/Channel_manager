@@ -59,7 +59,8 @@ async def prod_upload_image_callback(update: Update, context: ContextTypes.DEFAU
             return
 
         # شمارش عکس‌های فعلی
-        current_count = await count_product_medias(session, product_id)
+        from app.services.product_media_service import count_all_product_medias
+        current_count = await count_all_product_medias(session, product_id)
 
     # اگه عکسی نداره → مستقیم آپلود
     if current_count == 0:
@@ -146,7 +147,8 @@ async def _start_upload_mode(query, telegram_user_id: int, product_id: int, mode
     mode: "add" یا "replace"
     """
     async with AsyncSessionLocal() as session:
-        current_count = await count_product_medias(session, product_id)
+        from app.services.product_media_service import count_all_product_medias
+        current_count = await count_all_product_medias(session, product_id)
 
         # گرفتن نام محصول
         result = await session.execute(
@@ -218,7 +220,8 @@ async def prod_finish_upload_callback(update: Update, context: ContextTypes.DEFA
     clear_user_state(user.id)
 
     async with AsyncSessionLocal() as session:
-        total_count = await count_product_medias(session, product_id)
+        from app.services.product_media_service import count_all_product_medias
+        total_count = await count_all_product_medias(session, product_id)
 
         result = await session.execute(
             select(Product).where(Product.id == product_id)
@@ -423,7 +426,9 @@ async def product_image_received_handler(update: Update, context: ContextTypes.D
             )
             return
 
-        total_count = await count_product_medias(session, product_id)
+        # شمارش کل عکس‌ها در همه پلتفرم‌ها (نه فقط platform فعلی)
+        from app.services.product_media_service import count_all_product_medias
+        total_count = await count_all_product_medias(session, product_id)
 
     # آپدیت شمارش در state
     uploaded_count = user_data.get("uploaded_count", 0) + 1

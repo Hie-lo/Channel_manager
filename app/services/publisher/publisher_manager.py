@@ -190,35 +190,29 @@ async def _edit_telegram_post(
 # ایتا
 # ═══════════════════════════════════════════════════════════
 
-async def _get_photo_for_eitaa(
-    bot,
-    product: Product,
-) -> Path | None:
+async def _get_photo_for_eitaa(bot, product):
     """
     گرفتن یک عکس برای ارسال به ایتا
-    اولویت: اولین عکس آپلود شده در تلگرام > image_url
-
-    برمی‌گردونه: مسیر فایل موقت روی سیستم (باید بعد از استفاده حذف بشه)
+    اولویت: عکس‌های تلگرام (چون bot تلگرامیه، راحت‌تر دانلود می‌کنه)
+    اگه نبود: image_url
     """
     from app.services.product_media_service import get_product_medias
     from app.services.publisher.eitaa_publisher import _download_telegram_file
     from app.database.connection import AsyncSessionLocal
 
-    # اولویت ۱: عکس آپلود شده در تلگرام
+    # اول عکس‌های تلگرام (چون bot تلگرام راحت دانلود می‌کنه)
     async with AsyncSessionLocal() as session:
         tg_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
 
     if tg_medias:
-        # فقط اولین عکس رو برای ایتا استفاده کن
         first_media = tg_medias[0]
         log.info(f"[Eitaa Photo] دانلود از تلگرام: {first_media.file_id[:30]}...")
         return await _download_telegram_file(bot, first_media.file_id)
 
-    # اولویت ۲: image_url
+    # اگه تلگرام نبود، image_url استفاده کن
     if product.image_url and product.image_url.strip():
-        log.info(f"[Eitaa Photo] استفاده از image_url: {product.image_url}")
-        # این مسیر بعداً در eitaa_publisher دانلود میشه
-        return None  # به eitaa_publisher می‌سپاریم که خودش دانلود کنه
+        log.info(f"[Eitaa Photo] استفاده از image_url")
+        return None  # publisher خودش دانلود می‌کنه
 
     return None
 

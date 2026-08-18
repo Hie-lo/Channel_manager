@@ -3,6 +3,7 @@
 شامل: نمایش لیست، پیش‌نمایش پست، ارسال دستی به کانال
 """
 
+from requests import session
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 from app.services.subscription.service import get_active_subscription
@@ -14,6 +15,11 @@ from app.services.product_service import (
     get_all_products_by_customer,
     get_product_by_sku,
 )
+from app.services.product_media_service import (
+        get_product_medias,
+        count_all_product_medias,
+        get_all_product_medias,
+    )
 from app.services.business_service import (
     get_business_config_for_customer,
     get_business_for_customer,
@@ -226,9 +232,8 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
             return
 
         # چک عکس‌های آپلود شده
-        from app.services.product_media_service import get_product_medias, count_product_medias
-        uploaded_medias = await get_product_medias(session, product_id, Platform.TELEGRAM)
-        media_count = len(uploaded_medias)
+        all_medias = await get_all_product_medias(session, product_id)
+        media_count = len(all_medias)
 
         # چک اشتراک
         subscription = await get_active_subscription(session, customer.id)
