@@ -287,16 +287,15 @@ async def channel_id_received_handler(update: Update, context: ContextTypes.DEFA
 # ═══════════════════════════════════════════════════════════
 
 async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """پردازش کانال تلگرام"""
+    """پردازش کانال تلگرام - با احراز واقعی"""
     user = update.effective_user
     message_id = update.message.message_id
 
-    # جلوگیری از پردازش دوباره
     if _is_message_processed(message_id):
         log.warning(f"[Channel TG] message {message_id} قبلاً پردازش شده")
         return
-    channel_input = update.message.text.strip()
 
+    channel_input = update.message.text.strip()
     log.info(f"🔍 [DEBUG] _handle_telegram_channel: input={channel_input}")
 
     # اعتبارسنجی
@@ -308,6 +307,9 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             "• عددی و با -100 شروع بشه"
         )
         return
+
+    # ⚠️ state رو IDLE کن تا پیام تکراری نره
+    set_user_state(user.id, UserState.IDLE)
 
     checking_msg = await update.message.reply_text(
         "🔍 در حال بررسی کانال...\n"
@@ -330,24 +332,45 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             clear_user_state(user.id)
             return
 
-        # چک ادمین بودن ربات
+    # ⚠️ مهم: چک ادمین بودن ربات تلگرام (نه ربات فعلی)
+    # اگه مشتری از بله داره مدیریت می‌کنه، باید ربات تلگرام رو چک کنیم
+    from app.utils.admin_check import detect_platform_from_context
+    current_platform = detect_platform_from_context(context)
+
+    if current_platform == "BALE":
+        # ما از بله هستیم → باید Bot تلگرام رو دستی بسازیم
+        from telegram import Bot
+        from app.config import settings
+
+        try:
+            tg_bot = Bot(token=settings.BOT_TOKEN)
+            result = await check_bot_is_admin_in_channel(tg_bot, channel_input)
+        except Exception as e:
+            log.error(f"خطا در ساخت Bot تلگرام: {e}")
+            await checking_msg.edit_text(
+                "❌ خطا در بررسی کانال تلگرام!\n"
+                "لطفاً از ربات تلگرام این کار رو انجام بدید."
+            )
+            return
+    else:
+        # از تلگرام هستیم → bot فعلی رو استفاده کن
         result = await check_bot_is_admin_in_channel(context.bot, channel_input)
 
-        if not result.is_valid:
-            await checking_msg.edit_text(
-                f"❌ اتصال ناموفق!\n"
-                f"━━━━━━━━━━━━━━━\n"
-                f"📝 دلیل: {result.error_message}\n"
-                f"━━━━━━━━━━━━━━━\n\n"
-                f"لطفاً مطمئن بشید:\n"
-                f"• ربات ادمین کانال باشه\n"
-                f"• دسترسی ارسال پیام داشته باشه\n\n"
-                f"دوباره تلاش کنید."
-            )
-            clear_user_state(user.id)
-            return
+    if not result.is_valid:
+        await checking_msg.edit_text(
+            f"❌ اتصال ناموفق!\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"📝 دلیل: {result.error_message}\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+            f"لطفاً مطمئن بشید:\n"
+            f"• ربات ادمین کانال باشه\n"
+            f"• دسترسی ارسال پیام داشته باشه\n\n"
+            f"دوباره تلاش کنید."
+        )
+        return
 
-        # اضافه کردن
+    # اضافه کردن
+    async with AsyncSessionLocal() as session:
         channel = await add_channel_for_customer(
             session=session,
             customer_id=customer.id,
@@ -355,8 +378,6 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             platform=Platform.TELEGRAM,
             activation_status="ACTIVE",
         )
-
-    clear_user_state(user.id)
 
     await checking_msg.edit_text(
         f"✅ کانال تلگرام با موفقیت متصل شد!\n"

@@ -760,7 +760,8 @@ async def _send_product_menu_message(context, telegram_user_id: int, product_id:
         if not product:
             return
 
-        media_count = await count_product_medias(session, product_id, Platform.TELEGRAM)
+        from app.services.product_media_service import count_all_product_medias
+        media_count = await count_all_product_medias(session, product_id)
         subscription = await get_active_subscription(session, customer.id)
         can_use_ai = subscription is not None
 
