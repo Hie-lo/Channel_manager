@@ -2,6 +2,8 @@
 سرویس مدیریت مشتریان (چند پلتفرمی)
 """
 
+import platform
+
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,10 +74,10 @@ async def create_customer(
         platform: TELEGRAM یا BALE
     """
     now = utc_now_naive()
-
+    platform_upper = platform.upper()
     customer_data = {
         "customer_status": CustomerStatus.PENDING,
-        "source_platform": platform.upper(),
+        "source_platform": platform_upper,
         "first_name": first_name,     # برای سازگاری
         "last_name": last_name,
         "username": username,
@@ -84,14 +86,14 @@ async def create_customer(
     }
 
     # پلتفرم اصلی رو تنظیم کن
-    if platform.upper() == "TELEGRAM":
+    if platform_upper == "TELEGRAM":
         customer_data.update({
             "telegram_user_id": user_id,
             "telegram_first_name": first_name,
             "telegram_last_name": last_name,
             "telegram_username": username,
         })
-    elif platform.upper() == "BALE":
+    elif platform_upper == "BALE":
         customer_data.update({
             "bale_user_id": user_id,
             "bale_first_name": first_name,
@@ -106,7 +108,7 @@ async def create_customer(
 
     log.info(
         f"مشتری جدید ساخته شد: user_id={user_id}, "
-        f"name={first_name}, platform={platform.upper()}"
+        f"name={first_name}, platform={platform_upper}"
     )
     return customer
 

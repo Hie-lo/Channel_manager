@@ -32,11 +32,33 @@ def get_admin_id_for_platform(platform: str = "telegram") -> int:
 def detect_platform_from_context(context) -> str:
     """
     تشخیص پلتفرم از context ربات
+    Returns: "TELEGRAM" یا "BALE"
     """
+    # روش اول: از bot_data
+    try:
+        platform = context.bot_data.get("platform")
+        if platform:
+            return platform.upper()
+    except Exception:
+        pass
+
+    # روش دوم: از base_url
     try:
         base_url = str(getattr(context.bot, "base_url", "") or "")
         if "bale" in base_url.lower():
-            return "bale"
-        return "telegram"
+            return "BALE"
+        if "telegram" in base_url.lower():
+            return "TELEGRAM"
     except Exception:
-        return "telegram"
+        pass
+
+    # روش سوم (fallback): از token
+    try:
+        from app.config import settings
+        bot_token = getattr(context.bot, "token", "")
+        if bot_token and bot_token == settings.BALE_BOT_TOKEN:
+            return "BALE"
+    except Exception:
+        pass
+
+    return "TELEGRAM"

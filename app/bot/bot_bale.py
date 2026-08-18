@@ -11,10 +11,6 @@ from app.utils.logger import log
 
 
 def create_bale_bot() -> Application | None:
-    """
-    ساخت ربات بله
-    اگه BALE_BOT_TOKEN تنظیم نشده باشه، None برمی‌گردونه
-    """
     if not settings.BALE_ENABLED:
         log.info("⚠️ بله غیرفعال است (BALE_ENABLED=False)")
         return None
@@ -34,7 +30,10 @@ def create_bale_bot() -> Application | None:
             .build()
         )
 
-        # ثبت همه handlers مشترک با تلگرام
+        # ⚠️ مشخص کن این ربات بله‌ست
+        app.bot_data["platform"] = "BALE"
+
+        # ثبت handlers مشترک با تلگرام
         _register_handlers(app)
 
         log.info("✅ ربات بله آماده است")

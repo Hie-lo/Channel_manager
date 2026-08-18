@@ -275,6 +275,10 @@ def create_bot() -> Application:
         .post_init(on_startup)
         .build()
     )
+
+    # ⚠️ مشخص کن این ربات تلگرامه
+    app.bot_data["platform"] = "TELEGRAM"
+
     _register_all_handlers(app)
     log.info("✅ ربات تلگرام آماده است")
     return app
