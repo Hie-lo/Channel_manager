@@ -7,6 +7,8 @@ import platform
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database.connection import AsyncSessionLocal
+from app.database.connection import AsyncSessionLocal
 from app.database.models import Customer, CustomerStatus
 from app.utils.logger import log
 from app.utils.time import utc_now_naive
@@ -42,8 +44,30 @@ async def get_customer_by_telegram_id(
     session: AsyncSession,
     telegram_user_id: int,
 ) -> Customer | None:
-    """پیدا کردن مشتری با آیدی تلگرام (سازگاری با کد قدیمی)"""
-    return await get_customer_by_platform_id(session, telegram_user_id, "TELEGRAM")
+    """
+    پیدا کردن مشتری با آیدی (تلگرام یا بله)
+
+    ⚠️ نکته: این تابع به دلایل تاریخی 'telegram_id' نامیده میشه
+    ولی الان هم تلگرام هم بله رو چک می‌کنه.
+
+    اولویت:
+    1. جستجو در telegram_user_id
+    2. اگه پیدا نشد، جستجو در bale_user_id
+    """
+    # جستجوی تلگرام
+    result = await session.execute(
+        select(Customer).where(Customer.telegram_user_id == telegram_user_id)
+    )
+    customer = result.scalar_one_or_none()
+
+    if customer:
+        return customer
+
+    # جستجوی بله
+    result = await session.execute(
+        select(Customer).where(Customer.bale_user_id == telegram_user_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_customer_by_bale_id(
@@ -346,3 +370,14 @@ def get_customer_all_platforms(customer: Customer) -> list[dict]:
         })
 
     return platforms
+
+async def get_customer_from_context(
+    session: AsyncSessionLocal, # type: ignore
+    user_id: int,
+    platform: str,
+) -> Customer | None:
+    """
+    گرفتن مشتری بر اساس user_id و platform
+    ساده‌تر از get_customer_by_platform_id
+    """
+    return await get_customer_by_platform_id(session, user_id, platform)
