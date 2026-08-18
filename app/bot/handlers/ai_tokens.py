@@ -7,6 +7,7 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
+from app.bot.handlers import customer
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.database.models import CustomerStatus
@@ -391,17 +392,28 @@ async def ai_admin_approve_callback(update, context):
     # اطلاع به مشتری
     if customer:
         try:
-            await context.bot.send_message(
-                chat_id=customer.telegram_user_id,
-                text=(
-                    f"🎉 خرید شما تایید شد!\n"
-                    f"━━━━━━━━━━━━━━━\n"
-                    f"🤖 {amount} توکن AI به حساب شما اضافه شد\n"
-                    f"⏰ این توکن‌ها انقضا ندارند\n"
-                    f"━━━━━━━━━━━━━━━\n\n"
-                    f"از منوی '🤖 توکن AI' موجودی خودتون رو ببینید."
-                ),
+            # آیدی مشتری بر اساس platform
+            customer_chat_id = (
+                customer.telegram_user_id
+                if customer.source_platform == "TELEGRAM"
+                else customer.bale_user_id
             )
+
+            if customer_chat_id:
+                await context.bot.send_message(
+                    chat_id=customer_chat_id,
+                    text=(
+                        f"🎉 خرید شما تایید شد!\n"
+                        f"━━━━━━━━━━━━━━━\n"
+                        f"🤖 {amount} توکن AI به حساب شما اضافه شد\n"
+                        f"⏰ این توکن‌ها انقضا ندارند\n"
+                        f"━━━━━━━━━━━━━━━\n\n"
+                        f"از منوی '🤖 توکن AI' موجودی خودتون رو ببینید."
+                    ),
+                )
+                log.info(f"✅ پیام تایید توکن به {customer_chat_id} ارسال شد")
+            else:
+                log.warning(f"⚠️ مشتری {customer.id} chat_id معتبر نداره")
         except Exception as e:
             log.error(f"خطا در ارسال به مشتری: {e}")
 
@@ -426,13 +438,23 @@ async def ai_admin_reject_callback(update: Update, context: ContextTypes.DEFAULT
         log.error(f"خطا: {e}")
 
     # اطلاع به مشتری
-    try:
-        await context.bot.send_message(
-            chat_id=customer_telegram_id,
-            text=(
-                "❌ متأسفانه خرید توکن شما تایید نشد.\n\n"
-                "لطفاً با پشتیبانی تماس بگیرید."
-            ),
+    # آیدی مشتری بر اساس platform
+    customer_chat_id = None
+    if customer:
+        customer_chat_id = (
+            customer.telegram_user_id
+            if customer.source_platform == "TELEGRAM"
+            else customer.bale_user_id
         )
-    except Exception as e:
-        log.error(f"خطا در ارسال به مشتری: {e}")
+
+    if customer_chat_id:
+        try:
+            await context.bot.send_message(
+                chat_id=customer_chat_id,
+                text=(
+                    "❌ متأسفانه خرید توکن شما تایید نشد.\n\n"
+                    "لطفاً با پشتیبانی تماس بگیرید."
+                ),
+            )
+        except Exception as e:
+            log.error(f"خطا در ارسال به مشتری: {e}")

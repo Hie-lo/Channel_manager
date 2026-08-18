@@ -248,16 +248,27 @@ async def photo_router(update, context):
     user = update.effective_user
     state = get_user_state(user.id)
 
+    # DEBUG
+    log.info(f"📷 [PHOTO ROUTER] user={user.id}, state={state}, has_photo={bool(update.message.photo)}")
+
     if state == UserState.WAITING_PAYMENT_RECEIPT:
+        log.info("→ payment_receipt_handler")
         await payment_receipt_handler(update, context)
     elif state == UserState.WAITING_AI_TOKEN_RECEIPT:
+        log.info("→ ai_token_receipt_handler")
         await ai_token_receipt_handler(update, context)
     elif state == UserState.WAITING_PRODUCT_IMAGE:
+        log.info("→ product_image_received_handler")
         await product_image_received_handler(update, context)
-    elif is_admin(user.id):
-        # اگه ادمین در حالتی نبود، file_id بگیر
-        from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
-        await admin_get_file_id_handler(update, context)
+    else:
+        # چک ادمین (چند پلتفرمی)
+        from app.utils.admin_check import is_admin
+        if is_admin(user.id):
+            log.info("→ admin_get_file_id_handler")
+            from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
+            await admin_get_file_id_handler(update, context)
+        else:
+            log.info("⚠️ عکس بدون state و بدون ادمین - نادیده گرفته شد")
 
 async def video_router(update, context):
     """مسیریاب ویدیوها - فقط برای گرفتن file_id توسط ادمین"""

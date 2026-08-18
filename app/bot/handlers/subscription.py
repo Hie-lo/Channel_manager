@@ -487,7 +487,15 @@ async def sub_admin_reject_callback(update: Update, context: ContextTypes.DEFAUL
             select(Customer).where(Customer.id == subscription.customer_id)
         )
         customer = customer_result.scalar_one_or_none()
-        customer_telegram_id = customer.telegram_user_id if customer else None
+
+        # آیدی مشتری بر اساس platform
+        customer_chat_id = None
+        if customer:
+            customer_chat_id = (
+                customer.telegram_user_id
+                if customer.source_platform == "TELEGRAM"
+                else customer.bale_user_id
+            )
 
         await reject_subscription(session, subscription_id)
 
@@ -504,17 +512,20 @@ async def sub_admin_reject_callback(update: Update, context: ContextTypes.DEFAUL
         log.error(f"خطا در آپدیت پیام ادمین: {e}")
 
     # اطلاع به مشتری
-    if customer_telegram_id:
+    if customer_chat_id:
         try:
             await context.bot.send_message(
-                chat_id=customer_telegram_id,
+                chat_id=customer_chat_id,
                 text=(
                     "❌ متأسفانه پرداخت شما تایید نشد.\n\n"
                     "لطفاً با پشتیبانی تماس بگیرید."
                 ),
             )
+            log.info(f"✅ پیام رد پرداخت به {customer_chat_id} ارسال شد")
         except Exception as e:
-            log.error(f"خطا در ارسال به مشتری: {e}")
+            log.error(f"خطا در ارسال به مشتری {customer_chat_id}: {e}")
+    else:
+        log.warning(f"⚠️ آیدی معتبر برای مشتری {customer.id if customer else '?'} پیدا نشد")
 
 
 async def sub_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
