@@ -363,34 +363,6 @@ async def _edit_published_posts(
             )
 
             if edit_result.success:
-                # آپدیت posted_message
-                async with AsyncSessionLocal() as session:
-                    posted_fresh = await get_posted_message(
-                        session, product.id, channel.id
-                    )
-                    if posted_fresh:
-                        if edit_result.message_id:
-                            posted_fresh.telegram_message_id = edit_result.message_id
-                        await update_posted_message(
-                            session=session,
-                            posted_message=posted_fresh,
-                            new_caption=caption,
-                            new_price=int(product.price),
-                            new_stock_qty=product.stock_qty,
-                        )
-                edited_count += 1
-                log.info(
-                    f"✅ [Edit Posts] {product.sku} در "
-                    f"{channel.platform.value}: {channel.channel_identifier} ادیت شد"
-                )
-            else:
-                log.error(
-                    f"❌ [Edit Posts] خطا در {product.sku} - "
-                    f"{channel.platform.value}: {channel.channel_identifier}: "
-                    f"{edit_result.error_message}"
-                )
-
-            if edit_result.success:
                 # آپدیت posted_message با مقادیر جدید
                 async with AsyncSessionLocal() as session:
                     posted_fresh = await get_posted_message(
