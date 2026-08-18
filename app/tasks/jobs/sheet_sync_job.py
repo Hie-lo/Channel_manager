@@ -369,7 +369,6 @@ async def _edit_published_posts(
                         session, product.id, channel.id
                     )
                     if posted_fresh:
-                        # برای ایتا: message_id عوض میشه
                         if edit_result.message_id:
                             posted_fresh.telegram_message_id = edit_result.message_id
                         await update_posted_message(
