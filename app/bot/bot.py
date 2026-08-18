@@ -249,7 +249,11 @@ async def photo_router(update, context):
     state = get_user_state(user.id)
 
     # DEBUG
-    log.info(f"📷 [PHOTO ROUTER] user={user.id}, state={state}, has_photo={bool(update.message.photo)}")
+    log.info(
+        f"📷 [PHOTO ROUTER] user={user.id}, state={state}, "
+        f"has_photo={bool(update.message.photo)}, "
+        f"has_document={bool(update.message.document)}"
+    )
 
     if state == UserState.WAITING_PAYMENT_RECEIPT:
         log.info("→ payment_receipt_handler")
@@ -261,20 +265,35 @@ async def photo_router(update, context):
         log.info("→ product_image_received_handler")
         await product_image_received_handler(update, context)
     else:
-        # چک ادمین (چند پلتفرمی)
         from app.utils.admin_check import is_admin
         if is_admin(user.id):
             log.info("→ admin_get_file_id_handler")
             from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
             await admin_get_file_id_handler(update, context)
         else:
-            log.info("⚠️ عکس بدون state و بدون ادمین - نادیده گرفته شد")
-
+            log.info(f"⚠️ عکس بدون state - نادیده گرفته شد")
 async def video_router(update, context):
     """مسیریاب ویدیوها - فقط برای گرفتن file_id توسط ادمین"""
     user = update.effective_user
     if is_admin(user.id):
         await admin_get_file_id_handler(update, context)
+
+async def document_image_router(update, context):
+    """
+    مسیریاب برای فایل‌های تصویری که به صورت document می‌آن
+    (بعضی پلتفرم‌ها مثل بله ممکنه عکس رو Document بفرستن)
+    """
+    user = update.effective_user
+    state = get_user_state(user.id)
+
+    log.info(f"📎 [DOCUMENT IMAGE] user={user.id}, state={state}")
+
+    if state == UserState.WAITING_PRODUCT_IMAGE:
+        # فایل رو به عنوان عکس در نظر بگیر
+        log.info("→ product_image_received_handler (from document)")
+        await product_image_received_handler(update, context)
+    else:
+        log.info(f"⚠️ سند تصویری بدون state خاص")
 
 def create_bot() -> Application:
     """ساخت و تنظیم ربات"""
@@ -508,9 +527,16 @@ def _register_all_handlers(app: Application) -> None:
         filters.Document.ALL,
         document_router
     ))
+ # عکس‌ها (photo message)
     app.add_handler(MessageHandler(
         filters.PHOTO,
         photo_router
+    ))
+
+    # همچنین چک برای فایل‌های image (بعضی پلتفرم‌ها به صورت document می‌فرستن)
+    app.add_handler(MessageHandler(
+        filters.Document.IMAGE,
+        document_image_router
     ))
     app.add_handler(MessageHandler(
         filters.VIDEO | filters.ANIMATION,
@@ -521,6 +547,27 @@ def _register_all_handlers(app: Application) -> None:
     # ۶. Error Handler (آخرین)
     # ═══════════════════════════════════════════════════════════
     app.add_error_handler(error_handler)
+    # ⚠️ DEBUG - این handler آخرین هست و هر پیامی که به دیگه handler ها نرسیده رو می‌گیره
+    async def _debug_all_messages(update, context):
+        """DEBUG: لاگ کردن همه پیام‌های ثبت نشده"""
+        msg = update.message
+        if not msg:
+            return
 
+        info = {
+            "user_id": update.effective_user.id if update.effective_user else None,
+            "has_text": bool(msg.text),
+            "has_photo": bool(msg.photo),
+            "has_document": bool(msg.document),
+            "has_video": bool(msg.video),
+            "has_audio": bool(msg.audio),
+            "has_voice": bool(msg.voice),
+        }
+        log.info(f"🔍 [ALL MSG DEBUG] {info}")
+
+    # حذف این بعد از debug!
+    from telegram.ext import MessageHandler
+    from telegram.ext import filters as f
+    app.add_handler(MessageHandler(f.ALL, _debug_all_messages), group=999)
     log.info("✅ ربات آماده است")
     return app

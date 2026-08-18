@@ -289,6 +289,12 @@ async def channel_id_received_handler(update: Update, context: ContextTypes.DEFA
 async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """پردازش کانال تلگرام"""
     user = update.effective_user
+    message_id = update.message.message_id
+
+    # جلوگیری از پردازش دوباره
+    if _is_message_processed(message_id):
+        log.warning(f"[Channel TG] message {message_id} قبلاً پردازش شده")
+        return
     channel_input = update.message.text.strip()
 
     log.info(f"🔍 [DEBUG] _handle_telegram_channel: input={channel_input}")
@@ -681,6 +687,12 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
     """پردازش کانال بله"""
     user = update.effective_user
     channel_input = update.message.text.strip()
+    message_id = update.message.message_id
+
+    # جلوگیری از پردازش دوباره
+    if _is_message_processed(message_id):
+        log.warning(f"[Channel TG] message {message_id} قبلاً پردازش شده")
+        return
 
     log.info(f"🔍 [DEBUG] _handle_bale_channel: input={channel_input}")
 
