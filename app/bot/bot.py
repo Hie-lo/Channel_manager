@@ -547,7 +547,7 @@ def _register_all_handlers(app: Application) -> None:
     # ۶. Error Handler (آخرین)
     # ═══════════════════════════════════════════════════════════
     app.add_error_handler(error_handler)
-    # ⚠️ DEBUG - این handler آخرین هست و هر پیامی که به دیگه handler ها نرسیده رو می‌گیره
+    # ⚠️ DEBUG - handler آخرین برای لاگ همه پیام‌ها
     async def _debug_all_messages(update, context):
         """DEBUG: لاگ کردن همه پیام‌های ثبت نشده"""
         msg = update.message
@@ -560,14 +560,9 @@ def _register_all_handlers(app: Application) -> None:
             "has_photo": bool(msg.photo),
             "has_document": bool(msg.document),
             "has_video": bool(msg.video),
-            "has_audio": bool(msg.audio),
-            "has_voice": bool(msg.voice),
         }
         log.info(f"🔍 [ALL MSG DEBUG] {info}")
 
-    # حذف این بعد از debug!
-    from telegram.ext import MessageHandler
-    from telegram.ext import filters as f
-    app.add_handler(MessageHandler(f.ALL, _debug_all_messages), group=999)
+    app.add_handler(MessageHandler(filters.ALL, _debug_all_messages), group=999)
     log.info("✅ ربات آماده است")
     return app
