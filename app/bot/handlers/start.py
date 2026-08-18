@@ -33,11 +33,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     # تشخیص پلتفرم
     platform = detect_platform_from_context(context)
-    platform_name = "تلگرام" if platform == "TELEGRAM" else "بله"
+    platform_display = "تلگرام" if platform == "TELEGRAM" else "بله"
 
     log.info(
         f"دستور /start از کاربر: {user_id} - {user.first_name} "
-        f"در پلتفرم {platform_name}"
+        f"در پلتفرم {platform_display}"
     )
 
     # چک ادمین
@@ -45,7 +45,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(
             f"👑 سلام ادمین عزیز!\n"
             f"به پنل مدیریت خوش آمدید.\n"
-            f"🤖 پلتفرم: {platform_name}",
+            f"🤖 پلتفرم: {platform_display}",
             reply_markup=get_admin_main_menu(),
         )
         return
@@ -55,7 +55,6 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         customer = await get_customer_by_platform_id(session, user_id, platform)
 
         if not customer:
-            # ⚠️ مهم: platform رو پاس بده
             await _handle_new_customer(update, context, session, user, platform)
             return
 
@@ -92,23 +91,22 @@ async def _handle_new_customer(update, context, session, user, platform) -> None
     log.info(f"[NEW CUSTOMER] platform={platform}, user_id={user.id}")
 
     # ساخت مشتری در دیتابیس
-    # ⚠️ مهم: platform حتماً پاس داده بشه
     await create_customer(
         session=session,
         user_id=user.id,
         first_name=user.first_name,
         last_name=user.last_name,
         username=user.username,
-        platform=platform,   # ← این مهمه!
+        platform=platform,
     )
 
-    platform_name = "تلگرام" if platform == "TELEGRAM" else "بله"
+    platform_display = "تلگرام" if platform == "TELEGRAM" else "بله"
 
     # درخواست نوع کسب‌وکار
     await update.message.reply_text(
         f"👋 سلام {user.first_name} عزیز!\n\n"
         f"به ربات مدیریت کانال خوش آمدید.\n"
-        f"🤖 پلتفرم: {platform_name}\n\n"
+        f"🤖 پلتفرم: {platform_display}\n\n"
         f"برای شروع، لطفاً نوع کسب‌وکار خود را انتخاب کنید:",
         reply_markup=get_business_type_keyboard(),
     )
