@@ -225,7 +225,7 @@ async def text_router(update, context):
     elif state == UserState.ADMIN_REPLYING_TO_SUPPORT:  # ← جدید
         await admin_reply_message_handler(update, context)
     else:
-
+        pass
 
 async def document_router(update, context):
     """مسیریاب فایل‌ها"""
