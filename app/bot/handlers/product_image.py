@@ -350,13 +350,35 @@ async def product_image_received_handler(update: Update, context: ContextTypes.D
         clear_user_state(user.id)
         return
 
-    if not update.message.photo:
+    # گرفتن file_id (چه عکس چه document تصویری)
+    file_id = None
+
+    if update.message.photo:
+        # حالت عادی تلگرام
+        photo = update.message.photo[-1]
+        file_id = photo.file_id
+        log.info(f"📷 [Image Upload] گرفته شد از photo: {file_id[:30]}...")
+
+    elif update.message.document:
+        # بله (که عکس رو Document می‌فرسته)
+        doc = update.message.document
+        # چک کن document واقعاً عکس هست
+        mime_type = doc.mime_type or ""
+        if mime_type.startswith("image/"):
+            file_id = doc.file_id
+            log.info(
+                f"📎 [Image Upload] گرفته شد از document: "
+                f"{file_id[:30]}..., mime={mime_type}"
+            )
+        else:
+            await update.message.reply_text(
+                "⚠️ لطفاً یک فایل تصویری بفرستید (مثل .jpg یا .png)."
+            )
+            return
+
+    if not file_id:
         await update.message.reply_text("⚠️ لطفاً عکس بفرستید.")
         return
-
-    # گرفتن بزرگترین سایز
-    photo = update.message.photo[-1]
-    file_id = photo.file_id
     from app.utils.admin_check import detect_platform_from_context
     platform = detect_platform_from_context(context)
     log.info(f"🔍 [PHOTO UPLOAD] platform={platform}, file_id={file_id[:30]}, user={user.id}")
