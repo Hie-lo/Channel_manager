@@ -338,24 +338,25 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
     current_platform = detect_platform_from_context(context)
 
     if current_platform == "BALE":
-        # ما از بله هستیم → باید Bot تلگرام رو دستی بسازیم
+        # ما از بله هستیم → باید Bot تلگرام رو بسازیم
         from telegram import Bot
         from app.config import settings
 
         try:
             tg_bot = Bot(token=settings.BOT_TOKEN)
-            result = await check_bot_is_admin_in_channel(tg_bot, channel_input)
+            async with tg_bot:
+                result = await check_bot_is_admin_in_channel(tg_bot, channel_input)
         except Exception as e:
-            log.error(f"خطا در ساخت Bot تلگرام: {e}")
+            log.error(f"خطا در چک کانال تلگرام از بله: {e}", exc_info=True)
             await checking_msg.edit_text(
-                "❌ خطا در بررسی کانال تلگرام!\n"
-                "لطفاً از ربات تلگرام این کار رو انجام بدید."
+                f"❌ خطا در بررسی کانال تلگرام!\n\n"
+                f"جزئیات: {str(e)[:200]}\n\n"
+                f"💡 اگه مشکل ادامه داشت، از ربات تلگرام کانال رو اضافه کنید."
             )
             return
     else:
-        # از تلگرام هستیم → bot فعلی رو استفاده کن
         result = await check_bot_is_admin_in_channel(context.bot, channel_input)
-
+        
     if not result.is_valid:
         await checking_msg.edit_text(
             f"❌ اتصال ناموفق!\n"
