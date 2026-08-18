@@ -682,22 +682,19 @@ async def _handle_eitaa_channel(update: Update, context: ContextTypes.DEFAULT_TY
             customer_id=customer.id,
             channel_identifier=normalized,
             platform=Platform.EITAA,
-            activation_status="PENDING_ACTIVATION",
+            activation_status="ACTIVATE",
         )
 
     clear_user_state(user.id)
 
     await update.message.reply_text(
-        f"✅ کانال ایتا ثبت شد!\n"
+        f"✅ کانال ایتا با موفقیت متصل شد!\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"📢 پلتفرم: ایتا\n"
+        f"🔵 پلتفرم: ایتا\n"
         f"🆔 آیدی: {normalized}\n"
-        f"⏳ وضعیت: در انتظار فعال‌سازی\n"
+        f"✅ وضعیت: فعال\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"💡 <b>نکته:</b>\n"
-        f"این کانال روی ۱ ظرفیت از پلن شما حساب میشه.\n"
-        f"وقتی سیستم ایتا فعال بشه، خودکار شروع به کار می‌کنه.",
-        parse_mode="HTML",
+        f"از الان محصولات شما در این کانال ایتا هم منتشر میشن.",
     )
 
 
@@ -753,22 +750,19 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
             customer_id=customer.id,
             channel_identifier=normalized,
             platform=Platform.BALE,
-            activation_status="PENDING_ACTIVATION",
+            activation_status="ACTIVE",
         )
 
     clear_user_state(user.id)
 
     await update.message.reply_text(
-        f"✅ کانال بله ثبت شد!\n"
+        f"✅ کانال بله با موفقیت متصل شد!\n"
         f"━━━━━━━━━━━━━━━\n"
         f"🔵 پلتفرم: بله\n"
         f"🆔 آیدی: {normalized}\n"
-        f"⏳ وضعیت: در انتظار فعال‌سازی\n"
+        f"✅ وضعیت: فعال\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"💡 <b>نکته:</b>\n"
-        f"این کانال روی ۱ ظرفیت از پلن شما حساب میشه.\n"
-        f"وقتی سیستم بله فعال بشه، خودکار شروع به کار می‌کنه.",
-        parse_mode="HTML",
+        f"از الان محصولات شما در این کانال بله هم منتشر میشن.",
     )
 
 
