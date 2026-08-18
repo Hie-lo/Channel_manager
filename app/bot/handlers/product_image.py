@@ -545,56 +545,66 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     deleted_count = 0
     delete_errors = []
 
+    # ⚠️ برای حذف پست تلگرام از بله، باید Bot تلگرام بسازیم
+    from app.utils.admin_check import detect_platform_from_context
+    from app.config import settings
+    current_platform = detect_platform_from_context(context)
+
+    tg_bot = None
+    if current_platform == "BALE":
+        try:
+            from telegram import Bot
+            tg_bot = Bot(token=settings.BOT_TOKEN)
+            await tg_bot.initialize()
+        except Exception as e:
+            log.warning(f"⚠️ [Repost] خطا در ساخت Bot تلگرام: {e}")
+
     for pm in posted_messages:
-        # پیدا کن کانالش
         channel = next((c for c in channels if c.id == pm.channel_id), None)
         if not channel:
-            log.warning(f"[Repost] کانال {pm.channel_id} پیدا نشد")
             continue
 
-        # حذف پست
         try:
             if channel.platform == Platform.TELEGRAM:
+                # استفاده از Bot تلگرام (نه بله)
+                delete_bot = tg_bot if tg_bot else context.bot
                 log.info(
                     f"[Repost] حذف پست تلگرام {pm.telegram_message_id} "
                     f"از {channel.channel_identifier}"
                 )
-                await context.bot.delete_message(
+                await delete_bot.delete_message(
                     chat_id=channel.channel_identifier,
                     message_id=pm.telegram_message_id,
                 )
                 deleted_count += 1
-                log.info(f"✅ [Repost] پست تلگرام {pm.telegram_message_id} حذف شد")
+                log.info(f"✅ [Repost] پست تلگرام حذف شد")
 
-            elif channel.platform == Platform.EITAA:
+            elif channel.platform == Platform.EITAA and eitaa_token:
                 log.info(
                     f"[Repost] حذف پست ایتا {pm.telegram_message_id} "
                     f"از {channel.channel_identifier}"
                 )
-                if eitaa_token:
-                    from app.services.publisher.eitaa_client import EitaaClient
-                    client = EitaaClient(token=eitaa_token)
-                    delete_result = await client.delete_message(
-                        chat_id=channel.channel_identifier,
-                        message_id=pm.telegram_message_id,
-                    )
-                    if delete_result.ok:
-                        deleted_count += 1
-                        log.info(f"✅ [Repost] پست ایتا {pm.telegram_message_id} حذف شد")
-                    else:
-                        log.warning(
-                            f"⚠️ [Repost] حذف ایتا موفق نبود: "
-                            f"{delete_result.error_message}"
-                        )
+                from app.services.publisher.eitaa_client import EitaaClient
+                client = EitaaClient(token=eitaa_token)
+                delete_result = await client.delete_message(
+                    chat_id=channel.channel_identifier,
+                    message_id=pm.telegram_message_id,
+                )
+                if delete_result.ok:
+                    deleted_count += 1
+                    log.info(f"✅ [Repost] پست ایتا حذف شد")
 
         except Exception as e:
-            log.warning(
-                f"⚠️ [Repost] خطا در حذف پست {pm.telegram_message_id} "
-                f"در {channel.platform.value}: {e}"
-            )
+            log.warning(f"⚠️ [Repost] خطا در حذف: {e}")
             delete_errors.append(f"{channel.platform.value}: {str(e)[:50]}")
-            # ⚠️ مهم: continue تا بقیه رو هم امتحان کنه
             continue
+
+    # cleanup Bot تلگرام
+    if tg_bot:
+        try:
+            await tg_bot.shutdown()
+        except Exception:
+            pass
 
     log.info(f"🗑 [Repost] پایان حذف: {deleted_count} پست حذف شد")
 

@@ -151,51 +151,88 @@ async def _publish_to_telegram_channel(
             async with AsyncSessionLocal() as session:
                 all_medias = await get_all_product_medias(session, product.id)
 
-            if all_medias:
-                # عکس بله هست → دانلود کن
-                first_media = all_medias[0]
+            bale_medias = [m for m in all_medias if m.platform == Platform.BALE]
+
+            if bale_medias:
                 log.info(
-                    f"[TG Publish] عکس تلگرام نیست، "
-                    f"دانلود از {first_media.platform.value}..."
+                    f"[TG Publish] دانلود {len(bale_medias)} عکس از بله..."
                 )
 
-                if first_media.platform == Platform.BALE:
-                    temp_path = await _download_bale_file(product, first_media.file_id)
-                    if temp_path:
-                        # آپلود به تلگرام (ارسال مستقیم از فایل)
-                        import os
+                import os
+                import tempfile
+                temp_files = []
+
+                try:
+                    # دانلود همه عکس‌ها از بله
+                    for media in bale_medias:
+                        temp_path = await _download_bale_file(product, media.file_id)
+                        if temp_path:
+                            temp_files.append(temp_path)
+
+                    if len(temp_files) == 0:
+                        log.warning("[TG Publish] هیچ عکسی از بله دانلود نشد")
+
+                    elif len(temp_files) == 1:
+                        # تک عکس
+                        with open(temp_files[0], "rb") as f:
+                            message = await actual_bot.send_photo(
+                                chat_id=channel.channel_identifier,
+                                photo=f,
+                                caption=caption,
+                            )
+                        log.info(f"✅ [TG Publish] پست با ۱ عکس ارسال شد")
+                        return UnifiedPublishResult(
+                            success=True,
+                            message_id=message.message_id,
+                            platform=Platform.TELEGRAM,
+                        )
+
+                    else:
+                        # آلبوم (چند عکس)
+                        from telegram import InputMediaPhoto
+
+                        media_list = []
+                        file_handles = []
+
+                        for i, path in enumerate(temp_files[:10]):
+                            fh = open(path, "rb")
+                            file_handles.append(fh)
+
+                            if i == 0:
+                                media_list.append(
+                                    InputMediaPhoto(media=fh, caption=caption)
+                                )
+                            else:
+                                media_list.append(InputMediaPhoto(media=fh))
 
                         try:
-                            with open(temp_path, "rb") as f:
-                                message = await actual_bot.send_photo(
-                                    chat_id=channel.channel_identifier,
-                                    photo=f,
-                                    caption=caption,
-                                )
-
-                            log.info(
-                                f"✅ [TG Publish] پست با عکس بله ارسال شد: "
-                                f"msg_id={message.message_id}"
+                            messages = await actual_bot.send_media_group(
+                                chat_id=channel.channel_identifier,
+                                media=media_list,
                             )
-
+                            log.info(
+                                f"✅ [TG Publish] آلبوم با {len(messages)} عکس ارسال شد"
+                            )
                             return UnifiedPublishResult(
                                 success=True,
-                                message_id=message.message_id,
+                                message_id=messages[0].message_id,
                                 platform=Platform.TELEGRAM,
                             )
-
-                        except Exception as e:
-                            log.error(f"[TG Publish] خطا در ارسال عکس: {e}")
-                            # fallback ادامه می‌ده
-
                         finally:
-                            # پاک کردن فایل موقت
-                            try:
-                                os.unlink(temp_path)
-                            except Exception:
-                                pass
+                            for fh in file_handles:
+                                fh.close()
 
-            # اگه عکس از هیچ جا نبود، image_url رو چک کن
+                except Exception as e:
+                    log.error(f"[TG Publish] خطا در ارسال عکس بله: {e}")
+
+                finally:
+                    for path in temp_files:
+                        try:
+                            os.unlink(path)
+                        except Exception:
+                            pass
+
+            # fallback به image_url
             if not photo_sources and product.image_url and product.image_url.strip():
                 photo_sources = [product.image_url.strip()]
 
