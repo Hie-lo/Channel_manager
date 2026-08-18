@@ -190,31 +190,108 @@ async def _edit_telegram_post(
 # ایتا
 # ═══════════════════════════════════════════════════════════
 
-async def _get_photo_for_eitaa(bot, product):
+async def _get_photo_for_eitaa(
+    bot,
+    product: Product,
+) -> Path | None:
     """
     گرفتن یک عکس برای ارسال به ایتا
-    اولویت: عکس‌های تلگرام (چون bot تلگرامیه، راحت‌تر دانلود می‌کنه)
-    اگه نبود: image_url
+    از هر پلتفرمی که عکس هست، دانلود می‌کنه
     """
-    from app.services.product_media_service import get_product_medias
-    from app.services.publisher.eitaa_publisher import _download_telegram_file
+    from app.services.product_media_service import get_all_product_medias
+    from app.services.publisher.eitaa_publisher import (
+        _download_telegram_file,
+        _download_url_to_temp,
+    )
     from app.database.connection import AsyncSessionLocal
 
-    # اول عکس‌های تلگرام (چون bot تلگرام راحت دانلود می‌کنه)
+    # اولویت ۱: عکس از هر پلتفرمی (اولین عکس موجود)
     async with AsyncSessionLocal() as session:
-        tg_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
+        all_medias = await get_all_product_medias(session, product.id)
 
-    if tg_medias:
-        first_media = tg_medias[0]
-        log.info(f"[Eitaa Photo] دانلود از تلگرام: {first_media.file_id[:30]}...")
-        return await _download_telegram_file(bot, first_media.file_id)
+    if all_medias:
+        first_media = all_medias[0]
 
-    # اگه تلگرام نبود، image_url استفاده کن
+        if first_media.platform == Platform.TELEGRAM:
+            # عکس تلگرام → دانلود از bot تلگرام
+            log.info(f"[Eitaa Photo] دانلود از تلگرام: {first_media.file_id[:30]}...")
+            return await _download_telegram_file(bot, first_media.file_id)
+
+        elif first_media.platform == Platform.BALE:
+            # عکس بله → دانلود از API بله
+            log.info(f"[Eitaa Photo] دانلود از بله: {first_media.file_id[:30]}...")
+            return await _download_bale_file(product, first_media.file_id)
+
+    # اولویت ۲: image_url
     if product.image_url and product.image_url.strip():
-        log.info(f"[Eitaa Photo] استفاده از image_url")
-        return None  # publisher خودش دانلود می‌کنه
+        log.info(f"[Eitaa Photo] دانلود از URL: {product.image_url[:50]}...")
+        return await _download_url_to_temp(product.image_url)
 
+    log.info("[Eitaa Photo] هیچ عکسی پیدا نشد")
     return None
+
+
+async def _download_bale_file(product, file_id: str) -> Path | None:
+    """
+    دانلود فایل از بله
+    بله API: https://tapi.bale.ai/file/bot{TOKEN}/{file_id}
+    """
+    import tempfile
+    import httpx
+    from app.config import settings
+    from pathlib import Path as PathLib
+
+    if not settings.BALE_BOT_TOKEN:
+        log.warning("[Bale Download] BALE_BOT_TOKEN تنظیم نشده")
+        return None
+
+    try:
+        # اول file_path رو بگیر
+        file_url = f"{settings.BALE_API_BASE}{settings.BALE_BOT_TOKEN}/getFile"
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(
+                file_url,
+                json={"file_id": file_id},
+            )
+
+            if response.status_code != 200:
+                log.warning(f"[Bale Download] getFile fail: {response.status_code}")
+
+                # راه جایگزین: مستقیم file_id رو به عنوان URL بفرست
+                # بعضی API ها file_id رو به عنوان path می‌پذیرن
+                download_url = f"{settings.BALE_FILE_API_BASE}{settings.BALE_BOT_TOKEN}/{file_id}"
+            else:
+                data = response.json()
+                if data.get("ok"):
+                    file_path = data.get("result", {}).get("file_path", "")
+                    download_url = f"{settings.BALE_FILE_API_BASE}{settings.BALE_BOT_TOKEN}/{file_path}"
+                else:
+                    download_url = f"{settings.BALE_FILE_API_BASE}{settings.BALE_BOT_TOKEN}/{file_id}"
+
+            # دانلود فایل
+            log.info(f"[Bale Download] downloading from: {download_url[:80]}...")
+            file_response = await client.get(download_url)
+
+            if file_response.status_code == 200 and len(file_response.content) > 100:
+                temp_file = tempfile.NamedTemporaryFile(
+                    suffix=".jpg", delete=False, mode="wb"
+                )
+                temp_file.write(file_response.content)
+                temp_file.close()
+
+                log.info(f"[Bale Download] فایل ذخیره شد: {temp_file.name}")
+                return PathLib(temp_file.name)
+            else:
+                log.warning(
+                    f"[Bale Download] دانلود fail: status={file_response.status_code}, "
+                    f"size={len(file_response.content)}"
+                )
+                return None
+
+    except Exception as e:
+        log.error(f"[Bale Download] خطا: {e}", exc_info=True)
+        return None
 
 
 async def _publish_to_eitaa_channel(
