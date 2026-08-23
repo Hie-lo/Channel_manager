@@ -330,8 +330,7 @@ async def photo_router(update, context):
             log.info("→ admin_get_file_id_handler")
             from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
             await admin_get_file_id_handler(update, context)
-        else:
-            log.info(f"⚠️ عکس بدون state - نادیده گرفته شد")
+
 async def video_router(update, context):
     """مسیریاب ویدیوها - فقط برای گرفتن file_id توسط ادمین"""
     user = update.effective_user
