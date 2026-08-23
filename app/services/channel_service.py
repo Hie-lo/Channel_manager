@@ -32,10 +32,10 @@ class ChannelCheckResult:
 async def check_bot_is_admin_in_channel(
     bot: Bot,
     channel_identifier: str,
-    telegram_user_id: int = None  # 🛡️ اضافه کردن آیدی درخواست دهنده
+    user_id_to_check: int = None
 ) -> ChannelCheckResult:
     """
-    بررسی ادمین بودن ربات و همچنین ادمین بودن خود کاربر در کانال تلگرام
+    بررسی ادمین بودن ربات و همچنین ادمین بودن خود کاربر در کانال (تلگرام یا بله)
     """
     try:
         chat = await bot.get_chat(channel_identifier)
@@ -43,23 +43,25 @@ async def check_bot_is_admin_in_channel(
         if chat.type not in ("channel", "supergroup"):
             return ChannelCheckResult(is_valid=False, error_message="این آیدی مربوط به کانال نیست")
 
-        # ۱. بررسی ادمین بودن ربات
+        # ۱. بررسی ادمین بودن ربات ما
         bot_member = await bot.get_chat_member(chat.id, bot.id)
         if bot_member.status not in ("administrator", "creator"):
-            return ChannelCheckResult(is_valid=False, error_message="ربات ادمین کانال نیست")
+            return ChannelCheckResult(is_valid=False, error_message="ربات ادمین کانال نیست. ابتدا ربات را ادمین کانال کنید.")
 
-        if bot_member.status == "administrator" and not bot_member.can_post_messages:
-            return ChannelCheckResult(is_valid=False, error_message="ربات مجوز ارسال پیام در کانال را ندارد")
-
-        # ۲. 🛡️ بررسی ادمین بودن کاربر درخواست دهنده (جلوگیری از سرقت کانال)
-        if telegram_user_id:
+        # ۲. بررسی ادمین بودن کاربر درخواست‌دهنده
+        if user_id_to_check:
             try:
-                user_member = await bot.get_chat_member(chat.id, telegram_user_id)
+                user_member = await bot.get_chat_member(chat.id, user_id_to_check)
                 if user_member.status not in ("administrator", "creator"):
-                    return ChannelCheckResult(is_valid=False, error_message="شما خودتان ادمین این کانال نیستید! فقط مالکان و مدیران می‌توانند کانال را متصل کنند.")
-            except TelegramError as e:
-                # اگر کاربر در کانال حضور نداشته باشد یا نتوانیم او را پیدا کنیم
-                return ChannelCheckResult(is_valid=False, error_message="نتوانستیم وضعیت ادمین بودن شما در این کانال را تأیید کنیم.")
+                    return ChannelCheckResult(
+                        is_valid=False, 
+                        error_message="شما خودتان در این کانال ادمین نیستید! فقط مالکان و مدیران کانال می‌توانند آن را متصل کنند."
+                    )
+            except TelegramError:
+                return ChannelCheckResult(
+                    is_valid=False, 
+                    error_message="حساب کاربری شما در این کانال یافت نشد یا دسترسی ادمین ندارد."
+                )
 
         try:
             member_count = await bot.get_chat_member_count(chat.id)
@@ -71,10 +73,10 @@ async def check_bot_is_admin_in_channel(
     except TelegramError as e:
         error_msg = str(e).lower()
         if "chat not found" in error_msg:
-            return ChannelCheckResult(is_valid=False, error_message="کانال پیدا نشد. آیدی رو چک کنید")
-        return ChannelCheckResult(is_valid=False, error_message=f"خطا: {str(e)[:100]}")
+            return ChannelCheckResult(is_valid=False, error_message="کانال پیدا نشد. آیدی یا لینک را بررسی کنید.")
+        return ChannelCheckResult(is_valid=False, error_message=f"خطا در بررسی کانال: {str(e)[:100]}")
     except Exception as e:
-        return ChannelCheckResult(is_valid=False, error_message="خطای غیرمنتظره")
+        return ChannelCheckResult(is_valid=False, error_message="خطای غیرمنتظره در بررسی کانال")
 
 
 async def add_channel_for_customer(
@@ -149,13 +151,32 @@ async def check_channel_already_exists(
     session: AsyncSession,
     customer_id: int,
     channel_identifier: str,
-) -> bool:
-    """چک کن کانال قبلاً برای این مشتری اضافه شده یا نه (نسخه ایمن)"""
-    result = await session.execute(
+    platform: Platform = Platform.TELEGRAM
+) -> tuple[bool, str]:
+    """
+    دیوار دفاعی دوم: بررسی وجود کانال در کل دیتابیس.
+    Returns: (is_duplicate: bool, error_message: str)
+    """
+    # 1. آیا همین کاربر قبلاً این کانال را وصل کرده؟
+    result_self = await session.execute(
         select(Channel).where(
             Channel.customer_id == customer_id,
             Channel.channel_identifier == channel_identifier,
-        ).limit(1)  # 🛡️ فقط یک رکورد را محدود می‌کنیم
+            Channel.platform == platform
+        ).limit(1)
     )
-    # به جای scalar_one_or_none از first استفاده می‌کنیم تا در صورت وجود رکوردهای داپلیکیت کرش نکند
-    return result.scalars().first() is not None
+    if result_self.scalars().first():
+        return True, "⚠️ این کانال قبلاً در لیست کانال‌های شما ثبت شده است."
+
+    # 2. 🛡️ دیوار دفاعی دوم: آیا کاربر دیگری در کل سیستم این کانال را وصل کرده؟
+    result_global = await session.execute(
+        select(Channel).where(
+            Channel.channel_identifier == channel_identifier,
+            Channel.platform == platform
+        ).limit(1)
+    )
+    if result_global.scalars().first():
+        log.warning(f"🛡️ [Security] تلاش برای اتصال کانال تکراری سراسری: {channel_identifier} توسط مشتری {customer_id}")
+        return True, "⛔ این کانال قبلاً توسط کاربر دیگری در سیستم ثبت شده است! اگر مالک این کانال هستید، با پشتیبانی تماس بگیرید."
+
+    return False, ""
