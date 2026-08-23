@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.services.customer_service import (
+    create_customer,
     get_customer_by_platform_id,
     set_customer_business_type,
     approve_customer,
@@ -81,13 +82,27 @@ async def business_type_callback(update: Update, context: ContextTypes.DEFAULT_T
     log.info(f"[BIZ SELECT] user={user.id}, platform={platform}, biz={business_key}")
 
     async with AsyncSessionLocal() as session:
-        # ذخیره نوع کسب‌وکار
+        # ۱. ابتدا چک می‌کنیم آیا مشتری در دیتابیس هست یا باید ساخته شود
+        customer = await get_customer_by_platform_id(session, user.id, platform)
+        
+        if not customer:
+            customer = await create_customer(
+                session=session,
+                user_id=user.id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                username=user.username,
+                platform=platform,
+            )
+
+        # ۲. اکنون نوع کسب‌وکار را تنظیم می‌کنیم
         customer = await set_customer_business_type(
             session=session,
             telegram_user_id=user.id,
             business_type_key=business_key,
             platform=platform,
         )
+        
 
         if not customer:
             await query.edit_message_text("❌ خطا! لطفاً دوباره /start بزنید.")

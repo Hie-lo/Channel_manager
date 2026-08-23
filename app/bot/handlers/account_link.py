@@ -36,16 +36,32 @@ async def link_account_start_callback(update: Update, context: ContextTypes.DEFA
     )
 
 async def link_account_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """انصراف از وارد کردن کد"""
+    """انصراف از وارد کردن کد و بازگشت به منوی انتخاب اولیه"""
     query = update.callback_query
     await query.answer()
     
-    clear_user_state(query.from_user.id)
+    user = query.from_user
+    clear_user_state(user.id)
     
-    # برگرداندن کاربر به نقطه اول
+    from app.utils.admin_check import detect_platform_from_context
+    from app.bot.keyboards.main_menu import get_business_type_keyboard
+    
+    platform = detect_platform_from_context(context)
+    platform_display = "تلگرام" if platform == "TELEGRAM" else "بله"
+    
+    raw_biz_keyboard = get_business_type_keyboard().inline_keyboard
+    biz_keyboard = [list(row) for row in raw_biz_keyboard]
+    link_button = [InlineKeyboardButton("🔗 اتصال به حساب قبلی من", callback_data="link_account_start")]
+    
+    final_markup = InlineKeyboardMarkup([link_button] + biz_keyboard)
+
     await query.edit_message_text(
-        "❌ عملیات اتصال حساب لغو شد.\n"
-        "لطفاً برای شروع مجدد /start را بفرستید."
+        f"👋 سلام {user.first_name} عزیز!\n\n"
+        f"به ربات مدیریت کانال خوش آمدید.\n"
+        f"🤖 پلتفرم: {platform_display}\n\n"
+        f"اگر قبلاً در پلتفرم دیگری ثبت‌نام کرده‌اید، دکمه «اتصال به حساب قبلی من» را بزنید.\n\n"
+        f"در غیر این صورت، برای ثبت‌نام جدید لطفاً نوع کسب‌وکار خود را انتخاب کنید:",
+        reply_markup=final_markup,
     )
 
 

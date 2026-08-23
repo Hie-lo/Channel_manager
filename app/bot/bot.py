@@ -226,9 +226,9 @@ async def text_router(update, context):
         await admin_broadcast_text_handler(update, context)
     elif state == UserState.ADMIN_SEARCHING_CUSTOMER:
         await admin_search_customer_handler(update, context)
-    elif state == UserState.WAITING_SUPPORT_MESSAGE:  # ← جدید
+    elif state == UserState.WAITING_SUPPORT_MESSAGE:  
         await support_message_received_handler(update, context)
-    elif state == UserState.ADMIN_REPLYING_TO_SUPPORT:  # ← جدید
+    elif state == UserState.ADMIN_REPLYING_TO_SUPPORT:  
         await admin_reply_message_handler(update, context)
     elif state == UserState.WAITING_FOR_LINK_CODE:
         await link_code_received_handler(update, context)

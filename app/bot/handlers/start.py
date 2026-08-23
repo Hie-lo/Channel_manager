@@ -8,10 +8,7 @@ from telegram.ext import ContextTypes
 
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
-from app.services.customer_service import (
-    get_customer_by_platform_id,
-    create_customer,
-)
+from app.services.customer_service import get_customer_by_platform_id
 from app.database.models import CustomerStatus
 from app.bot.keyboards.main_menu import (
     get_customer_main_menu,
@@ -54,15 +51,25 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_platform_id(session, user_id, platform)
 
-        if not customer:
-            await _handle_new_customer(update, context, session, user, platform)
+        # اگر مشتری وجود ندارد یا هنوز نوع کسب‌وکار خود را انتخاب نکرده است
+        if not customer or (customer.customer_status == CustomerStatus.PENDING and not customer.business_type_key):
+            await _handle_new_customer(update, context, user, platform)
             return
 
-        # مشتری قبلاً ثبت‌نام کرده
+        # مشتری قبلاً ثبت‌نام کرده و کسب‌وکارش را هم انتخاب کرده است
         if customer.customer_status == CustomerStatus.PENDING:
+            # کیبورد کمکی برای حالت انتظار (جلوگیری از بن‌بست)
+            pending_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔗 اتصال به حساب قبلی من", callback_data="link_account_start")],
+                [InlineKeyboardButton("💬 ارتباط با پشتیبانی", callback_data="tut_inline_support_help")]
+            ])
+            
             await update.message.reply_text(
-                "⏳ حساب شما در انتظار تایید است.\n"
-                "پس از تایید توسط ادمین پیام دریافت خواهید کرد."
+                "⏳ <b>حساب شما در انتظار تایید ادمین است.</b>\n"
+                "پس از تایید توسط ادمین، پیام فعال‌سازی برای شما ارسال خواهد شد.\n\n"
+                "💡 اگر قبلاً حساب فعال داشته‌اید و می‌خواهید به آن متصل شوید، دکمه زیر را بزنید:",
+                parse_mode="HTML",
+                reply_markup=pending_keyboard
             )
 
         elif customer.customer_status == CustomerStatus.ACTIVE:
@@ -85,31 +92,20 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             )
 
 
-async def _handle_new_customer(update, context, session, user, platform) -> None:
-    """مدیریت مشتری جدید - ثبت‌نام یا اتصال حساب"""
+async def _handle_new_customer(update, context, user, platform) -> None:
+    """نمایش منوی اولیه ثبت نام / اتصال حساب (بدون ساخت رکورد اجباری در دیتابیس)"""
 
-    log.info(f"[NEW CUSTOMER] platform={platform}, user_id={user.id}")
-
-    # ساخت مشتری موقت در دیتابیس با وضعیت PENDING
-    await create_customer(
-        session=session,
-        user_id=user.id,
-        first_name=user.first_name,
-        last_name=user.last_name,
-        username=user.username,
-        platform=platform,
-    )
+    log.info(f"[NEW VISITOR] platform={platform}, user_id={user.id}")
 
     platform_display = "تلگرام" if platform == "TELEGRAM" else "بله"
 
-    # گرفتن کیبورد دکمه‌های کسب و کار و تبدیل ایمن به لیست
+    # گرفتن کیبورد کسب و کارها
     raw_biz_keyboard = get_business_type_keyboard().inline_keyboard
     biz_keyboard = [list(row) for row in raw_biz_keyboard]
 
-    # اضافه کردن دکمه "اتصال به حساب قبلی" در ردیف اول
+    # دکمه اتصال حساب
     link_button = [InlineKeyboardButton("🔗 اتصال به حساب قبلی من", callback_data="link_account_start")]
     
-    # ترکیب ایمن لیست‌ها (List + List)
     combined_keyboard = [link_button] + biz_keyboard
     final_markup = InlineKeyboardMarkup(combined_keyboard)
 
