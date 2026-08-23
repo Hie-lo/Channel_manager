@@ -14,13 +14,13 @@ async def get_sheet_connection(
     session: AsyncSession,
     customer_id: int,
 ) -> GoogleSheetConnection | None:
-    """گرفتن اتصال شیت مشتری"""
+    """گرفتن اتصال شیت مشتری (نسخه ایمن)"""
     result = await session.execute(
         select(GoogleSheetConnection).where(
             GoogleSheetConnection.customer_id == customer_id
-        )
+        ).order_by(GoogleSheetConnection.id.desc()).limit(1)
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def create_or_update_sheet_connection(

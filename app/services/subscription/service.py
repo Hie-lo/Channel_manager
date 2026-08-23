@@ -20,7 +20,7 @@ async def get_active_subscription(
     session: AsyncSession,
     customer_id: int,
 ) -> Subscription | None:
-    """گرفتن اشتراک فعال مشتری"""
+    """گرفتن اشتراک فعال مشتری (نسخه ایمن)"""
     result = await session.execute(
         select(Subscription).where(
             and_(
@@ -30,25 +30,25 @@ async def get_active_subscription(
                     SubscriptionStatus.GRACE,
                 ]),
             )
-        )
+        ).order_by(Subscription.id.desc()).limit(1) # آخرین اشتراک فعال
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def get_pending_subscription(
     session: AsyncSession,
     customer_id: int,
 ) -> Subscription | None:
-    """گرفتن اشتراک در انتظار پرداخت"""
+    """گرفتن اشتراک در انتظار پرداخت (نسخه ایمن)"""
     result = await session.execute(
         select(Subscription).where(
             and_(
                 Subscription.customer_id == customer_id,
                 Subscription.status == SubscriptionStatus.PENDING,
             )
-        )
+        ).order_by(Subscription.id.desc()).limit(1)
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def create_pending_subscription(

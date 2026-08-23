@@ -24,20 +24,21 @@ async def get_customer_by_platform_id(
     platform: str = "TELEGRAM",
 ) -> Customer | None:
     """
-    پیدا کردن مشتری با آیدی پلتفرم مشخص
+    پیدا کردن مشتری با آیدی پلتفرم مشخص (نسخه ۱۰۰٪ ایمن در برابر داپلیکیت)
     """
     if platform.upper() == "TELEGRAM":
         result = await session.execute(
-            select(Customer).where(Customer.telegram_user_id == user_id)
+            select(Customer).where(Customer.telegram_user_id == user_id).limit(1)
         )
     elif platform.upper() == "BALE":
         result = await session.execute(
-            select(Customer).where(Customer.bale_user_id == user_id)
+            select(Customer).where(Customer.bale_user_id == user_id).limit(1)
         )
     else:
         return None
 
-    return result.scalar_one_or_none()
+    # 🛡️ استفاده از first به جای scalar_one_or_none برای جلوگیری از کرش
+    return result.scalars().first()
 
 
 async def get_customer_by_telegram_id(
@@ -45,30 +46,32 @@ async def get_customer_by_telegram_id(
     telegram_user_id: int,
 ) -> Customer | None:
     """
-    پیدا کردن مشتری با آیدی (تلگرام یا بله)
-
-    ⚠️ نکته: این تابع به دلایل تاریخی 'telegram_id' نامیده میشه
-    ولی الان هم تلگرام هم بله رو چک می‌کنه.
-
-    اولویت:
-    1. جستجو در telegram_user_id
-    2. اگه پیدا نشد، جستجو در bale_user_id
+    پیدا کردن مشتری با آیدی (تلگرام یا بله) - نسخه ایمن
     """
-    # جستجوی تلگرام
+    # ۱. اولویت با آیدی تلگرام
     result = await session.execute(
-        select(Customer).where(Customer.telegram_user_id == telegram_user_id)
+        select(Customer).where(Customer.telegram_user_id == telegram_user_id).limit(1)
     )
-    customer = result.scalar_one_or_none()
+    customer = result.scalars().first()
 
     if customer:
         return customer
 
-    # جستجوی بله
+    # ۲. بله
     result = await session.execute(
-        select(Customer).where(Customer.bale_user_id == telegram_user_id)
+        select(Customer).where(Customer.bale_user_id == telegram_user_id).limit(1)
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
+async def get_customer_by_id(
+    session: AsyncSession,
+    customer_id: int,
+) -> Customer | None:
+    """گرفتن مشتری با ID داخلی (نسخه ایمن)"""
+    result = await session.execute(
+        select(Customer).where(Customer.id == customer_id).limit(1)
+    )
+    return result.scalars().first()
 
 async def get_customer_by_bale_id(
     session: AsyncSession,
