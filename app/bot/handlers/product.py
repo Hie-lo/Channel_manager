@@ -2,7 +2,7 @@
 هندلرهای مدیریت محصولات
 شامل: نمایش لیست، پیش‌نمایش پست، ارسال دستی به کانال
 """
-
+from datetime import datetime
 from requests import session
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
@@ -121,10 +121,12 @@ async def prod_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.edit_message_text("❌ محصولی وجود ندارد.")
         return
 
-    # مرتب‌سازی: منتشر نشده‌ها اول
+ # 💡 مرتب‌سازی هوشمند مطابق با صف انتشار ربات:
+    # ۱. ابتدا محصولات PENDING دقیقاً به ترتیبی که قرار است پست شوند (قدیمی‌ترها اول - FIFO)
+    # ۲. سپس محصولات PUBLISHED در انتهای لیست
     products.sort(key=lambda p: (
-        p.publish_status == ProductPublishStatus.PUBLISHED,
-        p.product_name,
+        p.publish_status == ProductPublishStatus.PUBLISHED,  # False (0) قبل از True (1) می‌آید
+        p.created_at or datetime.min                         # صعودی بر اساس زمان ساخت
     ))
 
     # صفحه‌بندی
