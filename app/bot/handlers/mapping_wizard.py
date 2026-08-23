@@ -2,35 +2,53 @@
 هندلرهای ویزارد مپینگ ستون‌ها (روش B)
 وقتی هوش مصنوعی نتواند ستون‌ها را پیدا کند، این ویزارد اجرا می‌شود.
 """
-from telegram import Update
-from telegram.ext import ContextTypes
-import os
 
-from app.bot.states.user_state import UserState, get_user_state, set_user_state, get_user_data, clear_user_state
+import os
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, User
+from telegram.ext import ContextTypes
+
+from app.bot.states.user_state import (
+    UserState,
+    set_user_state,
+    get_user_state,
+    get_user_data,
+    clear_user_state,
+)
 from app.bot.keyboards.mapping import get_column_mapping_keyboard
 from app.services.data_input.excel_reader import read_excel_file
 from app.services.product_service import save_products_from_excel
-from app.database.connection import AsyncSessionLocal
 from app.services.customer_service import get_customer_by_telegram_id
+from app.services.business_service import (
+    get_business_config_for_customer,
+    get_business_for_customer,
+)
+from app.services.subscription.service import get_active_subscription
+from app.services.subscription.plans import get_plan
+from app.database.connection import AsyncSessionLocal
 from app.utils.logger import log
 
 
-async def start_mapping_wizard(update, user_id: int, file_path: str, business_config, headers: list, missing_fields: list):
-    """استارت ویزارد سوالات"""
-    
-    # ذخیره داده‌های ویزارد در حافظه
+async def start_mapping_wizard(
+    update,
+    user_id: int,
+    file_path: str,
+    business_config,
+    headers: list,
+    missing_fields: list,
+):
+    """استارت ویزارد سوالات مپینگ ستون‌ها"""
     set_user_state(
-        user_id, 
+        user_id,
         UserState.WAITING_COLUMN_MAPPING,
         data={
             "file_path": file_path,
             "headers": headers,
-            "missing_fields": missing_fields,  # لیست فیلدهای پیدا نشده (صف)
-            "custom_map": {},                  # مپینگی که کاربر میسازه
-            "ignored_fields": [],              # ستون‌هایی که کاربر زد "ندارد"
-        }
+            "missing_fields": missing_fields,
+            "custom_map": {},
+            "ignored_fields": [],
+        },
     )
-    
+
     await _ask_next_mapping_question(update, user_id)
 
 
@@ -39,73 +57,169 @@ async def _ask_next_mapping_question(update, user_id: int):
     user_data = get_user_data(user_id)
     missing_fields = user_data.get("missing_fields", [])
     headers = user_data.get("headers", [])
-    
+
     if not missing_fields:
         # سوالات تمام شد! اجرای پردازش نهایی
         await _finalize_and_process_file(update, user_id)
         return
-        
+
     # گرفتن فیلد بعدی برای سوال
     next_field = missing_fields[0]
-    
+
     text = (
         f"⚠️ <b>برخی از ستون‌ها به طور خودکار پیدا نشدند.</b>\n"
         f"━━━━━━━━━━━━━━━\n\n"
         f"لطفاً به من کمک کنید:\n"
         f"در فایل شما، ستون مربوط به <b>«{next_field.label_fa}»</b> کدام است؟\n\n"
-        f"💡 <i>اگر این اطلاعات را در فایل ندارید، دکمه 'ندارد' را در پایین بزنید.</i>"
+        f"💡 <i>اگر این اطلاعات را در فایل ندارید، دکمه 'نادیده بگیر' را بزنید.</i>"
     )
-    
+
     keyboard = get_column_mapping_keyboard(headers)
-    
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
-    else:
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard)
+
+    if hasattr(update, "callback_query") and update.callback_query:
+        await update.callback_query.edit_message_text(
+            text, parse_mode="HTML", reply_markup=keyboard
+        )
+    elif hasattr(update, "message") and update.message:
+        await update.message.reply_text(
+            text, parse_mode="HTML", reply_markup=keyboard
+        )
 
 
-async def process_mapping_answer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """کاربر یک ستون را انتخاب کرده یا دکمه ندارد را زده است"""
+async def process_mapping_answer_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """کاربر یک ستون را انتخاب کرده یا دکمه ندارد/نادیده بگیر را زده است"""
     query = update.callback_query
     await query.answer()
-    
+
     user_id = query.from_user.id
     user_data = get_user_data(user_id)
-    
+
     if get_user_state(user_id) != UserState.WAITING_COLUMN_MAPPING:
         return
-        
-    data = query.data # "map_col_2" یا "map_col_ignore"
-    
+
+    data = query.data  # "map_col_2" یا "map_col_ignore"
+
     missing_fields = user_data.get("missing_fields", [])
-    current_field = missing_fields.pop(0) # برداشتن از صف
-    
+    if not missing_fields:
+        await _finalize_and_process_file(update, user_id)
+        return
+
+    current_field = missing_fields.pop(0)  # برداشتن از صف
+
     if data == "map_col_ignore":
+        if "ignored_fields" not in user_data:
+            user_data["ignored_fields"] = []
         user_data["ignored_fields"].append(current_field.key)
-    else:
+    elif data.startswith("map_col_"):
         col_index = int(data.replace("map_col_", ""))
+        if "custom_map" not in user_data:
+            user_data["custom_map"] = {}
         user_data["custom_map"][current_field.key] = col_index
-        
+
     # بروزرسانی state
     set_user_state(user_id, UserState.WAITING_COLUMN_MAPPING, data=user_data)
-    
+
     # پرسیدن سوال بعدی
     await _ask_next_mapping_question(update, user_id)
+
+
+async def mapping_cancel_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """انصراف کامل از ویزارد مپینگ و حذف فایل موقت"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    user_data = get_user_data(user_id)
+
+    # حذف فایل موقت
+    file_path = user_data.get("file_path")
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            log.error(f"خطا در حذف فایل موقت هنگام لغو مپینگ: {e}")
+
+    clear_user_state(user_id)
+
+    await query.edit_message_text(
+        "❌ عملیات خواندن فایل لغو شد.\n\n"
+        "می‌توانید فایل جدیدی آپلود کنید یا نام ستون‌های فایل قبلی را اصلاح کنید."
+    )
 
 
 async def _finalize_and_process_file(update, user_id: int):
     """ویزارد تمام شده، حالا فایل را با مپینگ کاربر می‌خوانیم"""
     user_data = get_user_data(user_id)
-    
-    file_path = user_data["file_path"]
-    custom_map = user_data["custom_map"]
-    ignored_fields = user_data["ignored_fields"]
-    
-    msg = update.callback_query.message
-    await msg.edit_text("✅ ستون‌ها شناسایی شدند.\n🔄 در حال پردازش فایل با تنظیمات شما...")
-    
-    # در اینجا دقیقاً همان لاجیک ذخیره فایل در مرحله آپلود (upload.py) را صدا می‌زنیم
-    # ولی متغیرهای custom_map و ignored_fields را به read_excel_file پاس می‌دهیم.
-    
-    # ... (کد پردازش نهایی، پاک کردن State و حذف فایل موقت) ...
-    clear_user_state(user_id)
+
+    file_path = user_data.get("file_path")
+    custom_map = user_data.get("custom_map", {})
+    ignored_fields = user_data.get("ignored_fields", [])
+
+    query = update.callback_query
+    await query.edit_message_text(
+        "✅ ستون‌ها شناسایی شدند.\n🔄 در حال پردازش فایل با تنظیمات شما..."
+    )
+
+    try:
+        async with AsyncSessionLocal() as session:
+            customer = await get_customer_by_telegram_id(session, user_id)
+            if not customer:
+                await query.edit_message_text("❌ مشتری پیدا نشد!")
+                clear_user_state(user_id)
+                return
+
+            business_config = get_business_config_for_customer(customer)
+            business = await get_business_for_customer(session, customer.id)
+            subscription = await get_active_subscription(session, customer.id)
+
+            if not business_config or not subscription:
+                await query.edit_message_text("❌ اطلاعات کسب‌وکار یا اشتراک یافت نشد.")
+                clear_user_state(User.id)
+                return
+
+            plan = get_plan(subscription.plan_key)
+            business_id = business.id if business else None
+
+            # خواندن با مپینگ سفارشی
+            read_result = read_excel_file(
+                file_path=file_path,
+                business_config=business_config,
+                custom_map=custom_map,
+                ignored_fields=ignored_fields,
+            )
+
+            # ذخیره محصولات در دیتابیس
+            save_result = await save_products_from_excel(
+                session=session,
+                customer_id=customer.id,
+                business_id=business_id,
+                products_data=read_result.all_products,
+                max_products_limit=plan.max_products,
+            )
+
+        summary_text = (
+            f"🎉 <b>پردازش فایل با موفقیت انجام شد!</b>\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"🆕 محصولات جدید: {save_result.new_count}\n"
+            f"🔄 آپدیت شده: {save_result.updated_count}\n"
+            f"✅ بدون تغییر: {save_result.unchanged_count}\n"
+            f"❌ خطا: {save_result.error_count}"
+        )
+
+        await query.edit_message_text(summary_text, parse_mode="HTML")
+
+    except Exception as e:
+        log.error(f"خطا در پردازش نهایی فایل مپینگ: {e}", exc_info=True)
+        await query.edit_message_text(f"❌ خطا در پردازش فایل: {str(e)[:200]}")
+
+    finally:
+        clear_user_state(user_id)
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
