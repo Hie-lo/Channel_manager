@@ -81,6 +81,7 @@ from app.bot.handlers.posting_settings import (
     posting_back_callback,
     posting_toggle_ai_callback,
     settings_generate_link_code_callback,
+    settings_change_business_callback,
 )
 from app.bot.handlers.admin import (
     admin_test_publish_job_handler,
@@ -484,6 +485,7 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(posting_set_hours_callback, pattern="^posting_set_hours$"))
     app.add_handler(CallbackQueryHandler(posting_back_callback, pattern="^posting_back$"))
     app.add_handler(CallbackQueryHandler(settings_generate_link_code_callback, pattern="^settings_generate_link_code$"))
+    app.add_handler(CallbackQueryHandler(settings_change_business_callback, pattern="^settings_change_business$"))
 
     # ─── کالبک‌های Google Sheet ───
     app.add_handler(CallbackQueryHandler(sheet_delete_confirm_callback, pattern="^sheet_delete_confirm$"))

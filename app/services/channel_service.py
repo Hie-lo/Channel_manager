@@ -32,76 +32,49 @@ class ChannelCheckResult:
 async def check_bot_is_admin_in_channel(
     bot: Bot,
     channel_identifier: str,
+    telegram_user_id: int = None  # 🛡️ اضافه کردن آیدی درخواست دهنده
 ) -> ChannelCheckResult:
     """
-    چک می‌کنه ربات ادمین کانال هست یا نه
-    channel_identifier: مثل @my_channel یا -100123456
+    بررسی ادمین بودن ربات و همچنین ادمین بودن خود کاربر در کانال تلگرام
     """
     try:
-        # گرفتن اطلاعات کانال
         chat = await bot.get_chat(channel_identifier)
 
-        # چک کن نوعش کانال باشه
         if chat.type not in ("channel", "supergroup"):
-            return ChannelCheckResult(
-                is_valid=False,
-                error_message="این آیدی مربوط به کانال نیست",
-            )
+            return ChannelCheckResult(is_valid=False, error_message="این آیدی مربوط به کانال نیست")
 
-        # چک کن ربات ادمین هست
+        # ۱. بررسی ادمین بودن ربات
         bot_member = await bot.get_chat_member(chat.id, bot.id)
-
         if bot_member.status not in ("administrator", "creator"):
-            return ChannelCheckResult(
-                is_valid=False,
-                error_message="ربات ادمین کانال نیست",
-                channel_title=chat.title or "",
-            )
+            return ChannelCheckResult(is_valid=False, error_message="ربات ادمین کانال نیست")
 
-        # چک کن حق ارسال پیام داره
-        if bot_member.status == "administrator":
-            if not bot_member.can_post_messages:
-                return ChannelCheckResult(
-                    is_valid=False,
-                    error_message="ربات مجوز ارسال پیام در کانال را ندارد",
-                    channel_title=chat.title or "",
-                )
+        if bot_member.status == "administrator" and not bot_member.can_post_messages:
+            return ChannelCheckResult(is_valid=False, error_message="ربات مجوز ارسال پیام در کانال را ندارد")
 
-        # گرفتن تعداد اعضا
+        # ۲. 🛡️ بررسی ادمین بودن کاربر درخواست دهنده (جلوگیری از سرقت کانال)
+        if telegram_user_id:
+            try:
+                user_member = await bot.get_chat_member(chat.id, telegram_user_id)
+                if user_member.status not in ("administrator", "creator"):
+                    return ChannelCheckResult(is_valid=False, error_message="شما خودتان ادمین این کانال نیستید! فقط مالکان و مدیران می‌توانند کانال را متصل کنند.")
+            except TelegramError as e:
+                # اگر کاربر در کانال حضور نداشته باشد یا نتوانیم او را پیدا کنیم
+                return ChannelCheckResult(is_valid=False, error_message="نتوانستیم وضعیت ادمین بودن شما در این کانال را تأیید کنیم.")
+
         try:
             member_count = await bot.get_chat_member_count(chat.id)
         except Exception:
             member_count = 0
 
-        return ChannelCheckResult(
-            is_valid=True,
-            channel_title=chat.title or "",
-            member_count=member_count,
-        )
+        return ChannelCheckResult(is_valid=True, channel_title=chat.title or "", member_count=member_count)
 
     except TelegramError as e:
         error_msg = str(e).lower()
         if "chat not found" in error_msg:
-            return ChannelCheckResult(
-                is_valid=False,
-                error_message="کانال پیدا نشد. آیدی رو چک کنید",
-            )
-        elif "forbidden" in error_msg:
-            return ChannelCheckResult(
-                is_valid=False,
-                error_message="ربات به کانال دسترسی ندارد",
-            )
-        else:
-            return ChannelCheckResult(
-                is_valid=False,
-                error_message=f"خطا: {str(e)}",
-            )
+            return ChannelCheckResult(is_valid=False, error_message="کانال پیدا نشد. آیدی رو چک کنید")
+        return ChannelCheckResult(is_valid=False, error_message=f"خطا: {str(e)[:100]}")
     except Exception as e:
-        log.error(f"خطا در بررسی کانال {channel_identifier}: {e}")
-        return ChannelCheckResult(
-            is_valid=False,
-            error_message="خطای غیرمنتظره",
-        )
+        return ChannelCheckResult(is_valid=False, error_message="خطای غیرمنتظره")
 
 
 async def add_channel_for_customer(

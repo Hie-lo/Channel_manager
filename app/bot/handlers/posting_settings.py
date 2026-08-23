@@ -63,7 +63,10 @@ def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
         InlineKeyboardButton("🔗 تولید کد اتصال (به بله/تلگرام)", callback_data="settings_generate_link_code")
     ])
     return InlineKeyboardMarkup(keyboard)
-
+    # دکمه تغییر نوع کسب‌وکار
+    keyboard.append([
+        InlineKeyboardButton("🔄 تغییر نوع کسب‌وکار", callback_data="settings_change_business")
+    ])
 
 async def posting_settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش منوی تنظیمات ارسال"""
@@ -393,4 +396,31 @@ async def settings_generate_link_code_callback(update: Update, context: ContextT
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="posting_back")
         ]])
+    )
+
+async def settings_change_business_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """اجازه تغییر کسب و کار به مشتری از داخل تنظیمات"""
+    query = update.callback_query
+    await query.answer()
+
+    from app.bot.keyboards.main_menu import get_business_type_keyboard
+    from app.bot.states.user_state import UserState, set_user_state
+
+    # قرار دادن کاربر در وضعیت انتخاب مجدد کسب و کار
+    set_user_state(query.from_user.id, UserState.IDLE)
+    
+    biz_keyboard = get_business_type_keyboard().inline_keyboard
+    
+    # دکمه لغو و بازگشت به تنظیمات
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    cancel_button = [InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="posting_back")]
+    combined_keyboard = biz_keyboard + [cancel_button]
+
+    await query.edit_message_text(
+        "🔄 <b>تغییر نوع کسب‌وکار</b>\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        "⚠️ توجه: با تغییر نوع کسب‌وکار، قالب پست‌های شما و فایل‌های نمونه تغییر خواهند کرد، اما محصولات قبلی شما در سیستم باقی می‌مانند.\n\n"
+        "لطفاً کسب‌وکار جدید خود را انتخاب کنید:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(combined_keyboard)
     )

@@ -333,6 +333,7 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
         try:
             tg_bot = Bot(token=settings.BOT_TOKEN)
             async with tg_bot:
+                telegram_id_for_check = customer.telegram_user_id
                 result = await check_bot_is_admin_in_channel(tg_bot, channel_input)
         except Exception as e:
             log.error(f"خطا در چک کانال تلگرام از بله: {e}", exc_info=True)
@@ -343,7 +344,7 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             )
             return
     else:
-        result = await check_bot_is_admin_in_channel(context.bot, channel_input)
+        result = await check_bot_is_admin_in_channel(context.bot, channel_input, user.id)
         
     if not result.is_valid:
         await checking_msg.edit_text(
