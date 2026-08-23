@@ -187,16 +187,74 @@ COMPUTER_SHOP = BusinessConfig(
 
 )
 
+# ═══════════════════════════════════════════════════════
+# کسب‌وکار موبایل و تبلت
+# ═══════════════════════════════════════════════════════
 
+MOBILE_SHOP = BusinessConfig(
+    key="mobile_shop",
+    name_fa="فروشگاه موبایل و تبلت",
+    emoji="📱",
+    description="مناسب فروشگاه‌های موبایل، تبلت، ساعت هوشمند و لوازم جانبی",
+    sub_categories=[
+        SubCategory(
+            key="smartphone",
+            name_fa="گوشی موبایل",
+            emoji="📱",
+            worksheet_name="smartphones",
+            fields=COMMON_FIELDS_START + [
+                BusinessField(key="ram", label_fa="حافظه رم", emoji="🧠", excel_column="حافظه رم", required=True),
+                BusinessField(key="storage", label_fa="حافظه داخلی", emoji="💾", excel_column="حافظه داخلی", required=True),
+                BusinessField(key="camera", label_fa="دوربین", emoji="📸", excel_column="دوربین", required=False),
+                BusinessField(key="battery", label_fa="باتری", emoji="🔋", excel_column="باتری", required=False),
+                BusinessField(key="color", label_fa="رنگ", emoji="🎨", excel_column="رنگ", required=False),
+            ] + COMMON_FIELDS_END,
+            post_template_file="post_templates/mobile_shop/smartphone.txt",
+            static_hashtags=["#موبایل", "#گوشی_موبایل", "#خرید_گوشی"],
+        )
+    ],
+    excel_template_file="templates/mobile_shop.xlsx",
+    price_check_interval_hours=12,  # موبایل نوسان قیمت بالاتری دارد
+    google_sheet_template_url="",
+)
+
+# ═══════════════════════════════════════════════════════
+# کسب‌وکار پوشاک و کفش
+# ═══════════════════════════════════════════════════════
+
+CLOTHING_SHOP = BusinessConfig(
+    key="clothing_shop",
+    name_fa="فروشگاه پوشاک و کفش",
+    emoji="👕",
+    description="مناسب فروشگاه‌های لباس، کفش، کیف و اکسسوری",
+    sub_categories=[
+        SubCategory(
+            key="clothing",
+            name_fa="پوشاک",
+            emoji="👗",
+            worksheet_name="clothing",
+            fields=COMMON_FIELDS_START + [
+                BusinessField(key="size", label_fa="سایزبندی", emoji="📏", excel_column="سایزبندی", required=True),
+                BusinessField(key="color", label_fa="رنگ‌بندی", emoji="🎨", excel_column="رنگ‌بندی", required=False),
+                BusinessField(key="material", label_fa="جنس پارچه", emoji="🧶", excel_column="جنس", required=False),
+            ] + COMMON_FIELDS_END,
+            post_template_file="post_templates/clothing_shop/clothing.txt",
+            static_hashtags=["#پوشاک", "#لباس", "#مد"],
+        )
+    ],
+    excel_template_file="templates/clothing_shop.xlsx",
+    price_check_interval_hours=48,  # قیمت پوشاک نوسان کمتری دارد
+    google_sheet_template_url="",
+)
 # ═══════════════════════════════════════════════════════
 # رجیستری کسب‌وکارها
 # ═══════════════════════════════════════════════════════
 
 BUSINESSES: dict[str, BusinessConfig] = {
     "computer_shop": COMPUTER_SHOP,
-    # در آینده:
-    # "mobile_shop": MOBILE_SHOP,
-    # "clothing_shop": CLOTHING_SHOP,
+    "mobile_shop": MOBILE_SHOP,        # ← اضافه شد
+    "clothing_shop": CLOTHING_SHOP,    # ← اضافه شد
+    # "other": OTHER_STORE,
 }
 
 

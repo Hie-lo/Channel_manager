@@ -30,6 +30,7 @@ from app.bot.states.user_state import (
     clear_user_state,
 )
 from app.utils.logger import log
+from app.utils.security import is_rate_limited
 
 
 def _get_bot_service_account_email() -> str:
@@ -492,7 +493,9 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
 
     user = query.from_user
-
+    if is_rate_limited(user.id, "sheet_sync", max_requests=3, time_window_seconds=300):
+        await query.answer("⚠️ شما بیش از حد مجاز درخواست داده‌اید. لطفاً ۵ دقیقه دیگر تلاش کنید.", show_alert=True)
+        return
     await query.edit_message_text("🔄 در حال همگام‌سازی از Google Sheet...")
 
     try:

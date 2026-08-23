@@ -42,6 +42,7 @@ from app.services.product_media_service import (
     get_photo_sources_for_platform,
     count_product_medias,
 )
+from app.utils.security import is_rate_limited
 PRODUCTS_PER_PAGE = 5
 
 
@@ -306,8 +307,7 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
 
 
 async def prod_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """پیش‌نمایش پست"""
-
+    """پیش‌نمایش پست به همراه عکس‌ها (آلبوم یا تک عکس)"""
     query = update.callback_query
     await query.answer()
 
@@ -333,24 +333,80 @@ async def prod_preview_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
         business_config = get_business_config_for_customer(customer)
         business = await get_business_for_customer(session, customer.id)
+        
+        # گرفتن عکس‌ها بر اساس پلتفرم فعلی کاربر
+        from app.utils.admin_check import detect_platform_from_context
+        from app.services.product_media_service import get_product_medias, get_photo_sources_for_platform
+        current_platform_str = detect_platform_from_context(context)
+        media_platform = Platform.BALE if current_platform_str == "BALE" else Platform.TELEGRAM
+        
+        medias = await get_product_medias(session, product.id, media_platform)
+        photo_sources = get_photo_sources_for_platform(product, medias)
 
     caption = build_post_caption(product, business_config, business)
 
-    preview_text = (
-        f"👁 پیش‌نمایش پست\n"
-        f"━━━━━━━━━━━━━━━\n\n"
-        f"{caption}\n\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"📏 طول: {len(caption)} کاراکتر\n"
-        f"(حداکثر مجاز: 1024)"
-    )
+    # کوتاه کردن کپشن برای پیش‌نمایش اگر خیلی طولانی بود
+    max_cap_len = 1024 if photo_sources else 4000
+    if len(caption) > max_cap_len:
+        caption = caption[:max_cap_len-3] + "..."
 
-    keyboard = [
+    keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📤 ارسال به کانال", callback_data=f"prod_publish_{product.id}")],
-        [InlineKeyboardButton("🔙 بازگشت", callback_data=f"prod_view_{product.id}")],
-    ]
+        [InlineKeyboardButton("🔙 بازگشت به محصول", callback_data=f"prod_view_{product.id}")],
+    ])
 
-    await query.edit_message_text(preview_text, reply_markup=InlineKeyboardMarkup(keyboard))
+    try:
+        # حذف پیام فعلی برای ارسال یک پیام عکس‌دار تمیز
+        await query.message.delete()
+    except Exception:
+        pass
+
+    try:
+        if not photo_sources:
+            # حالت متنی
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=f"👁 <b>پیش‌نمایش پست:</b>\n━━━━━━━━━━━━━━━\n\n{caption}",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        elif len(photo_sources) == 1:
+            # حالت تک عکس
+            await context.bot.send_photo(
+                chat_id=user.id,
+                photo=photo_sources[0],
+                caption=caption,
+                reply_markup=keyboard
+            )
+        else:
+            # حالت آلبوم (چند عکس)
+            from telegram import InputMediaPhoto
+            media_group = []
+            for i, source in enumerate(photo_sources[:10]):
+                if i == 0:
+                    media_group.append(InputMediaPhoto(media=source, caption=caption))
+                else:
+                    media_group.append(InputMediaPhoto(media=source))
+            
+            # ارسال آلبوم
+            await context.bot.send_media_group(chat_id=user.id, media=media_group)
+            
+            # چون روی آلبوم نمیشه کیبورد شیشه‌ای گذاشت، یه پیام متنی جدا می‌فرستیم
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="👆 <b>پیش‌نمایش آلبوم شما</b>\nجهت تایید یا انصراف از دکمه‌های زیر استفاده کنید:",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+    except Exception as e:
+        log.error(f"خطا در پیش‌نمایش عکس: {e}", exc_info=True)
+        # Fallback به حالت متنی در صورت خرابی عکس
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=f"⚠️ عکس‌ها برای پیش‌نمایش بارگیری نشدند.\n\n👁 <b>پیش‌نمایش متن:</b>\n━━━━━━━━━━━━━━━\n\n{caption}",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
 
 
 async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -361,7 +417,9 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     product_id = int(query.data.replace("prod_publish_", ""))
     user = query.from_user
-
+    if is_rate_limited(user.id, "publish_post", max_requests=5, time_window_seconds=60):
+        await query.answer("⚠️ لطفاً آرام‌تر! برای جلوگیری از بلاک شدن کانال، ۱ دقیقه صبر کنید.", show_alert=True)
+        return
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:

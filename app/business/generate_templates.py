@@ -256,12 +256,52 @@ def create_post_templates(business: BusinessConfig):
 📞 {contact}
 🔄 {update_date}"""
 
+    # قالب گوشی موبایل
+    smartphone_template = """📱 {product_name}
+
+🏭 برند: {brand}
+🧠 حافظه رم: {ram}
+💾 حافظه داخلی: {storage}
+📸 دوربین: {camera}
+🔋 باتری: {battery}
+🎨 رنگ: {color}
+─────────────────
+💰 قیمت: {price} تومان
+📦 {stock_status}
+─────────────────
+{description_block}
+
+{hashtags}
+
+📞 {contact}
+🔄 {update_date}"""
+
+    # قالب پوشاک
+    clothing_template = """👗 {product_name}
+
+🏭 برند: {brand}
+📏 سایز: {size}
+🎨 رنگ‌بندی: {color}
+🧶 جنس: {material}
+─────────────────
+💰 قیمت: {price} تومان
+📦 {stock_status}
+─────────────────
+{description_block}
+
+{hashtags}
+
+📞 {contact}
+🔄 {update_date}"""
+
     templates_map = {
         "laptop": laptop_template,
         "prebuilt_pc": prebuilt_template,
         "monitor": monitor_template,
         "component": component_template,
         "accessory": accessory_template,
+        "smartphone": smartphone_template, 
+        "clothing": clothing_template,
     }
 
     for subcategory in business.sub_categories:
