@@ -218,26 +218,88 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
     # متغیر برای نگه داشتن هشدار AI
     ai_notification = None  # اگر مقدار داشته باشه، به مشتری بعد از پست فرستاده میشه
 
-    if auto_ai and (not product.description_manual or not product.description_manual.strip()):
+    # 💡 تابع کمکی برای شمارش تعداد کلمات
+    def _count_words(text: str | None) -> int:
+        if not text or not text.strip():
+            return 0
+        # حذف ایموجی‌ها و فاصله‌های اضافی
+        clean_text = text.replace("📝", "").strip()
+        return len(clean_text.split())
+
+    current_word_count = _count_words(product.description_manual)
+    MIN_WORD_THRESHOLD = 10  # حداقل کلمات مقبول برای عدم استفاده از AI
+
+    # شرط اجرا: اگر کلاً متن ندارد، یا اگر متن کمتر از ۱۰ کلمه است
+    should_trigger_ai = auto_ai and (current_word_count < MIN_WORD_THRESHOLD)
+
+    if should_trigger_ai:
+        # تعیین Mode مناسب برای AI
+        ai_mode = "improve" if current_word_count > 0 else "new"
+
         # چک توکن
         async with AsyncSessionLocal() as session:
             available_tokens = await get_total_available_tokens(session, customer.id)
 
         if available_tokens < 1:
-            # توکن کافی نیست
-            log.warning(
-                f"⚠️ [Customer {customer_id}] AI خودکار فعال ولی توکن کافی نیست"
-            )
+            log.warning(f"⚠️ [Customer {customer_id}] AI خودکار فعال ولی توکن کافی نیست")
             ai_notification = (
                 f"⚠️ برای محصول <b>{product.product_name}</b> AI اجرا نشد!\n"
-                f"دلیل: توکن AI کافی ندارید\n"
-                f"محصول بدون توضیحات AI پست شد.\n\n"
+                f"دلیل: توکن AI کافی ندارید.\n"
+                f"محصول با همان متن فعلی پست شد.\n\n"
                 f"💡 برای خرید توکن به منوی '🤖 توکن AI' برید."
             )
         else:
             log.info(
-                f"🤖 [Customer {customer_id}] تولید AI خودکار برای {product.sku}"
+                f"🤖 [Customer {customer_id}] تولید AI خودکار ({ai_mode}) "
+                f"برای {product.sku} (تعداد کلمات فعلی: {current_word_count})"
             )
+
+            # مصرف توکن
+            async with AsyncSessionLocal() as session:
+                consumed = await consume_tokens(session, customer.id, 1)
+
+            if consumed:
+                # فراخوانی AI با حالت مناسب (new یا improve)
+                ai_result = await generate_product_description(
+                    product=product,
+                    business_config=business_config,
+                    mode=ai_mode,
+                )
+
+                if ai_result.success:
+                    # ذخیره در دیتابیس
+                    async with AsyncSessionLocal() as session:
+                        result_prod = await session.execute(
+                            select(Product).where(Product.id == product.id)
+                        )
+                        p = result_prod.scalar_one_or_none()
+                        if p:
+                            p.description_manual = ai_result.formatted_text
+                            await session.commit()
+                            product.description_manual = ai_result.formatted_text
+
+                        # لاگ
+                        await log_ai_usage(
+                            session=session,
+                            customer_id=customer.id,
+                            product_id=product.id,
+                            usage_type=f"auto_{ai_mode}",
+                            tokens_used=1,
+                            model_used=settings.AI_MODEL,
+                            accepted=True,
+                            raw_response=ai_result.raw_response,
+                        )
+                    log.info(f"✅ [Customer {customer_id}] AI خودکار با موفقیت اعمال شد برای {product.sku}")
+                else:
+                    # عودت توکن در صورت خطا
+                    async with AsyncSessionLocal() as session:
+                        await refund_tokens(session, customer.id, 1)
+                    log.warning(f"⚠️ [Customer {customer_id}] AI ناموفق: {ai_result.error_message}")
+                    ai_notification = (
+                        f"⚠️ برای محصول <b>{product.product_name}</b> AI اجرا نشد!\n"
+                        f"دلیل: {ai_result.error_message}\n"
+                        f"توکن به حساب شما بازگشت."
+                    )
 
             # مصرف توکن
             async with AsyncSessionLocal() as session:
