@@ -20,8 +20,8 @@ def get_platform_selection_keyboard() -> InlineKeyboardMarkup:
     """انتخاب پلتفرم برای کانال جدید"""
     keyboard = [
         [InlineKeyboardButton("📱 تلگرام", callback_data="channel_platform_TELEGRAM")],
-        [InlineKeyboardButton("📢 ایتا (به زودی فعال)", callback_data="channel_platform_EITAA")],
-        [InlineKeyboardButton("🔵 بله (به زودی فعال)", callback_data="channel_platform_BALE")],
+        [InlineKeyboardButton("📢 ایتا", callback_data="channel_platform_EITAA")],
+        [InlineKeyboardButton("🔵 بله", callback_data="channel_platform_BALE")],
         [InlineKeyboardButton("❌ لغو", callback_data="channel_menu")],
     ]
     return InlineKeyboardMarkup(keyboard)

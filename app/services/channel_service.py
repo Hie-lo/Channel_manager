@@ -150,11 +150,11 @@ async def get_channel_by_id(
     session: AsyncSession,
     channel_id: int,
 ) -> Channel | None:
-    """پیدا کردن کانال با آیدی"""
+    """پیدا کردن کانال با آیدی (نسخه ایمن)"""
     result = await session.execute(
-        select(Channel).where(Channel.id == channel_id)
+        select(Channel).where(Channel.id == channel_id).limit(1)
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def delete_channel(
@@ -177,11 +177,12 @@ async def check_channel_already_exists(
     customer_id: int,
     channel_identifier: str,
 ) -> bool:
-    """چک کن کانال قبلاً برای این مشتری اضافه شده یا نه"""
+    """چک کن کانال قبلاً برای این مشتری اضافه شده یا نه (نسخه ایمن)"""
     result = await session.execute(
         select(Channel).where(
             Channel.customer_id == customer_id,
             Channel.channel_identifier == channel_identifier,
-        )
+        ).limit(1)  # 🛡️ فقط یک رکورد را محدود می‌کنیم
     )
-    return result.scalar_one_or_none() is not None
+    # به جای scalar_one_or_none از first استفاده می‌کنیم تا در صورت وجود رکوردهای داپلیکیت کرش نکند
+    return result.scalars().first() is not None
