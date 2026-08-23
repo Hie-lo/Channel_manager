@@ -183,14 +183,40 @@ def _read_worksheet(sheet, subcategory: SubCategory) -> WorksheetReadResult:
 
 
 def _build_field_map(subcategory: SubCategory, headers: list[str]) -> dict[str, int]:
-    """نگاشت field_key به شماره ستون"""
+    """
+    نگاشت هوشمند فیلدها به شماره ستون (با پشتیبانی از مترادف‌ها)
+    """
     field_map = {}
+    normalized_headers = [str(h).strip().lower() for h in headers]
+
     for field in subcategory.fields:
-        try:
-            col_index = headers.index(field.excel_column)
-            field_map[field.key] = col_index
-        except ValueError:
-            pass
+        # 1. جستجوی دقیق نام اصلی ستون
+        target_name = field.excel_column.strip().lower()
+        if target_name in normalized_headers:
+            field_map[field.key] = normalized_headers.index(target_name)
+            continue
+
+        # 2. جستجو در لیست مترادف‌ها (Smart Aliases)
+        found = False
+        if hasattr(field, 'aliases') and field.aliases:
+            for alias in field.aliases:
+                alias_clean = alias.strip().lower()
+                if alias_clean in normalized_headers:
+                    field_map[field.key] = normalized_headers.index(alias_clean)
+                    found = True
+                    log.info(f"💡 ستون '{field.excel_column}' با مترادف '{alias}' پیدا شد.")
+                    break
+        
+        if found:
+            continue
+
+        # 3. جستجوی نسبی (Partial Match) برای انعطاف بیشتر
+        for idx, header in enumerate(normalized_headers):
+            if target_name in header or header in target_name:
+                field_map[field.key] = idx
+                log.info(f"💡 ستون '{field.excel_column}' با تطبیق نسبی در '{headers[idx]}' پیدا شد.")
+                break
+
     return field_map
 
 

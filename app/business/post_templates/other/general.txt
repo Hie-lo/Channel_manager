@@ -1,0 +1,13 @@
+📦 {product_name}
+
+🏭 برند: {brand}
+─────────────────
+💰 قیمت: {price} تومان
+📦 {stock_status}
+─────────────────
+{description_block}
+
+{hashtags}
+
+📞 {contact}
+🔄 {update_date}

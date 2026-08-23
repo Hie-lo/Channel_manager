@@ -18,7 +18,14 @@ class BusinessField:
     emoji: str
     excel_column: str
     required: bool = True
+    aliases: list[str] = field(default_factory=list) # ← لیست مترادف‌ها
 
+# لیست مترادف‌های استاندارد
+PRICE_ALIASES = ["قیمت", "مبلغ", "بها", "قیمت نهایی", "ارزش", "قیمت (تومان)", "price", "amount"]
+STOCK_ALIASES = ["موجودی", "تعداد", "تعداد موجود", "انبار", "موجودی انبار", "stock", "qty", "quantity"]
+SKU_ALIASES = ["کد", "کد محصول", "کد کالا", "شناسه", "شناسه کالا", "sku", "code", "id"]
+NAME_ALIASES = ["نام", "نام محصول", "نام کالا", "عنوان", "عنوان محصول", "product_name", "title", "name"]
+BRAND_ALIASES = ["برند", "مارک", "سازنده", "شرکت سازنده", "brand", "make"]
 
 @dataclass
 class SubCategory:
@@ -246,3 +253,39 @@ def get_google_sheet_template_url(business_key: str) -> str | None:
     if not business or not business.google_sheet_template_url:
         return None
     return business.google_sheet_template_url
+
+
+# ═══════════════════════════════════════════════════════
+# کسب‌وکار سایر (کاملاً انعطاف‌پذیر و داینامیک)
+# ═══════════════════════════════════════════════════════
+
+OTHER_STORE = BusinessConfig(
+    key="other",
+    name_fa="سایر / فروشگاه عمومی",
+    emoji="📦",
+    description="مناسب برای تمامی فروشگاه‌ها (گل، کتاب، مواد غذایی، لوازم خانگی و...)",
+    sub_categories=[
+        SubCategory(
+            key="general_item",
+            name_fa="محصولات عمومی",
+            emoji="📦",
+            worksheet_name="products",
+            fields=[
+                BusinessField(key="sku", label_fa="کد محصول", emoji="🔖", excel_column="کد محصول", required=True, aliases=SKU_ALIASES),
+                BusinessField(key="product_name", label_fa="نام محصول", emoji="📦", excel_column="نام محصول", required=True, aliases=NAME_ALIASES),
+                BusinessField(key="brand", label_fa="برند / سازنده", emoji="🏭", excel_column="برند", required=False, aliases=BRAND_ALIASES),
+                BusinessField(key="price", label_fa="قیمت", emoji="💰", excel_column="قیمت", required=True, aliases=PRICE_ALIASES),
+                BusinessField(key="stock", label_fa="موجودی", emoji="📦", excel_column="موجودی", required=True, aliases=STOCK_ALIASES),
+                BusinessField(key="description", label_fa="توضیحات", emoji="📝", excel_column="توضیحات", required=False, aliases=["توضیحات", "شرح", "desc", "description"]),
+                BusinessField(key="image_url", label_fa="لینک عکس", emoji="🖼", excel_column="لینک عکس", required=False, aliases=["لینک عکس", "عکس", "تصویر", "image", "photo"]),
+            ],
+            post_template_file="post_templates/other/general.txt",
+            static_hashtags=["#فروشگاه", "#خرید_آنلاین"],
+        )
+    ],
+    excel_template_file="templates/other.xlsx",
+    price_check_interval_hours=24,
+)
+
+# اضافه کردن به دیکشنری BUSINESSES
+BUSINESSES["other"] = OTHER_STORE
