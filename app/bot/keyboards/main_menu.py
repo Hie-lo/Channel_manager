@@ -11,6 +11,7 @@ def get_customer_main_menu() -> ReplyKeyboardMarkup:
     """منوی اصلی مشتری"""
     keyboard = [
         [KeyboardButton("📤 آپلود محصولات"), KeyboardButton("📦 مدیریت محصولات")],
+        [KeyboardButton("📢 مدیریت کانال"), KeyboardButton("📝 پست‌ساز دستی")],
         [KeyboardButton("📢 مدیریت کانال"), KeyboardButton("📊 اتصال Google Sheet")],
         [KeyboardButton("🤖 توکن AI"), KeyboardButton("💳 اشتراک من")],
         [KeyboardButton("⚙️ تنظیمات"), KeyboardButton("📚 آموزش و راهنما")],

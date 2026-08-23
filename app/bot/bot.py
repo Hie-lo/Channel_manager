@@ -11,7 +11,14 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-
+from app.bot.handlers.custom_post import (
+    custom_post_start_handler,
+    custom_post_text_received_handler,
+    custom_post_photo_received_handler,
+    custom_post_preview_callback,
+    custom_post_send_confirm_callback,
+    custom_post_cancel_callback,
+)
 from app.config import settings
 from app.database.init_db import init_db
 from app.bot.handlers.start import start_handler
@@ -232,6 +239,9 @@ async def text_router(update, context):
         await admin_reply_message_handler(update, context)
     elif state == UserState.WAITING_FOR_LINK_CODE:
         await link_code_received_handler(update, context)
+    elif state == UserState.WAITING_CUSTOM_POST_TEXT:
+        await custom_post_text_received_handler(update, context)
+
 
 async def document_router(update, context):
     """مسیریاب فایل‌ها"""
@@ -264,7 +274,11 @@ async def document_router(update, context):
         log.info("→ ai_token_receipt_handler")
         await ai_token_receipt_handler(update, context)
         return
-
+    
+    if state == UserState.WAITING_CUSTOM_POST_PHOTOS:
+        log.info("→ custom_post_photo_received_handler (from document router)")
+        await custom_post_photo_received_handler(update, context)
+        return
     # ادمین → gen file_id
     from app.utils.admin_check import is_admin
     if is_admin(user.id):
@@ -292,6 +306,8 @@ async def photo_router(update, context):
     elif state == UserState.WAITING_PRODUCT_IMAGE:
         log.info("→ product_image_received_handler")
         await product_image_received_handler(update, context)
+    elif state == UserState.WAITING_CUSTOM_POST_PHOTOS:
+        await custom_post_photo_received_handler(update, context)
     else:
         from app.utils.admin_check import is_admin
         if is_admin(user.id):
@@ -398,7 +414,9 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(channel_menu_callback, pattern="^channel_menu$"))
     app.add_handler(CallbackQueryHandler(channel_add_callback, pattern="^channel_add$"))
     app.add_handler(CallbackQueryHandler(channel_list_callback, pattern="^channel_list$"))
-
+    app.add_handler(CallbackQueryHandler(custom_post_preview_callback, pattern="^custom_post_preview$"))
+    app.add_handler(CallbackQueryHandler(custom_post_send_confirm_callback, pattern="^custom_post_send_confirm$"))
+    app.add_handler(CallbackQueryHandler(custom_post_cancel_callback, pattern="^custom_post_cancel$"))
     # ─── کالبک‌های لینک اکانت ───
     app.add_handler(CallbackQueryHandler(link_account_start_callback, pattern="^link_account_start$"))
     app.add_handler(CallbackQueryHandler(link_account_cancel_callback, pattern="^link_account_cancel$"))
@@ -488,6 +506,10 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex("^📢 مدیریت کانال$"),
         channel_menu_handler
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^📝 پست‌ساز دستی$"),
+        custom_post_start_handler
     ))
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex("^💳 اشتراک من$"),
