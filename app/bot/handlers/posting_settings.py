@@ -58,7 +58,10 @@ def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
             callback_data="posting_toggle_ai",
         )
     ])
-
+    # دکمه اتصال حساب
+    keyboard.append([
+        InlineKeyboardButton("🔗 تولید کد اتصال (به بله/تلگرام)", callback_data="settings_generate_link_code")
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -342,4 +345,53 @@ async def posting_toggle_ai_callback(update: Update, context: ContextTypes.DEFAU
     await query.edit_message_text(
         text,
         reply_markup=_get_settings_keyboard(settings_obj),
+    )
+
+async def settings_generate_link_code_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تولید کد 6 رقمی برای اتصال یک پلتفرم جدید به این حساب"""
+    query = update.callback_query
+    await query.answer()
+
+    user = query.from_user
+
+    async with AsyncSessionLocal() as session:
+        from app.services.customer_service import get_customer_by_telegram_id
+        from app.database.models import CustomerStatus
+        
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer or customer.customer_status != CustomerStatus.ACTIVE:
+            await query.edit_message_text("❌ حساب شما فعال نیست.")
+            return
+
+        from app.services.account_link_service import generate_link_code
+        code = await generate_link_code(session, customer.id)
+
+    if not code:
+        await query.edit_message_text(
+            "❌ خطایی در تولید کد رخ داد. لطفاً دوباره تلاش کنید.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 بازگشت", callback_data="posting_back")
+            ]])
+        )
+        return
+
+    text = (
+        f"🔗 <b>کد اتصال حساب</b>\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"کد شما:\n"
+        f"<code>{code}</code>\n\n"
+        f"⚠️ <b>توجه امنیتی:</b>\n"
+        f"• این کد فقط <b>۵ دقیقه</b> اعتبار دارد.\n"
+        f"• این کد را به هیچ‌کس ندهید!\n"
+        f"• هر کسی این کد را داشته باشد می‌تواند به محصولات و تنظیمات شما دسترسی پیدا کند.\n\n"
+        f"<b>راهنما:</b>\n"
+        f"وارد ربات ما در پلتفرم دیگر (مثلاً بله) شوید، `دکمه اتصال به حساب موجود` را بزنید و این کد را وارد کنید."
+    )
+
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="posting_back")
+        ]])
     )

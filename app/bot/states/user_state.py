@@ -30,6 +30,9 @@ class UserState(Enum):
     WAITING_EDIT_POSTS_DECISION = "waiting_edit_posts_decision"
     WAITING_EITAA_TOKEN = "waiting_eitaa_token"
     WAITING_EITAA_CHAT_ID = "waiting_eitaa_chat_id"
+    WAITING_FOR_LINK_CODE = "waiting_for_link_code"
+
+    
 @dataclass
 class UserContext:
     state: UserState = UserState.IDLE

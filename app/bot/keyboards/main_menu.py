@@ -58,3 +58,10 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("❌ لغو", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+def get_start_unregistered_keyboard() -> InlineKeyboardMarkup:
+    """دکمه‌های اولیه برای فردی که هنوز ثبت نام نکرده"""
+    keyboard = [
+        [InlineKeyboardButton("🔗 اتصال به حساب موجود", callback_data="link_account_start")],
+    ]
+    return InlineKeyboardMarkup(keyboard)

@@ -87,11 +87,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def _handle_new_customer(update, context, session, user, platform) -> None:
-    """مدیریت مشتری جدید - ثبت‌نام"""
+    """مدیریت مشتری جدید - ثبت‌نام یا اتصال حساب"""
 
     log.info(f"[NEW CUSTOMER] platform={platform}, user_id={user.id}")
 
-    # ساخت مشتری در دیتابیس
+    # ساخت مشتری در دیتابیس (به عنوان یک اکانت خام و PENDING)
     await create_customer(
         session=session,
         user_id=user.id,
@@ -103,11 +103,25 @@ async def _handle_new_customer(update, context, session, user, platform) -> None
 
     platform_display = "تلگرام" if platform == "TELEGRAM" else "بله"
 
-    # درخواست نوع کسب‌وکار
+    # اضافه کردن دکمه "اتصال به حساب" در کنار دکمه‌های کسب و کار
+    from app.bot.keyboards.main_menu import get_business_type_keyboard
+    from telegram import InlineKeyboardButton
+    
+    biz_keyboard = get_business_type_keyboard().inline_keyboard
+    
+    # اضافه کردن دکمه لینک حساب به عنوان اولین گزینه
+    link_button = [InlineKeyboardButton("🔗 اتصال به حساب قبلی من", callback_data="link_account_start")]
+    
+    # ساخت کیبورد جدید ترکیب شده
+    new_keyboard = [link_button] + biz_keyboard
+    from telegram import InlineKeyboardMarkup
+    final_markup = InlineKeyboardMarkup(new_keyboard)
+
     await update.message.reply_text(
         f"👋 سلام {user.first_name} عزیز!\n\n"
         f"به ربات مدیریت کانال خوش آمدید.\n"
         f"🤖 پلتفرم: {platform_display}\n\n"
-        f"برای شروع، لطفاً نوع کسب‌وکار خود را انتخاب کنید:",
-        reply_markup=get_business_type_keyboard(),
+        f"اگر قبلاً در پلتفرم دیگری ثبت نام کرده‌اید، دکمه «اتصال به حساب قبلی من» را بزنید.\n\n"
+        f"در غیر این صورت، برای ثبت نام جدید لطفاً نوع کسب‌وکار خود را انتخاب کنید:",
+        reply_markup=final_markup,
     )

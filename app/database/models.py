@@ -401,3 +401,26 @@ class ProductPlatformMedia(Base):
         default=utc_now_naive,
         onupdate=utc_now_naive,
     )
+
+class AccountLinkCode(Base):
+    """
+    جدول ذخیره کدهای موقت برای اتصال حساب بین پلتفرم‌ها (مثلاً تلگرام به بله)
+    """
+    __tablename__ = "account_link_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
+    
+    # کد 6 رقمی
+    link_code: Mapped[str] = mapped_column(String(10), unique=True, index=True, nullable=False)
+    
+    # زمان انقضا (مثلا 5 دقیقه بعد از تولید)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    
+    # آیا این کد استفاده شده؟
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # شمارنده تلاش‌های ناموفق (برای جلوگیری از Brute-force)
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)

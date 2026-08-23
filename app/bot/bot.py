@@ -65,7 +65,8 @@ from app.bot.handlers.posting_settings import (
     posting_set_hours_callback,
     posting_hours_selected_callback,
     posting_back_callback,
-    posting_toggle_ai_callback
+    posting_toggle_ai_callback,
+    settings_generate_link_code_callback,
 )
 from app.bot.handlers.admin import (
     admin_test_publish_job_handler,
@@ -85,8 +86,8 @@ from app.bot.handlers.sheet_connection import (
     sheet_sync_now_callback,
     sheet_get_template_callback,
     sheet_back_to_menu_callback,
-    sync_edit_posts_now_callback,     # ← جدید
-    sync_edit_posts_later_callback,   # ← جدید
+    sync_edit_posts_now_callback,     
+    sync_edit_posts_later_callback,   
 )
 from app.bot.handlers.ai_tokens import (
     ai_tokens_menu_handler,
@@ -151,9 +152,9 @@ from app.bot.handlers.product_image import (
     prod_remove_image_callback,
     product_image_received_handler,
     prod_finish_upload_callback,
-    prod_img_replace_callback,        # ← جدید
-    prod_img_add_callback,            # ← جدید
-    prod_repost_callback,             # ← جدید
+    prod_img_replace_callback,        
+    prod_img_add_callback,            
+    prod_repost_callback,             
 )
 from app.bot.handlers.support import (
     support_menu_handler,
@@ -162,6 +163,11 @@ from app.bot.handlers.support import (
     support_reply_callback,
     support_reply_cancel_callback,
     admin_reply_message_handler,
+)
+from app.bot.handlers.account_link import (
+    link_account_start_callback,
+    link_account_cancel_callback,
+    link_code_received_handler,
 )
 from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
 from app.bot.states.user_state import get_user_state, UserState
@@ -224,8 +230,8 @@ async def text_router(update, context):
         await support_message_received_handler(update, context)
     elif state == UserState.ADMIN_REPLYING_TO_SUPPORT:  # ← جدید
         await admin_reply_message_handler(update, context)
-    else:
-        pass
+    elif state == UserState.WAITING_FOR_LINK_CODE:
+        await link_code_received_handler(update, context)
 
 async def document_router(update, context):
     """مسیریاب فایل‌ها"""
@@ -393,6 +399,10 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(channel_add_callback, pattern="^channel_add$"))
     app.add_handler(CallbackQueryHandler(channel_list_callback, pattern="^channel_list$"))
 
+    # ─── کالبک‌های لینک اکانت ───
+    app.add_handler(CallbackQueryHandler(link_account_start_callback, pattern="^link_account_start$"))
+    app.add_handler(CallbackQueryHandler(link_account_cancel_callback, pattern="^link_account_cancel$"))
+
     # ─── کالبک‌های اشتراک (مشتری) ───
     app.add_handler(CallbackQueryHandler(sub_admin_approve_callback, pattern="^sub_admin_approve_"))
     app.add_handler(CallbackQueryHandler(sub_admin_reject_callback, pattern="^sub_admin_reject_"))
@@ -430,6 +440,7 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(posting_set_interval_callback, pattern="^posting_set_interval$"))
     app.add_handler(CallbackQueryHandler(posting_set_hours_callback, pattern="^posting_set_hours$"))
     app.add_handler(CallbackQueryHandler(posting_back_callback, pattern="^posting_back$"))
+    app.add_handler(CallbackQueryHandler(settings_generate_link_code_callback, pattern="^settings_generate_link_code$"))
 
     # ─── کالبک‌های Google Sheet ───
     app.add_handler(CallbackQueryHandler(sheet_delete_confirm_callback, pattern="^sheet_delete_confirm$"))
