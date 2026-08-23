@@ -124,23 +124,27 @@ async def verify_and_link_account(
     if not customer or customer.customer_status != CustomerStatus.ACTIVE:
         return False, "❌ حساب اصلی یافت نشد یا غیرفعال است.", None
 
-    # 4. بررسی اینکه آیا این آیدی (در این پلتفرم) قبلاً به جای دیگری وصل است؟
-    # (جلوگیری از تصاحب حساب)
+    # 4. پاکسازی حساب موقت (رفع باگ UniqueConstraint)
     from app.services.customer_service import get_customer_by_platform_id
-    existing_user_check = await get_customer_by_platform_id(session, new_user_id, new_platform)
+    existing_temp_user = await get_customer_by_platform_id(session, new_user_id, new_platform)
     
-    if existing_user_check:
-        # اگر کاربر جدید الان به عنوان یه PENDING ثبت شده، باید اون رکورد PENDING رو پاک کنیم (یا نادیده بگیریم)
-        if existing_user_check.id != customer.id:
-            if existing_user_check.customer_status == CustomerStatus.PENDING:
-                # پاک کردن مشتری موقت
-                await session.delete(existing_user_check)
-            else:
-                link_record.failed_attempts += 1
-                await session.commit()
-                return False, "❌ این حساب قبلاً به یک کسب‌وکار دیگر متصل شده است!", None
+    if existing_temp_user and existing_temp_user.id != customer.id:
+        if existing_temp_user.customer_status == CustomerStatus.PENDING:
+            # ابتدا آیدی را روی اکانت موقت NULL می‌کنیم تا کلید آزاد شود
+            if new_platform.upper() == "BALE":
+                existing_temp_user.bale_user_id = None
+            elif new_platform.upper() == "TELEGRAM":
+                existing_temp_user.telegram_user_id = None
+            
+            # حذف اکانت موقت و اعمال فوری در دیتابیس (Flush)
+            await session.delete(existing_temp_user)
+            await session.flush()
+        else:
+            link_record.failed_attempts += 1
+            await session.commit()
+            return False, "❌ این حساب قبلاً به یک کسب‌وکار دیگر متصل شده و فعال است!", None
 
-    # 5. اتصال امن حساب
+    # 5. اتصال امن حساب به اکانت اصلی
     if new_platform.upper() == "BALE":
         customer.bale_user_id = new_user_id
         customer.bale_first_name = new_first_name
@@ -158,6 +162,6 @@ async def verify_and_link_account(
     await session.commit()
     await session.refresh(customer)
     
-    log.info(f"🔗 حساب {new_platform} ({new_user_id}) به مشتری {customer.id} متصل شد.")
+    log.info(f"🔗 حساب {new_platform} ({new_user_id}) با موفقیت به مشتری اصلی {customer.id} متصل شد.")
     
     return True, "✅ حساب‌ها با موفقیت متصل شدند.", customer
