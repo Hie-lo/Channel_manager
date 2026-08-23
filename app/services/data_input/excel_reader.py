@@ -101,12 +101,19 @@ def read_excel_file(
 
     # پردازش هر sheet
     for sheet_name in workbook.sheetnames:
-        # sheet راهنما رو نادیده بگیر
-        if sheet_name in ("راهنما", "info", "Sheet1"):
+        # sheet راهنما یا خالی رو نادیده بگیر
+        if sheet_name in ("راهنما", "info", "Sheet1", "Sheet2", "Sheet3"):
             continue
 
         # پیدا کردن زیردسته متناظر
         subcategory = get_subcategory_by_worksheet(business_config.key, sheet_name)
+        
+        # 💡 انعطاف‌پذیری برای کسب‌وکار "سایر" (other)
+        if not subcategory and business_config.key == "other":
+            # اگر کسب‌وکار "سایر" است، اولین زیردسته (general_item) را برای هر شیتی که پیدا کرد اختصاص بده
+            subcategory = business_config.sub_categories[0]
+            log.info(f"💡 Sheet '{sheet_name}' برای کسب‌وکار سایر به زیردسته پیش‌فرض متصل شد.")
+
         if not subcategory:
             log.warning(f"Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست، نادیده گرفته می‌شود")
             continue
