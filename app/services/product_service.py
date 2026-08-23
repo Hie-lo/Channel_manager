@@ -209,26 +209,9 @@ def detect_product_changes(product: Product, data: dict) -> ProductChangeDetecti
     if new_image and product.image_url != new_image:
         detection.image_changed = True
 
-    # مدیریت امن specs (jsonb)
     new_specs = data.get("specs", {})
-    if new_specs:
-        try:
-            # اطمینان از dict بودن
-            if not isinstance(new_specs, dict):
-                new_specs = {}
-
-            # مقایسه با specs فعلی
-            current_specs = product.specs if isinstance(product.specs, dict) else {}
-
-            # merge specs (نه replace) - برای اینکه ستون‌های قدیمی حذف نشن
-            merged_specs = {**current_specs, **new_specs}
-
-            if merged_specs != current_specs:
-                product.specs = merged_specs
-                changed = True
-        except Exception as e:
-            log.error(f"خطا در آپدیت specs محصول {product.sku}: {e}")
-            # ادامه بده - فقط specs آپدیت نشد
+    if new_specs and product.specs != new_specs:
+        detection.specs_changed = True
 
     return detection
 

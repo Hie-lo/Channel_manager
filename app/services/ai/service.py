@@ -72,6 +72,26 @@ async def generate_product_description(
     )
 
     if not ai_response.success:
+        # ارسال هشدار به ادمین سیستم
+        try:
+            from app.config import settings
+            from telegram import Bot
+            admin_bot = Bot(token=settings.BOT_TOKEN)
+            await admin_bot.send_message(
+                chat_id=settings.ADMIN_CHAT_ID,
+                text=(
+                    f"🚨 <b>هشدار خرابی سیستم AI</b>\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"هوش مصنوعی پس از ۳ بار تلاش پاسخ نداد!\n"
+                    f"محصول: {product.sku}\n"
+                    f"خطا: {ai_response.error_message}\n"
+                    f"━━━━━━━━━━━━━━━"
+                ),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            log.error(f"خطا در ارسال هشدار خرابی AI به ادمین: {e}")
+
         return AIGenerationResult(
             success=False,
             error_message=ai_response.error_message,

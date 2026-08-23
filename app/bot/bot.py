@@ -4,13 +4,16 @@
 
 
 from celery import app
+from sqlalchemy import Update
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
     filters,
+    TypeHandler
 )
+from app.bot.middlewares import global_anti_spam_middleware
 from app.bot.handlers.mapping_wizard import (
     process_mapping_answer_callback,
     mapping_cancel_callback,
@@ -370,6 +373,11 @@ def create_bot() -> Application:
     log.info("✅ ربات تلگرام آماده است")
     return app
 def _register_all_handlers(app: Application) -> None:
+    # ═══════════════════════════════════════════════════════════
+    # ۰. لایه امنیتی ضد اسپم (اجرا قبل از همه چیز با گروه منفی)
+    # ═══════════════════════════════════════════════════════════
+    app.add_handler(TypeHandler(Update, global_anti_spam_middleware), group=-1)
+    
     # ═══════════════════════════════════════════════════════════
     # ۱. Commands (اولویت اول)
     # ═══════════════════════════════════════════════════════════

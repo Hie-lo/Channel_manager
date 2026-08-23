@@ -4,7 +4,7 @@
 
 from dataclasses import dataclass
 import httpx
-
+import asyncio
 from app.config import settings
 from app.utils.logger import log
 
@@ -25,25 +25,20 @@ class AIResponse:
 async def call_ai(
     system_prompt: str,
     user_prompt: str,
-    max_tokens: int = 200,
-    temperature: float = 0.5,
+    max_tokens: int = 500,
+    temperature: float = 0.6,
 ) -> AIResponse:
-    """
-    ارسال درخواست به OpenRouter و دریافت پاسخ
-    """
+    """ارسال درخواست به OpenRouter با سیستم Retry هوشمند"""
+    
     if not settings.AI_API_KEY:
-        return AIResponse(
-            success=False,
-            error_message="API Key تنظیم نشده",
-        )
+        return AIResponse(success=False, error_message="API Key تنظیم نشده")
 
     headers = {
         "Authorization": f"Bearer {settings.AI_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://channel-manager-bot.local",  # برای رنکینگ در OpenRouter
+        "HTTP-Referer": "https://channel-manager-bot.local",
         "X-Title": "Channel Manager Bot",
     }
-
     payload = {
         "model": settings.AI_MODEL,
         "messages": [
@@ -54,66 +49,54 @@ async def call_ai(
         "temperature": temperature,
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-            response = await client.post(
-                OPENROUTER_URL,
-                headers=headers,
-                json=payload,
-            )
+    max_retries = 3
+    last_error_msg = ""
 
-            if response.status_code != 200:
-                error_body = response.text[:300]
-                log.error(
-                    f"AI API خطا: status={response.status_code}, "
-                    f"body={error_body}"
-                )
-                return AIResponse(
-                    success=False,
-                    error_message=_translate_api_error(response.status_code, error_body),
-                )
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+                response = await client.post(OPENROUTER_URL, headers=headers, json=payload)
+                
+                if response.status_code != 200:
+                    error_body = response.text[:300]
+                    last_error_msg = _translate_api_error(response.status_code, error_body)
+                    log.warning(f"⚠️ [AI Attempt {attempt}] API Error: {response.status_code}")
+                    
+                    if attempt == max_retries:
+                        return AIResponse(success=False, error_message=last_error_msg)
+                    
+                    await asyncio.sleep(2) # وقفه ۲ ثانیه‌ای قبل از تلاش مجدد
+                    continue
 
-            data = response.json()
+                data = response.json()
+                content = ""
+                if "choices" in data and len(data["choices"]) > 0:
+                    content = data["choices"][0].get("message", {}).get("content", "")
 
-            # استخراج محتوا
-            content = ""
-            if "choices" in data and len(data["choices"]) > 0:
-                content = data["choices"][0].get("message", {}).get("content", "")
+                if not content:
+                    last_error_msg = "پاسخ خالی از سرور هوش مصنوعی"
+                    if attempt == max_retries:
+                        return AIResponse(success=False, error_message=last_error_msg)
+                    await asyncio.sleep(2)
+                    continue
 
-            if not content:
-                return AIResponse(
-                    success=False,
-                    error_message="پاسخ خالی از AI دریافت شد",
-                )
+                tokens_used = data.get("usage", {}).get("total_tokens", 0)
+                log.info(f"✅ AI پاسخ داد (تلاش {attempt}): tokens={tokens_used}")
+                
+                return AIResponse(success=True, content=content.strip(), tokens_used=tokens_used)
 
-            # استخراج مصرف توکن (اگر موجود)
-            tokens_used = 0
-            if "usage" in data:
-                tokens_used = data["usage"].get("total_tokens", 0)
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            last_error_msg = f"مشکل ارتباط با سرور AI (تلاش {attempt})"
+            log.warning(f"⚠️ [AI Attempt {attempt}] Network/Timeout Error: {e}")
+            if attempt == max_retries:
+                return AIResponse(success=False, error_message="هوش مصنوعی در حال حاضر پاسخگو نیست. لطفاً بعداً تلاش کنید.")
+            await asyncio.sleep(2)
+            
+        except Exception as e:
+            log.error(f"خطای غیرمنتظره در AI: {e}", exc_info=True)
+            return AIResponse(success=False, error_message=f"خطای سیستمی: {str(e)[:100]}")
 
-            log.info(
-                f"✅ AI پاسخ داد: model={settings.AI_MODEL}, "
-                f"tokens={tokens_used}, length={len(content)}"
-            )
-
-            return AIResponse(
-                success=True,
-                content=content.strip(),
-                tokens_used=tokens_used,
-            )
-
-    except httpx.TimeoutException:
-        log.error("Timeout در فراخوانی AI")
-        return AIResponse(
-            success=False,
-            error_message="AI پاسخ نداد (timeout)",
-        )
-    except Exception as e:
-        log.error(f"خطای غیرمنتظره در AI: {e}", exc_info=True)
-        return AIResponse(
-            success=False,
-            error_message=f"خطای غیرمنتظره: {str(e)[:100]}",
-        )
+    return AIResponse(success=False, error_message=last_error_msg)
 
 
 def _translate_api_error(status_code: int, body: str) -> str:
