@@ -6,8 +6,9 @@ import tempfile
 import os
 from pathlib import Path
 from dataclasses import dataclass, field
-
-from app.database.models import Platform, Channel, Product
+from app.config import settings
+from sqlalchemy import select
+from app.database.models import Platform, Channel, Product, PostedMessage
 from app.utils.logger import log
 
 
