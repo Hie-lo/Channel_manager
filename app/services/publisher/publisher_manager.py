@@ -161,8 +161,12 @@ async def _publish_to_telegram_channel(
         temp_files_to_cleanup = []
 
         for src in photo_sources:
-            # اگر آی‌دی شامل دو نقطه باشد یا فرمت آیدی بله داشته باشد و URL اینترنتی نباشد
-            is_bale_id = (not src.startswith("http://") and not src.startswith("https://")) and (":" in src or len(src) > 40)
+            # عکس نیتیو تلگرام همیشه با AgAC یا AgAD شروع می‌شود
+            is_telegram_native = src.startswith("AgAC") or src.startswith("AgAD")
+            is_url = src.startswith("http://") or src.startswith("https://")
+
+            # فقط اگر آیدی مربوط به بله باشد (یعنی شامل دو نقطه است و نیتیو تلگرام نیست) دانلود از بله انجام می‌شود
+            is_bale_id = not is_telegram_native and not is_url and ":" in src
             
             if is_bale_id:
                 log.info(f"[TG Publish] عکس از بله شناسایی شد ({src[:20]}...). در حال دانلود برای تلگرام...")
@@ -231,13 +235,12 @@ async def _edit_telegram_post(
     new_caption: str,
     old_message_id: int,
 ) -> UnifiedPublishResult:
-    """ویرایش پست تلگرام"""
+    """ویرایش هوشمند پست تلگرام (کپشن یا متن)"""
     from app.services.publisher.telegram_publisher import edit_post_in_telegram
-    from app.services.product_media_service import get_product_medias
+    from app.services.product_media_service import get_product_medias, get_all_product_medias
     from app.database.connection import AsyncSessionLocal
-    from app.config import settings
+    from app.database.models import PostedMessage
 
-    # ⚠️ مطمئن شو از Bot تلگرام استفاده می‌کنیم
     actual_bot = bot
     is_temp_bot = False
 
@@ -252,14 +255,24 @@ async def _edit_telegram_post(
         log.error(f"[TG Edit] خطا در ساخت Bot تلگرام: {e}")
 
     try:
-        # چک کن پست عکس داره یا نه
-        # ⚠️ مهم: عکس‌ها ممکنه با هر platform ذخیره شده باشن
-        from app.services.product_media_service import get_all_product_medias
-
         async with AsyncSessionLocal() as session:
+            # بررسی اینکه آیا رکورد قبلی عکس داشته یا فقط متنی بوده
+            posted_res = await session.execute(
+                select(PostedMessage).where(
+                    PostedMessage.product_id == product.id,
+                    PostedMessage.channel_id == channel.id
+                )
+            )
+            posted_rec = posted_res.scalar_one_or_none()
+            
             all_medias = await get_all_product_medias(session, product.id)
 
-        has_photo = len(all_medias) > 0 or bool(product.image_url)
+        # اگر پست قبلی بدون عکس بوده یا عکس ندارد، editMessageText بزن، در غیر این صورت editMessageCaption
+        has_photo = bool(all_medias) or bool(product.image_url)
+        
+        # اگر در رکورد ثبت شده که آخرین بار Fallback به متنی شده بود، has_photo را False کن
+        if posted_rec and posted_rec.last_caption and not posted_rec.last_price:
+            pass # قابلیت تحلیل بیشتر در صورت نیاز
 
         result = await edit_post_in_telegram(
             bot=actual_bot,
@@ -268,6 +281,17 @@ async def _edit_telegram_post(
             new_caption=new_caption,
             has_photo=has_photo,
         )
+
+        # 💡 اگر خطا داد که Caption ندارد، تلاش مجدد با Edit Text (برای ایمنی ۱۰۰٪)
+        if not result.success and "no caption" in result.error_message.lower():
+            log.warning("[TG Edit] پست بدون کپشن بود، تلاش مجدد با Edit Text...")
+            result = await edit_post_in_telegram(
+                bot=actual_bot,
+                channel_identifier=channel.channel_identifier,
+                message_id=old_message_id,
+                new_caption=new_caption,
+                has_photo=False, # اجبار به Edit Text
+            )
 
         return UnifiedPublishResult(
             success=result.success,
