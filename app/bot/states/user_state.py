@@ -34,7 +34,8 @@ class UserState(Enum):
     WAITING_CUSTOM_POST_TEXT = "waiting_custom_post_text"
     WAITING_CUSTOM_POST_PHOTOS = "waiting_custom_post_photos"
     VIEWING_CUSTOM_POST_PREVIEW = "viewing_custom_post_preview"
-
+    WAITING_COLUMN_MAPPING = "waiting_column_mapping"
+    
 @dataclass
 class UserContext:
     state: UserState = UserState.IDLE

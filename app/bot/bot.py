@@ -11,6 +11,10 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from app.bot.handlers.mapping_wizard import (
+    process_mapping_answer_callback,
+    mapping_cancel_callback,
+)
 from app.bot.handlers.custom_post import (
     custom_post_start_handler,
     custom_post_text_received_handler,
@@ -225,6 +229,12 @@ async def text_router(update, context):
         await payment_receipt_handler(update, context)
     elif state == UserState.WAITING_SHEET_URL:
         await sheet_url_received_handler(update, context)
+    elif state == UserState.WAITING_FOR_LINK_CODE:
+        from app.bot.handlers.account_link import link_code_received_handler
+        await link_code_received_handler(update, context)
+    elif state == UserState.WAITING_CUSTOM_POST_TEXT:
+        from app.bot.handlers.custom_post import custom_post_text_received_handler
+        await custom_post_text_received_handler(update, context)
     elif state == UserState.ADMIN_SENDING_MESSAGE:
         await admin_message_text_handler(update, context)
     elif state == UserState.ADMIN_GIFTING_TOKENS:
@@ -241,7 +251,9 @@ async def text_router(update, context):
         await link_code_received_handler(update, context)
     elif state == UserState.WAITING_CUSTOM_POST_TEXT:
         await custom_post_text_received_handler(update, context)
-
+    elif state == UserState.WAITING_CUSTOM_POST_PHOTOS:
+        from app.bot.handlers.custom_post import custom_post_photo_received_handler
+        await custom_post_photo_received_handler(update, context)
 
 async def document_router(update, context):
     """مسیریاب فایل‌ها"""
@@ -308,6 +320,7 @@ async def photo_router(update, context):
         await product_image_received_handler(update, context)
     elif state == UserState.WAITING_CUSTOM_POST_PHOTOS:
         await custom_post_photo_received_handler(update, context)
+
     else:
         from app.utils.admin_check import is_admin
         if is_admin(user.id):
@@ -417,6 +430,11 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(custom_post_preview_callback, pattern="^custom_post_preview$"))
     app.add_handler(CallbackQueryHandler(custom_post_send_confirm_callback, pattern="^custom_post_send_confirm$"))
     app.add_handler(CallbackQueryHandler(custom_post_cancel_callback, pattern="^custom_post_cancel$"))
+
+    # ─── کالبک‌های ویزارد مپینگ ───
+    app.add_handler(CallbackQueryHandler(process_mapping_answer_callback, pattern="^map_col_"))
+    app.add_handler(CallbackQueryHandler(mapping_cancel_callback, pattern="^map_cancel$"))
+        
     # ─── کالبک‌های لینک اکانت ───
     app.add_handler(CallbackQueryHandler(link_account_start_callback, pattern="^link_account_start$"))
     app.add_handler(CallbackQueryHandler(link_account_cancel_callback, pattern="^link_account_cancel$"))

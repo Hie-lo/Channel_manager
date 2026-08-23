@@ -1,10 +1,11 @@
 """
-سرویس خواندن فایل اکسل چند شیتی
+سرویس خواندن فایل اکسل چند شیتی (با پشتیبانی از Smart Matcher و ویزارد مپینگ)
 """
 
 from pathlib import Path
 from dataclasses import dataclass, field
 from openpyxl import load_workbook
+import uuid
 
 from app.business.config import (
     BusinessConfig,
@@ -79,12 +80,14 @@ class ExcelReadResult:
 def read_excel_file(
     file_path: str | Path,
     business_config: BusinessConfig,
+    custom_map: dict[str, int] = None,
+    ignored_fields: list[str] = None,
 ) -> ExcelReadResult:
     """
     خواندن فایل اکسل و تبدیل به لیست محصولات
-    فایل باید چندین sheet داشته باشه، هر sheet برای یه زیردسته
     """
     result = ExcelReadResult()
+    ignored = ignored_fields or []
 
     try:
         workbook = load_workbook(filename=file_path, data_only=True)
@@ -108,19 +111,18 @@ def read_excel_file(
         # پیدا کردن زیردسته متناظر
         subcategory = get_subcategory_by_worksheet(business_config.key, sheet_name)
         
-        # 💡 انعطاف‌پذیری برای کسب‌وکار "سایر" (other)
+        # انعطاف‌پذیری برای کسب‌وکار "سایر" (other)
         if not subcategory and business_config.key == "other":
-            # اگر کسب‌وکار "سایر" است، اولین زیردسته (general_item) را برای هر شیتی که پیدا کرد اختصاص بده
-            subcategory = business_config.sub_categories[0]
-            log.info(f"💡 Sheet '{sheet_name}' برای کسب‌وکار سایر به زیردسته پیش‌فرض متصل شد.")
+            if business_config.sub_categories:
+                subcategory = business_config.sub_categories[0]
+                log.info(f"💡 Sheet '{sheet_name}' برای کسب‌وکار سایر به زیردسته پیش‌فرض متصل شد.")
 
         if not subcategory:
             log.warning(f"Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست، نادیده گرفته می‌شود")
             continue
 
-        # خواندن این sheet
         sheet = workbook[sheet_name]
-        ws_result = _read_worksheet(sheet, subcategory)
+        ws_result = _read_worksheet(sheet, subcategory, custom_map, ignored)
         result.worksheets.append(ws_result)
 
     log.info(
@@ -131,7 +133,12 @@ def read_excel_file(
     return result
 
 
-def _read_worksheet(sheet, subcategory: SubCategory) -> WorksheetReadResult:
+def _read_worksheet(
+    sheet,
+    subcategory: SubCategory,
+    custom_map: dict = None,
+    ignored_fields: list = None,
+) -> WorksheetReadResult:
     """خواندن یک sheet خاص با استفاده از تعریف subcategory"""
     result = WorksheetReadResult(
         worksheet_name=sheet.title,
@@ -147,14 +154,17 @@ def _read_worksheet(sheet, subcategory: SubCategory) -> WorksheetReadResult:
             headers.append("")
 
     if not any(headers):
-        # sheet خالی، هیچ خطایی هم نده
         return result
 
-    # نگاشت فیلد به ستون
-    field_map = _build_field_map(subcategory, headers)
+    ignored = ignored_fields or []
+
+    if not custom_map:
+        field_map = _build_field_map(subcategory, headers)
+    else:
+        field_map = custom_map
 
     # چک فیلدهای اجباری
-    missing_required = _check_missing_required(subcategory, field_map)
+    missing_required = _check_missing_required(subcategory, field_map, ignored)
     if missing_required:
         for field_name in missing_required:
             result.errors.append(RowError(
@@ -178,6 +188,7 @@ def _read_worksheet(sheet, subcategory: SubCategory) -> WorksheetReadResult:
             subcategory=subcategory,
             row_number=row_index,
             worksheet_name=sheet.title,
+            ignored_fields=ignored,
         )
 
         if row_errors:
@@ -190,20 +201,16 @@ def _read_worksheet(sheet, subcategory: SubCategory) -> WorksheetReadResult:
 
 
 def _build_field_map(subcategory: SubCategory, headers: list[str]) -> dict[str, int]:
-    """
-    نگاشت هوشمند فیلدها به شماره ستون (با پشتیبانی از مترادف‌ها)
-    """
+    """نگاشت هوشمند فیلدها برای اکسل"""
     field_map = {}
     normalized_headers = [str(h).strip().lower() for h in headers]
 
     for field in subcategory.fields:
-        # 1. جستجوی دقیق نام اصلی ستون
         target_name = field.excel_column.strip().lower()
         if target_name in normalized_headers:
             field_map[field.key] = normalized_headers.index(target_name)
             continue
 
-        # 2. جستجو در لیست مترادف‌ها (Smart Aliases)
         found = False
         if hasattr(field, 'aliases') and field.aliases:
             for alias in field.aliases:
@@ -211,27 +218,24 @@ def _build_field_map(subcategory: SubCategory, headers: list[str]) -> dict[str, 
                 if alias_clean in normalized_headers:
                     field_map[field.key] = normalized_headers.index(alias_clean)
                     found = True
-                    log.info(f"💡 ستون '{field.excel_column}' با مترادف '{alias}' پیدا شد.")
                     break
-        
         if found:
             continue
 
-        # 3. جستجوی نسبی (Partial Match) برای انعطاف بیشتر
         for idx, header in enumerate(normalized_headers):
             if target_name in header or header in target_name:
                 field_map[field.key] = idx
-                log.info(f"💡 ستون '{field.excel_column}' با تطبیق نسبی در '{headers[idx]}' پیدا شد.")
                 break
 
     return field_map
 
 
-def _check_missing_required(subcategory: SubCategory, field_map: dict) -> list[str]:
-    """چک کن فیلدهای اجباری موجودن"""
+def _check_missing_required(subcategory: SubCategory, field_map: dict, ignored_fields: list) -> list[str]:
+    """چک کن فیلدهای اجباری جا نمونده باشن"""
     missing = []
+    ignored = ignored_fields or []
     for field in subcategory.fields:
-        if field.required and field.key not in field_map:
+        if field.required and field.key not in field_map and field.key not in ignored:
             missing.append(field.excel_column)
     return missing
 
@@ -242,12 +246,32 @@ def _parse_row(
     subcategory: SubCategory,
     row_number: int,
     worksheet_name: str,
+    ignored_fields: list = None,
 ) -> tuple[dict, list[RowError]]:
     """پارس یک ردیف"""
     product_data = {"row_number": row_number, "specs": {}}
     errors = []
+    ignored = ignored_fields or []
 
     for field in subcategory.fields:
+        if field.key in ignored:
+            if field.key == "sku":
+                parsed_value = str(uuid.uuid4())[:8].upper()
+            elif field.key == "price":
+                parsed_value = 0
+            elif field.key == "stock":
+                parsed_value = 0
+            elif field.key == "product_name":
+                parsed_value = "محصول بدون نام"
+            else:
+                parsed_value = ""
+
+            if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
+                product_data[field.key] = parsed_value
+            else:
+                product_data["specs"][field.key] = parsed_value
+            continue
+
         if field.key not in field_map:
             continue
 
@@ -275,7 +299,6 @@ def _parse_row(
             ))
             continue
 
-        # فیلدهای اصلی مستقیم، بقیه در specs
         if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
             product_data[field.key] = parsed_value
         else:

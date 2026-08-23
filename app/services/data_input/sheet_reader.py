@@ -163,12 +163,15 @@ def test_sheet_connection(sheet_url_or_id: str) -> SheetConnectionResult:
 def read_google_sheet(
     sheet_id: str,
     business_config: BusinessConfig,
-    worksheet_name: str | None = None,  # حالا نادیده گرفته می‌شه، همه sheet ها خونده میشن
+    worksheet_name: str | None = None,
+    custom_map: dict[str, int] = None,       # مپینگ دستی کاربر (ویزارد)
+    ignored_fields: list[str] = None,        # فیلدهای نادیده گرفته شده
 ) -> ExcelReadResult:
     """
-    خواندن کل Google Sheet (همه worksheet ها)
+    خواندن کل Google Sheet (همه worksheet ها) با پشتیبانی از اسمارت‌مچ و ویزارد
     """
     result = ExcelReadResult()
+    ignored = ignored_fields or []
 
     client = _get_gspread_client()
     if not client:
@@ -187,37 +190,188 @@ def read_google_sheet(
         for worksheet in spreadsheet.worksheets():
             sheet_name = worksheet.title
 
-            # sheet راهنما رو رد کن
-            if sheet_name in ("راهنما", "info"):
+            if sheet_name in ("راهنما", "info", "Sheet1", "Sheet2", "Sheet3"):
                 continue
 
-            # پیدا کردن زیردسته
             subcategory = get_subcategory_by_worksheet(business_config.key, sheet_name)
+            
+            # انعطاف برای "other"
+            if not subcategory and business_config.key == "other":
+                subcategory = business_config.sub_categories[0]
+                log.info(f"💡 G-Sheet '{sheet_name}' برای کسب‌وکار سایر متصل شد.")
+
             if not subcategory:
-                log.warning(f"Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست")
+                log.warning(f"G-Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست")
                 continue
 
-            # خواندن
-            ws_result = _read_worksheet(worksheet, subcategory)
+            ws_result = _read_worksheet(worksheet, subcategory, custom_map, ignored)
             result.worksheets.append(ws_result)
 
-        log.info(
-            f"شیت خونده شد: {len(result.worksheets)} sheet، "
-            f"{result.valid_rows} محصول معتبر"
-        )
-
+        log.info(f"G-Sheet خونده شد: {result.valid_rows} محصول معتبر")
         return result
 
     except Exception as e:
         log.error(f"خطا در خواندن شیت {sheet_id}: {e}", exc_info=True)
         ws_result = WorksheetReadResult(worksheet_name="")
-        ws_result.errors.append(RowError(
-            row_number=0,
-            field="general",
-            message=f"خطا: {str(e)[:200]}",
-        ))
+        ws_result.errors.append(RowError(row_number=0, field="general", message=f"خطا: {str(e)[:200]}"))
         result.worksheets.append(ws_result)
         return result
+
+
+def _read_worksheet(
+    worksheet, 
+    subcategory, 
+    custom_map: dict = None, 
+    ignored_fields: list = None
+) -> WorksheetReadResult:
+    """خواندن یک worksheet از گوگل‌شیت"""
+    result = WorksheetReadResult(
+        worksheet_name=worksheet.title,
+        subcategory_key=subcategory.key,
+    )
+
+    all_values = worksheet.get_all_values()
+
+    if not all_values:
+        return result
+
+    headers = [str(cell).strip() for cell in all_values[0]]
+
+    if not any(headers):
+        return result
+
+    ignored = ignored_fields or []
+
+    if not custom_map:
+        field_map = _build_field_map_sheet(subcategory, headers)
+    else:
+        field_map = custom_map
+
+    missing_required = _check_missing_required_sheet(subcategory, field_map, ignored)
+    if missing_required:
+        for field_name in missing_required:
+            result.errors.append(RowError(
+                row_number=1,
+                field=field_name,
+                message=f"ستون '{field_name}' در G-Sheet '{worksheet.title}' پیدا نشد",
+                worksheet=worksheet.title,
+            ))
+        return result
+
+    for row_index, row in enumerate(all_values[1:], start=2):
+        if all(cell is None or str(cell).strip() == "" for cell in row):
+            continue
+
+        result.total_rows += 1
+
+        product_data, row_errors = _parse_sheet_row(
+            row=row,
+            field_map=field_map,
+            subcategory=subcategory,
+            row_number=row_index,
+            worksheet_name=worksheet.title,
+            ignored_fields=ignored,
+        )
+
+        if row_errors:
+            result.errors.extend(row_errors)
+        else:
+            result.products.append(product_data)
+            result.valid_rows += 1
+
+    return result
+
+
+def _build_field_map_sheet(subcategory, headers: list[str]) -> dict[str, int]:
+    """نگاشت هوشمند فیلدها برای گوگل‌شیت"""
+    field_map = {}
+    normalized_headers = [str(h).strip().lower() for h in headers]
+
+    for field in subcategory.fields:
+        target_name = field.excel_column.strip().lower()
+        if target_name in normalized_headers:
+            field_map[field.key] = normalized_headers.index(target_name)
+            continue
+
+        found = False
+        if hasattr(field, 'aliases') and field.aliases:
+            for alias in field.aliases:
+                alias_clean = alias.strip().lower()
+                if alias_clean in normalized_headers:
+                    field_map[field.key] = normalized_headers.index(alias_clean)
+                    found = True
+                    break
+        if found: continue
+
+        for idx, header in enumerate(normalized_headers):
+            if target_name in header or header in target_name:
+                field_map[field.key] = idx
+                break
+
+    return field_map
+
+
+def _check_missing_required_sheet(subcategory, field_map: dict, ignored_fields: list) -> list[str]:
+    missing = []
+    for field in subcategory.fields:
+        if field.required and field.key not in field_map and field.key not in ignored_fields:
+            missing.append(field.excel_column)
+    return missing
+
+
+def _parse_sheet_row(row, field_map, subcategory, row_number, worksheet_name, ignored_fields: list):
+    product_data = {"row_number": row_number, "specs": {}}
+    errors = []
+    ignored = ignored_fields or []
+    import uuid
+
+    for field in subcategory.fields:
+        if field.key in ignored:
+            if field.key == "sku": parsed_value = str(uuid.uuid4())[:8].upper()
+            elif field.key == "price": parsed_value = 0
+            elif field.key == "stock": parsed_value = 0
+            elif field.key == "product_name": parsed_value = "محصول بدون نام"
+            else: parsed_value = ""
+            
+            if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
+                product_data[field.key] = parsed_value
+            else:
+                product_data["specs"][field.key] = parsed_value
+            continue
+
+        if field.key not in field_map:
+            continue
+
+        col_index = field_map[field.key]
+        raw_value = row[col_index] if col_index < len(row) else None
+        value = _clean_value(raw_value)
+
+        if field.required and (value is None or value == ""):
+            errors.append(RowError(
+                row_number=row_number,
+                field=field.excel_column,
+                message=f"مقدار '{field.excel_column}' خالی است",
+                worksheet=worksheet_name,
+            ))
+            continue
+
+        parsed_value, parse_error = _parse_field_value(field.key, value, field.excel_column)
+
+        if parse_error:
+            errors.append(RowError(
+                row_number=row_number,
+                field=field.excel_column,
+                message=parse_error,
+                worksheet=worksheet_name,
+            ))
+            continue
+
+        if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
+            product_data[field.key] = parsed_value
+        else:
+            product_data["specs"][field.key] = parsed_value
+
+    return product_data, errors
 
 
 def _read_worksheet(worksheet, subcategory) -> WorksheetReadResult:
