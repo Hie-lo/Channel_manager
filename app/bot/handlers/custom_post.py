@@ -177,7 +177,16 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
     await query.edit_message_text("⏳ در حال ارسال پست به کانال‌ها...")
 
     async with AsyncSessionLocal() as session:
-        customer = await get_customer_by_telegram_id(session, user.id)
+        from app.services.customer_service import get_customer_by_platform_id
+        from app.utils.admin_check import detect_platform_from_context
+        
+        platform = detect_platform_from_context(context)
+        customer = await get_customer_by_platform_id(session, user.id, platform)
+        
+        if not customer:
+            await query.edit_message_text("❌ مشتری یافت نشد.")
+            return
+
         channels = await get_customer_channels(session, customer.id, only_active=True)
 
         eitaa_token = None
@@ -185,47 +194,42 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
             from app.services.customer_service import get_customer_eitaa_token
             eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
-    # استفاده از سرویس‌های موجود برای ارسال متنی یا عکسی
-    from app.services.publisher.telegram_publisher import publish_post_to_telegram, publish_media_group_to_telegram
-    from app.services.publisher.eitaa_publisher import publish_post_to_eitaa
-    from app.services.publisher.publisher_manager import _publish_to_bale_channel
+    # ساخت یک Dummy Product موقت فقط جهت استفاده از لایه Publisher Manager موجود
+    from app.database.models import Product
+    dummy_prod = Product(product_name="پست سفارشی", price=0, stock_qty=1, is_available=True, sku="CUSTOM")
+    if photos:
+        # برای لایه Manager، کافیست image_url را تنظیم کنیم
+        # چون در حالت پست سفارشی، photos در واقع list of file_ids هستند.
+        dummy_prod.image_url = photos[0]
+
+    from app.services.publisher.publisher_manager import publish_to_channel
+    import asyncio
 
     success_count = 0
     fail_count = 0
 
     for ch in channels:
         try:
-            if ch.platform == Platform.TELEGRAM:
-                if len(photos) > 1:
-                    res = await publish_media_group_to_telegram(context.bot, ch.channel_identifier, post_text, photos)
-                elif len(photos) == 1:
-                    res = await publish_post_to_telegram(context.bot, ch.channel_identifier, post_text, photo_url=photos[0])
-                else:
-                    res = await publish_post_to_telegram(context.bot, ch.channel_identifier, post_text)
+            # 💡 جادوی معماری: publish_to_channel خودش تشخیص می‌دهد اگر در بله هستیم
+            # و می‌خواهیم به تلگرام بفرستیم، یک Temporary Telegram Bot بسازد.
+            res = await publish_to_channel(
+                bot=context.bot,
+                channel=ch,
+                product=dummy_prod,
+                caption=post_text,
+                eitaa_token=eitaa_token
+            )
+            
+            if res.success: 
+                success_count += 1
+            else: 
+                fail_count += 1
+                log.error(f"❌ ارسال پست سفارشی به {ch.channel_identifier} ناموفق: {res.error_message}")
                 
-                if res.success: success_count += 1
-                else: fail_count += 1
-
-            elif ch.platform == Platform.EITAA and eitaa_token:
-                # برای ایتا پست سفارشی فقط با ۱ عکس بفرستیم
-                photo_src = photos[0] if photos else None
-                res = await publish_post_to_eitaa(eitaa_token, ch.channel_identifier, post_text, photo_url=photo_src)
-                if res.success: success_count += 1
-                else: fail_count += 1
-
-            elif ch.platform == Platform.BALE:
-                # ساخت یک Dummy Product موقت فقط جهت استفاده از Publisher موجود
-                from app.database.models import Product
-                dummy_prod = Product(product_name="", price=0, stock_qty=1, is_available=True, sku="CUSTOM")
-                if photos:
-                    dummy_prod.image_url = photos[0]
-                
-                res = await _publish_to_bale_channel(context.bot, ch, dummy_prod, post_text)
-                if res.success: success_count += 1
-                else: fail_count += 1
+            await asyncio.sleep(1) # تاخیر برای Rate Limit
 
         except Exception as e:
-            log.error(f"خطا در ارسال پست سفارشی به {ch.channel_identifier}: {e}")
+            log.error(f"خطا در ارسال پست سفارشی به {ch.channel_identifier}: {e}", exc_info=True)
             fail_count += 1
 
     result_text = (

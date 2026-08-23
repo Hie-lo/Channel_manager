@@ -296,13 +296,23 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
         from app.business.config import get_business
         business_config = get_business(customer.business_type_key)
 
+        recognized_sheets = []
+        unrecognized_sheets = []
+
         if business_config:
-            expected_sheets = {sc.worksheet_name for sc in business_config.sub_categories}
-            for ws_title in result.worksheet_titles:
-                if ws_title in expected_sheets:
-                    recognized_sheets.append(ws_title)
-                elif ws_title not in ("راهنما", "info"):
-                    unrecognized_sheets.append(ws_title)
+            if business_config.key == "other":
+                # در کسب‌وکار سایر، همه صفحات معتبر هستند (بجز راهنما)
+                for ws_title in result.worksheet_titles:
+                    if ws_title not in ("راهنما", "info", "Sheet1", "Sheet2"):
+                        recognized_sheets.append(ws_title)
+            else:
+                # برای کسب‌وکارهای تخصصی، نام شیت باید دقیق مچ شود
+                expected_sheets = {sc.worksheet_name for sc in business_config.sub_categories}
+                for ws_title in result.worksheet_titles:
+                    if ws_title in expected_sheets:
+                        recognized_sheets.append(ws_title)
+                    elif ws_title not in ("راهنما", "info", "Sheet1", "Sheet2"):
+                        unrecognized_sheets.append(ws_title)
 
         await create_or_update_sheet_connection(
             session=session,
