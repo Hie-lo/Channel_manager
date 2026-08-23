@@ -457,16 +457,33 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
     # ساخت کپشن
     caption = build_post_caption(product, business_config, business)
 
-    # ارسال به هر کانال
-    results = []
+    # 🚀 ارسال موازی به تمامی کانال‌ها
+    import asyncio
+    
+    # 1. ساخت تسک‌ها برای هر کانال (برای پشتیبانی از ادیت یا پست جدید)
+    tasks = []
     for channel in channels:
-        publish_result = await _publish_or_edit(
+        task = _publish_or_edit(
             bot=context.bot,
             product=product,
             channel=channel,
             caption=caption,
         )
-        results.append((channel, publish_result))
+        tasks.append(task)
+        
+    # 2. اجرای همزمان تمامی تسک‌ها
+    parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # 3. تطبیق نتایج با کانال‌ها
+    results = []
+    for idx, res in enumerate(parallel_results):
+        channel = channels[idx]
+        if isinstance(res, Exception):
+            from app.services.publisher.telegram_publisher import PublishResult
+            log.error(f"❌ خطا در تسک موازی برای کانال {channel.channel_identifier}: {res}")
+            results.append((channel, PublishResult(success=False, error_message="خطای بحرانی سیستمی")))
+        else:
+            results.append((channel, res))
 
     # ساخت متن نتیجه
     text = "📤 نتیجه ارسال\n━━━━━━━━━━━━━━━\n\n"

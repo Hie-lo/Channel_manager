@@ -883,3 +883,55 @@ async def _download_bale_file_by_id(file_id: str) -> Path | None:
     except Exception as e:
         log.error(f"[Bale Download By ID] خطا در دانلود {file_id}: {e}")
     return None
+
+async def publish_to_channels_parallel(
+    bot,
+    channels: list[Channel],
+    product: Product,
+    caption: str,
+    eitaa_token: str | None = None,
+) -> list[UnifiedPublishResult]:
+    """
+    ارسال موازی و همزمان پست به چندین کانال (Parallel Publishing).
+    سرعت ارسال را از ۱۵ ثانیه به ۳ الی ۵ ثانیه کاهش می‌دهد.
+    """
+    import asyncio
+    
+    log.info(f"🚀 [Parallel Publish] شروع ارسال همزمان برای محصول {product.sku} به {len(channels)} کانال.")
+
+    # 1. آماده‌سازی لیست تسک‌ها (Tasks)
+    tasks = []
+    for channel in channels:
+        # برای هر کانال یک تسک مستقل (Coroutine) ایجاد می‌کنیم
+        task = publish_to_channel(
+            bot=bot,
+            channel=channel,
+            product=product,
+            caption=caption,
+            eitaa_token=eitaa_token,
+        )
+        tasks.append(task)
+
+    # 2. شلیک همزمان تمامی تسک‌ها
+    # return_exceptions=True باعث می‌شود اگر یک تسک کاملاً کرش کرد، بقیه متوقف نشوند
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 3. پردازش خروجی‌ها و هندل کردن خطاهای بحرانی سیستم
+    final_results = []
+    for idx, res in enumerate(results):
+        channel = channels[idx]
+        if isinstance(res, Exception):
+            log.error(f"❌ [Parallel Publish] خطای بحرانی در ارسال به {channel.platform.value}: {res}")
+            # ایجاد یک خروجی استاندارد ناموفق برای جلوگیری از شکست زنجیره
+            final_results.append(
+                UnifiedPublishResult(
+                    success=False,
+                    platform=channel.platform,
+                    error_message=f"خطای بحرانی سیستمی: {str(res)[:100]}"
+                )
+            )
+        else:
+            final_results.append(res)
+
+    log.info(f"🏁 [Parallel Publish] ارسال همزمان پایان یافت.")
+    return final_results

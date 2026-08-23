@@ -379,79 +379,43 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
             from app.services.customer_service import get_customer_eitaa_token
             eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
+    from app.services.publisher.publisher_manager import publish_to_channels_parallel
+    import asyncio
+    
     any_success = False
-    for channel in channels:
-        try:
-            log.info(
-                f"[Customer {customer_id}] ارسال {product.sku} به "
-                f"{channel.platform.value}: {channel.channel_identifier}"
-            )
 
-            result = await publish_to_channel(
-                bot=bot,
-                channel=channel,
-                product=product,
-                caption=caption,
-                eitaa_token=eitaa_token,
-            )
+    # 🚀 فراخوانی لایه موازی که در گام 1 نوشتیم
+    parallel_results = await publish_to_channels_parallel(
+        bot=bot,
+        channels=channels,
+        product=product,
+        caption=caption,
+        eitaa_token=eitaa_token
+    )
 
-            if result.success and result.message_id:
-                # ذخیره در posted_messages
-                async with AsyncSessionLocal() as session:
-                    await create_posted_message(
-                        session=session,
-                        product_id=product.id,
-                        channel_id=channel.id,
-                        telegram_message_id=result.message_id,
-                        caption=caption,
-                        price=int(product.price),
-                        stock_qty=product.stock_qty,
-                    )
-                any_success = True
-                log.info(
-                    f"✅ [Customer {customer_id}] پست شد در "
-                    f"{channel.platform.value}: {channel.channel_identifier}"
+    # پردازش نتایج برگشتی
+    for idx, result in enumerate(parallel_results):
+        channel = channels[idx]
+        
+        if result.success and result.message_id:
+            # ذخیره در posted_messages
+            async with AsyncSessionLocal() as session:
+                await create_posted_message(
+                    session=session,
+                    product_id=product.id,
+                    channel_id=channel.id,
+                    telegram_message_id=result.message_id,
+                    caption=caption,
+                    price=int(product.price),
+                    stock_qty=product.stock_qty,
                 )
-            else:
-                log.error(
-                    f"❌ [Customer {customer_id}] ارسال به "
-                    f"{channel.platform.value}: {channel.channel_identifier} "
-                    f"ناموفق: {result.error_message}"
-                )
-
-        except Exception as e:
+            any_success = True
+            log.info(f"✅ [Customer {customer_id}] پست شد در {channel.platform.value}: {channel.channel_identifier}")
+        else:
             log.error(
-                f"❌ [Customer {customer_id}] خطا در ارسال به "
-                f"{channel.channel_identifier}: {e}",
-                exc_info=True,
-            )
-            if result.success and result.message_id:
-                async with AsyncSessionLocal() as session:
-                    await create_posted_message(
-                        session=session,
-                        product_id=product.id,
-                        channel_id=channel.id,
-                        telegram_message_id=result.message_id,
-                        caption=caption,
-                        price=int(product.price),
-                        stock_qty=product.stock_qty,
-                    )
-                any_success = True
-                log.info(
-                    f"✅ [Customer {customer_id}] پست شد در "
-                    f"{channel.channel_identifier}"
-                )
-            else:
-                log.error(
-                    f"❌ [Customer {customer_id}] ارسال به "
-                    f"{channel.channel_identifier} ناموفق: {result.error_message}"
-                )
-
-        except Exception as e:
-            log.error(
-                f"❌ [Customer {customer_id}] خطا در ارسال به "
-                f"{channel.channel_identifier}: {e}",
-                exc_info=True,
+                f"❌ [Customer {customer_id}] ارسال به "
+                f"{channel.platform.value}: {channel.channel_identifier} "
+                f"ناموفق: {result.error_message}"
             )
 
     # آپدیت وضعیت محصول و زمان آخرین پست
