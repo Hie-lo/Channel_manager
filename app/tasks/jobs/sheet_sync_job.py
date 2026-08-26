@@ -122,7 +122,9 @@ async def run_sheet_sync_job(bot: Bot) -> dict:
 async def sync_customer_sheet(
     bot: Bot,
     customer_id: int,
-    edit_posts_now: bool = True,   # ← جدید: اگه False، پست‌ها ادیت نمیشن
+    edit_posts_now: bool = True,
+    is_initial_sync: bool = False,  # 💡 پارامتر جدید
+    custom_maps: dict = None,       # 💡 مپینگ‌های دستی دریافتی از ویزارد
 ) -> dict:
     """
     همگام‌سازی شیت یک مشتری
@@ -169,17 +171,27 @@ async def sync_customer_sheet(
         existing_products = await get_all_products_by_customer(session, customer.id)
         existing_by_sku = {p.sku: p for p in existing_products}
 
-    # خواندن شیت
-    log.info(f"[Sync Customer {customer_id}] خواندن شیت...")
+    # خواندن شیت با پاس دادن custom_maps
     sheet_data = read_google_sheet(
         sheet_id=connection.sheet_id,
         business_config=business_config,
-        worksheet_name=connection.worksheet_name,
+        custom_maps=custom_maps, # باید به sheet_reader اضافه شود
     )
 
-    if sheet_data.is_empty and sheet_data.has_errors:
-        first_error = sheet_data.all_errors[0] if sheet_data.all_errors else None
-        error_msg = f"خطا در خواندن شیت: {first_error.message}" if first_error else "شیت خالی است"
+    if sheet_data.has_errors:
+        # بررسی اینکه آیا ارورها از جنس گم شدن ستون‌ها هستند یا ارور سیستمی
+        mapping_errors = [err for err in sheet_data.all_errors if err.field_type == "missing_column"]
+        
+        # اگر در همگام‌سازی دستی یا اولیه هستیم و خطای مپینگ داریم، ویزارد را تریگر کن
+        if mapping_errors and (is_initial_sync or edit_posts_now is False):
+            # استخراج داده‌های مورد نیاز ویزارد
+            return {
+                "requires_mapping_wizard": True,
+                "missing_fields_data": sheet_data.missing_mapping_data 
+            }
+            
+        # در غیر اینصورت (مثل اجرای شبانه خودکار)، فقط ارور را لاگ کن
+        error_msg = f"خطا در خواندن شیت: {sheet_data.all_errors[0].message}"
         async with AsyncSessionLocal() as session:
             await update_sync_status(session, customer_id, False, error_msg)
         result["error"] = error_msg

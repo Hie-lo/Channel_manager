@@ -276,62 +276,76 @@ async def channel_id_received_handler(update: Update, context: ContextTypes.DEFA
 # ═══════════════════════════════════════════════════════════
 
 async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """پردازش کانال تلگرام - با احراز واقعی"""
+    """پردازش کانال تلگرام - با اعتبارسنجی کامل امنیتی و دکمه راهنما"""
     user = update.effective_user
     message_id = update.message.message_id
 
+    # ۱. جلوگیری از پردازش تکراری پیام (Deduplication)
     if _is_message_processed(message_id):
         log.warning(f"[Channel TG] message {message_id} قبلاً پردازش شده")
         return
 
     channel_input = update.message.text.strip()
+    log.info(f"🔍 [_handle_telegram_channel] input={channel_input}")
 
-    # اعتبارسنجی
+    # کیبورد راهنما + انصراف برای استفاده در پیام‌های خطا
+    from app.bot.keyboards.tutorial import get_inline_help_keyboard
+    help_cancel_kb = get_inline_help_keyboard(
+        tutorial_key="connect_channel", 
+        existing_buttons=[[InlineKeyboardButton("❌ انصراف", callback_data="channel_menu")]]
+    )
+
+    # ۲. اعتبارسنجی اولیه فرمت آیدی
     if not channel_input.startswith("@") and not channel_input.startswith("-100"):
         await update.message.reply_text(
-            "❌ فرمت آیدی کانال اشتباه است!\n\n"
-            "آیدی باید یکی از این دو حالت باشه:\n"
-            "• با @ شروع بشه (مثل @my_channel)\n"
-            "• عددی و با -100 شروع بشه"
+            "❌ <b>فرمت آیدی کانال اشتباه است!</b>\n\n"
+            "آیدی باید یکی از این دو حالت باشد:\n"
+            "• با @ شروع شود (مثل @my_channel)\n"
+            "• عددی و با 100- شروع شود (مثل 100123456789-)",
+            parse_mode="HTML",
+            reply_markup=help_cancel_kb
         )
         return
 
-    # ⚠️ state رو IDLE کن تا پیام تکراری نره
+    # ۳. غیرفعال کردن موقت State جهت جلوگیری از تداخل
     set_user_state(user.id, UserState.IDLE)
 
     checking_msg = await update.message.reply_text(
-        "🔍 در حال بررسی کانال...\n"
-        "لطفاً چند لحظه صبر کنید."
+        "🔍 در حال بررسی کانال...\nلطفاً چند لحظه صبر کنید."
     )
 
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
-            await checking_msg.edit_text("❌ خطا! لطفاً /start بزنید.")
+            await checking_msg.edit_text("❌ خطا! حساب شما یافت نشد. لطفاً /start بزنید.")
             clear_user_state(user.id)
             return
 
-        # 🛡️ ۱. چک دیوار دفاعی دوم (تکراری بودن در کل سیستم)
+        # 🛡️ ۴. دیوار دفاعی دوم: چک تکراری نبودن کانال در کل دیتابیس (بین تمام کاربران)
         is_dup, dup_error = await check_channel_already_exists(
             session, customer.id, channel_input, Platform.TELEGRAM
         )
         if is_dup:
-            await checking_msg.edit_text(f"{dup_error}")
+            await checking_msg.edit_text(f"{dup_error}", reply_markup=help_cancel_kb)
             clear_user_state(user.id)
             return
 
-        # 🛡️ ۲. آیدی تلگرام کاربر برای چک ادمین بودن
+        # 🛡️ ۵. استخراج آیدی تلگرام کاربر برای چک ادمین بودن خودش در کانال
         tg_user_id = customer.telegram_user_id
         if not tg_user_id:
-            await checking_msg.edit_text("❌ برای اتصال کانال تلگرام، باید حساب تلگرام شما متصل باشد.")
+            await checking_msg.edit_text(
+                "❌ برای اتصال کانال تلگرام، باید حساب تلگرام شما به سیستم متصل باشد.",
+                reply_markup=help_cancel_kb
+            )
             clear_user_state(user.id)
             return
 
-    # ۳. بررسی ادمین بودن ربات و کاربر در تلگرام
+    # ۶. بررسی ادمین بودن ربات و خودِ کاربر در کانال تلگرام
     from app.utils.admin_check import detect_platform_from_context
     current_platform = detect_platform_from_context(context)
 
     if current_platform == "BALE":
+        # اگر کاربر در ربات بله است، یک کلاینت تلگرام موقت می‌سازیم
         from telegram import Bot
         from app.config import settings
         try:
@@ -339,17 +353,19 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             async with tg_bot:
                 result = await check_bot_is_admin_in_channel(tg_bot, channel_input, tg_user_id)
         except Exception as e:
-            await checking_msg.edit_text(f"❌ خطا در استعلام تلگرام: {e}")
+            log.error(f"خطا در استعلام کانال تلگرام از بله: {e}")
+            await checking_msg.edit_text(f"❌ خطا در بررسی کانال تلگرام: {e}", reply_markup=help_cancel_kb)
             return
     else:
+        # در ربات تلگرام
         result = await check_bot_is_admin_in_channel(context.bot, channel_input, tg_user_id)
 
     if not result.is_valid:
-        await checking_msg.edit_text(f"❌ {result.error_message}")
+        await checking_msg.edit_text(f"❌ {result.error_message}", reply_markup=help_cancel_kb)
         clear_user_state(user.id)
         return
 
-    # ۴. افزودن کانال
+    # ۷. افزودن کانال به دیتابیس در صورت تایید کامل
     async with AsyncSessionLocal() as session:
         await add_channel_for_customer(
             session, customer.id, channel_input, Platform.TELEGRAM, "ACTIVE"
@@ -358,8 +374,13 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
     clear_user_state(user.id)
     await checking_msg.edit_text(
         f"✅ <b>کانال تلگرام با موفقیت متصل شد!</b>\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📱 پلتفرم: تلگرام\n"
         f"📢 نام کانال: {result.channel_title}\n"
-        f"👥 اعضا: {result.member_count:,}",
+        f"🆔 آیدی: {channel_input}\n"
+        f"👥 تعداد اعضا: {result.member_count:,}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"از این پس می‌توانید محصولات خود را در این کانال منتشر کنید.",
         parse_mode="HTML"
     )
 

@@ -58,11 +58,16 @@ def get_tutorial_back_keyboard(category: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_inline_help_keyboard(tutorial_key: str) -> InlineKeyboardMarkup:
+def get_inline_help_keyboard(tutorial_key: str, existing_buttons: list = None) -> InlineKeyboardMarkup:
     """
-    کیبورد کوچیک برای دکمه راهنمای درون‌مرحله‌ای
-    (کنار دیگر دکمه‌ها استفاده میشه)
+    اضافه کردن دکمه راهنمای درون‌مرحله‌ای به کیبوردهای موجود
     """
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("❓ راهنما", callback_data=f"tut_inline_{tutorial_key}")
-    ]])
+    keyboard = existing_buttons or []
+    
+    # دکمه راهنما همیشه با یک رنگ یا آیکون متمایز در یک ردیف مجزا قرار می‌گیرد
+    help_button = [InlineKeyboardButton("❓ راهنمای این بخش (ویدیو)", callback_data=f"tut_inline_{tutorial_key}")]
+    
+    # اضافه کردن دکمه راهنما به بالای کیبورد یا پایین آن
+    keyboard.insert(0, help_button)
+    
+    return InlineKeyboardMarkup(keyboard)

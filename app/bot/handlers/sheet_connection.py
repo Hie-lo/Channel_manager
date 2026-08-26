@@ -236,7 +236,7 @@ async def sheet_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """دریافت لینک شیت از مشتری + همگام‌سازی خودکار اولیه"""
+    """دریافت لینک شیت از مشتری + همگام‌سازی خودکار اولیه + ویزارد مپینگ در صورت نیاز"""
     user = update.effective_user
 
     if get_user_state(user.id) != UserState.WAITING_SHEET_URL:
@@ -244,23 +244,31 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
 
     url = update.message.text.strip()
 
-    # چک اولیه
+    # کیبورد راهنمای گوگل شیت برای پیام‌های خطا
+    from app.bot.keyboards.tutorial import get_inline_help_keyboard
+    help_cancel_kb = get_inline_help_keyboard(
+        tutorial_key="connect_sheet", 
+        existing_buttons=[[InlineKeyboardButton("❌ لغو", callback_data="sheet_cancel")]]
+    )
+
+    # ۱. استخراج و اعتبارسنجی اولیه ID شیت
     sheet_id = extract_sheet_id_from_url(url)
     if not sheet_id:
         await update.message.reply_text(
-            "❌ لینک نامعتبر است!\n\n"
-            "لینک باید شبیه این باشه:\n"
-            "https://docs.google.com/spreadsheets/d/XXXXX/edit\n\n"
-            "دوباره ارسال کنید یا لغو کنید."
+            "❌ <b>لینک Google Sheet نامعتبر است!</b>\n\n"
+            "لینک باید مشابه نمونه زیر باشد:\n"
+            "<code>https://docs.google.com/spreadsheets/d/1abc.../edit</code>\n\n"
+            "لطفاً لینک صحیح را ارسال کنید:",
+            parse_mode="HTML",
+            reply_markup=help_cancel_kb
         )
         return
 
     processing_msg = await update.message.reply_text(
-        "🔍 در حال بررسی اتصال به شیت...\n"
-        "لطفاً چند لحظه صبر کنید."
+        "🔍 در حال بررسی اتصال به شیت...\nلطفاً چند لحظه صبر کنید."
     )
 
-    # تست اتصال
+    # ۲. تست اتصال با gspread
     result = test_sheet_connection(url)
 
     if not result.success:
@@ -270,18 +278,17 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
             f"━━━━━━━━━━━━━━━\n"
             f"📝 دلیل: {result.error_message}\n"
             f"━━━━━━━━━━━━━━━\n\n"
-            f"⚠️ <b>راهنمای رفع مشکل:</b>\n\n"
-            f"1️⃣ مطمئن شوید این ایمیل را به شیت اضافه کرده‌اید:\n"
-            f"<code>{bot_email}</code>\n\n"
-            f"2️⃣ سطح دسترسی حتماً <b>Editor</b> باشد\n\n"
-            f"3️⃣ لینک صحیح را کپی کرده باشید\n\n"
-            f"دوباره تلاش کنید:",
+            f"⚠️ <b>راهنمای سریع رفع مشکل:</b>\n"
+            f"1️⃣ این ایمیل ربات را به دکمه Share شیت اضافه کنید:\n"
+            f"<code>{bot_email}</code>\n"
+            f"2️⃣ دسترسی را حتماً روی <b>Editor</b> قرار دهید.\n\n"
+            f"لطفاً پس از تنظیم دسترسی، مجدداً لینک را بفرستید:",
             parse_mode="HTML",
-            reply_markup=_get_cancel_keyboard(),
+            reply_markup=help_cancel_kb,
         )
         return
 
-    # اتصال موفق - ذخیره در دیتابیس
+    # ۳. اتصال موفق اولیه - ذخیره در دیتابیس
     customer_id_for_sync = None
     recognized_sheets = []
     unrecognized_sheets = []
@@ -289,25 +296,19 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
-            await processing_msg.edit_text("❌ خطا!")
+            await processing_msg.edit_text("❌ خطا! حساب شما یافت نشد.")
             clear_user_state(user.id)
             return
 
-        # چک sheets موجود
         from app.business.config import get_business
         business_config = get_business(customer.business_type_key)
 
-        recognized_sheets = []
-        unrecognized_sheets = []
-
         if business_config:
             if business_config.key == "other":
-                # در کسب‌وکار سایر، همه صفحات معتبر هستند (بجز راهنما)
                 for ws_title in result.worksheet_titles:
                     if ws_title not in ("راهنما", "info", "Sheet1", "Sheet2"):
                         recognized_sheets.append(ws_title)
             else:
-                # برای کسب‌وکارهای تخصصی، نام شیت باید دقیق مچ شود
                 expected_sheets = {sc.worksheet_name for sc in business_config.sub_categories}
                 for ws_title in result.worksheet_titles:
                     if ws_title in expected_sheets:
@@ -322,110 +323,65 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
             sheet_id=result.sheet_id,
             worksheet_name="multi_sheet",
         )
-
         customer_id_for_sync = customer.id
 
     clear_user_state(user.id)
 
-    # ساخت گزارش اتصال
-    connection_text = (
-        f"✅ اتصال با موفقیت برقرار شد!\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"📊 نام شیت: {result.sheet_title}\n"
-        f"📄 تعداد صفحه‌ها: {len(result.worksheet_titles)}\n"
-        f"━━━━━━━━━━━━━━━\n"
-    )
-
-    if recognized_sheets:
-        connection_text += f"\n✅ صفحه‌های شناسایی شده ({len(recognized_sheets)}):\n"
-        for sheet in recognized_sheets:
-            connection_text += f"   • {sheet}\n"
-
-    if unrecognized_sheets:
-        connection_text += f"\n⚠️ صفحه‌های ناشناخته (نادیده گرفته می‌شوند):\n"
-        for sheet in unrecognized_sheets:
-            connection_text += f"   • {sheet}\n"
-
-    # اگه هیچ صفحه معتبری نبود، sync معنی نداره
+    # ۴. اگر هیچ برگه معتبری پیدا نشد
     if not recognized_sheets:
-        connection_text += (
-            f"\n━━━━━━━━━━━━━━━\n"
-            f"⚠️ هیچ صفحه معتبری پیدا نشد!\n"
-            f"لطفاً از فایل نمونه استفاده کنید یا نام صفحه‌ها را چک کنید."
+        await processing_msg.edit_text(
+            f"⚠️ <b>هیچ صفحه معتبری در شیت شما پیدا نشد!</b>\n"
+            f"لطفاً از شیت نمونه استفاده کنید یا نام صفحه‌ها را بررسی کنید.",
+            parse_mode="HTML",
+            reply_markup=help_cancel_kb
         )
-        await processing_msg.edit_text(connection_text)
         return
 
-    # مرحله بعد: شروع همگام‌سازی اولیه
-    connection_text += (
-        f"\n━━━━━━━━━━━━━━━\n\n"
-        f"🔄 در حال شروع همگام‌سازی اولیه...\n"
-        f"لطفاً چند لحظه صبر کنید."
+    await processing_msg.edit_text(
+        f"✅ <b>اتصال برقرار شد!</b>\n"
+        f"🔄 در حال اجرای همگام‌سازی اولیه محصولات...\nلطفاً صبور باشید."
     )
-    await processing_msg.edit_text(connection_text)
 
-    # اجرای sync
+    # ۵. اجرای همگام‌سازی اولیه با قابلیت تریگر ویزارد مپینگ (روش B)
     try:
         from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
-        sync_result = await sync_customer_sheet(context.bot, customer_id_for_sync)
+        
+        sync_result = await sync_customer_sheet(context.bot, customer_id_for_sync, is_initial_sync=True)
 
-        # ساخت گزارش نهایی
-        final_text = (
-            f"✅ اتصال و همگام‌سازی کامل شد!\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"📊 شیت: {result.sheet_title}\n"
-            f"📄 صفحه‌های فعال: {len(recognized_sheets)}\n"
-            f"━━━━━━━━━━━━━━━\n\n"
-        )
+        # 🚨 اگر ستون‌ها با روش A پیدا نشدند، ویزارد مپینگ دستی (روش B) را باز کن
+        if sync_result.get("requires_mapping_wizard"):
+            from app.bot.handlers.mapping_wizard import start_mapping_wizard_for_sheet
+            await start_mapping_wizard_for_sheet(
+                update=update,
+                user_id=user.id,
+                customer_id=customer_id_for_sync,
+                missing_fields_data=sync_result["missing_fields_data"],
+            )
+            return
 
+        # ۶. گزارش موفقیت‌آمیز نهایی
         if sync_result.get("error"):
-            final_text += (
-                f"⚠️ در همگام‌سازی خطایی رخ داد:\n"
-                f"{sync_result['error']}\n\n"
-                f"می‌تونید از منوی '📊 Google Sheet' →\n"
-                f"'🔃 همگام‌سازی الان' دوباره امتحان کنید."
-            )
+            final_text = f"⚠️ <b>اتصال برقرار شد اما همگام‌سازی خطا داشت:</b>\n{sync_result['error']}"
         else:
-            new_count = sync_result.get("new_count", 0)
-            updated_count = sync_result.get("updated_count", 0)
-            unchanged = sync_result.get("unchanged_count", 0)
-            errors = sync_result.get("error_count", 0)
-
-            final_text += (
-                f"📊 نتیجه همگام‌سازی:\n"
-                f"├── 🆕 محصولات جدید: {new_count}\n"
-                f"├── 🔄 آپدیت شده: {updated_count}\n"
-                f"├── ✅ بدون تغییر: {unchanged}\n"
-                f"└── ❌ خطا: {errors}\n\n"
+            new_c = sync_result.get("new_count", 0)
+            upd_c = sync_result.get("updated_count", 0)
+            final_text = (
+                f"🎉 <b>همگام‌سازی اولیه با موفقیت کامل شد!</b>\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"🆕 محصولات جدید: {new_c}\n"
+                f"🔄 بروزرسانی شده: {upd_c}\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+                f"💡 از این پس سیستم به صورت خودکار هر ۲ ساعت تغییرات شیت را با کانال‌ها سینک می‌کند."
             )
 
-            if new_count > 0:
-                final_text += (
-                    f"🎉 {new_count} محصول جدید به سیستم اضافه شد!\n\n"
-                    f"از این به بعد:\n"
-                    f"├── هر ۲ ساعت خودکار همگام‌سازی میشه\n"
-                    f"├── تغییر قیمت/موجودی در شیت → آپدیت پست‌ها\n"
-                    f"└── محصولات جدید → اضافه به سیستم\n\n"
-                    f"💡 برای دیدن محصولات از '📦 مدیریت محصولات'"
-                )
-            else:
-                final_text += (
-                    f"از این به بعد:\n"
-                    f"├── هر ۲ ساعت خودکار همگام‌سازی میشه\n"
-                    f"└── تغییرات خودکار اعمال میشن\n\n"
-                    f"💡 اگه محصولی در شیت اضافه کنید،\n"
-                    f"در همگام‌سازی بعدی اضافه میشه."
-                )
-
-        await processing_msg.edit_text(final_text)
+        await processing_msg.edit_text(final_text, parse_mode="HTML")
 
     except Exception as e:
-        log.error(f"خطا در sync اولیه: {e}", exc_info=True)
+        log.error(f"خطا در همگام‌سازی اولیه گوگل‌شیت: {e}", exc_info=True)
         await processing_msg.edit_text(
-            f"✅ اتصال برقرار شد ولی در همگام‌سازی خطا رخ داد.\n\n"
-            f"لطفاً از منوی '📊 Google Sheet' →\n"
-            f"'🔃 همگام‌سازی الان' اقدام کنید.\n\n"
-            f"جزئیات خطا:\n{str(e)[:200]}"
+            f"✅ اتصال برقرار شد اما همگام‌سازی اولیه با خطا مواجه شد.\n"
+            f"می‌توانید از منوی '📊 Google Sheet' دکمه همگام‌سازی دستی را بزنید.",
+            reply_markup=help_cancel_kb
         )
 
 
