@@ -319,7 +319,7 @@ async def _get_photo_for_eitaa(
 ) -> Path | None:
     """
     گرفتن یک عکس برای ارسال به ایتا
-    از هر پلتفرمی که عکس هست، دانلود می‌کنه
+    اولویت: عکس‌های تلگرام > عکس‌های بله > image_url (برای پست دستی)
     """
     from app.services.product_media_service import get_all_product_medias
     from app.services.publisher.eitaa_publisher import (
@@ -327,30 +327,36 @@ async def _get_photo_for_eitaa(
         _download_url_to_temp,
     )
     from app.database.connection import AsyncSessionLocal
+    import os
 
-    # اولویت ۱: عکس از هر پلتفرمی (اولین عکس موجود)
+    # 1. 💡 بررسی آیا این یک پست سفارشی/دستی (Dummy Product) است؟
+    if product.sku == "CUSTOM" and product.image_url:
+        src = product.image_url
+        is_telegram_native = src.startswith("AgAC") or src.startswith("AgAD")
+        is_bale_id = not is_telegram_native and not src.startswith("http") and ":" in src
+
+        if is_telegram_native:
+            return await _download_telegram_file(bot, src)
+        elif is_bale_id:
+            return await _download_bale_file_by_id(src)
+        else:
+            return await _download_url_to_temp(src)
+
+    # 2. روال عادی برای محصولات دیتابیس
     async with AsyncSessionLocal() as session:
         all_medias = await get_all_product_medias(session, product.id)
 
     if all_medias:
         first_media = all_medias[0]
-
         if first_media.platform == Platform.TELEGRAM:
-            # عکس تلگرام → دانلود از bot تلگرام
-            log.info(f"[Eitaa Photo] دانلود از تلگرام: {first_media.file_id[:30]}...")
             return await _download_telegram_file(bot, first_media.file_id)
-
         elif first_media.platform == Platform.BALE:
-            # عکس بله → دانلود از API بله
-            log.info(f"[Eitaa Photo] دانلود از بله: {first_media.file_id[:30]}...")
-            return await _download_bale_file(product, first_media.file_id)
+            return await _download_bale_file_by_id(first_media.file_id)
 
-    # اولویت ۲: image_url
+    # 3. اولویت ۲: image_url
     if product.image_url and product.image_url.strip():
-        log.info(f"[Eitaa Photo] دانلود از URL: {product.image_url[:50]}...")
         return await _download_url_to_temp(product.image_url)
 
-    log.info("[Eitaa Photo] هیچ عکسی پیدا نشد")
     return None
 
 # ═══════════════════════════════════════════════════════════
@@ -415,7 +421,46 @@ async def _publish_to_bale_channel(
             bale_medias = await get_product_medias(
                 session, product.id, Platform.BALE
             )
+        # 💡 پشتیبانی از پست سفارشی (Dummy Product)
+        custom_photo_sources = []
+        if product.sku == "CUSTOM" and product.image_url:
+            custom_photo_sources = [product.image_url]
 
+        if custom_photo_sources and not bale_medias:
+            # بررسی اینکه آیا این عکس از تلگرام است که باید دانلود شود؟
+            src = custom_photo_sources[0]
+            is_telegram = src.startswith("AgAC") or src.startswith("AgAD")
+            
+            if not is_telegram and not src.startswith("http"):
+                # عکس خود بله است، مستقیماً ارسال کن
+                message = await actual_bot.send_photo(
+                    chat_id=channel.channel_identifier,
+                    photo=src,
+                    caption=caption,
+                )
+                return UnifiedPublishResult(success=True, message_id=message.message_id, platform=Platform.BALE)
+            else:
+                # اگر از تلگرام است باید دانلود شود
+                temp_path = None
+                if is_telegram:
+                    from app.services.publisher.eitaa_publisher import _download_telegram_file
+                    # باید ربات تلگرام بسازیم تا دانلود کنیم
+                    from telegram import Bot
+                    tg_temp = Bot(token=settings.BOT_TOKEN)
+                    await tg_temp.initialize()
+                    try:
+                        temp_path = await _download_telegram_file(tg_temp, src)
+                    finally:
+                        await tg_temp.shutdown()
+                
+                if temp_path:
+                    try:
+                        with open(temp_path, "rb") as f:
+                            message = await actual_bot.send_photo(chat_id=channel.channel_identifier, photo=f, caption=caption)
+                        return UnifiedPublishResult(success=True, message_id=message.message_id, platform=Platform.BALE)
+                    finally:
+                        try: os.remove(temp_path)
+                        except: pass
         # کوتاه کردن caption
         max_len = 1024
         if len(caption) > max_len:

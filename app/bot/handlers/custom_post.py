@@ -154,12 +154,51 @@ async def custom_post_preview_callback(update: Update, context: ContextTypes.DEF
         f"آیا برای ارسال اطمینان دارید؟"
     )
 
-    keyboard = [
+    keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🚀 تایید و ارسال به تمام کانال‌ها", callback_data="custom_post_send_confirm")],
         [InlineKeyboardButton("❌ انصراف", callback_data="custom_post_cancel")]
-    ]
+    ])
 
-    await query.edit_message_text(preview_msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    try:
+        if not photos:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=preview_msg,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        elif len(photos) == 1:
+            await context.bot.send_photo(
+                chat_id=user.id,
+                photo=photos[0],
+                caption=preview_msg,
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+        else:
+            from telegram import InputMediaPhoto
+            media_group = []
+            for i, src in enumerate(photos[:10]):
+                if i == 0:
+                    media_group.append(InputMediaPhoto(media=src, caption=post_text))
+                else:
+                    media_group.append(InputMediaPhoto(media=src))
+            
+            await context.bot.send_media_group(chat_id=user.id, media=media_group)
+            await context.bot.send_message(
+                chat_id=user.id,
+                text="👆 <b>پیش‌نمایش آلبوم شما</b>\nجهت تأیید یا انصراف کلیک کنید:",
+                parse_mode="HTML",
+                reply_markup=keyboard
+            )
+    except Exception as e:
+        log.error(f"خطا در پیش‌نمایش عکس سفارشی: {e}")
+        await context.bot.send_message(chat_id=user.id, text=preview_msg, parse_mode="HTML", reply_markup=keyboard)
 
 
 async def custom_post_send_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
