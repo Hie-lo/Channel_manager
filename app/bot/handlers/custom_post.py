@@ -282,15 +282,13 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
             from app.services.customer_service import get_customer_eitaa_token
             eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
-    # استخراج فقط لینک‌ها یا فایل‌آیدی‌ها برای ارسال
-    media_file_ids = [m["file_id"] for m in medias]
-
     from app.database.models import Product
     dummy_prod = Product(product_name="پست سفارشی", price=0, stock_qty=1, is_available=True, sku="CUSTOM")
     
-    # قرار دادن اولین فایل‌آیدی برای ساپورت منطق‌های زیرین
-    if media_file_ids:
-        dummy_prod.image_url = media_file_ids[0]
+    # 💡 ذخیره کامل لیست مدیاها در specs برای استفاده در Publisher Manager
+    dummy_prod.specs = {"custom_medias": medias}
+    if medias:
+        dummy_prod.image_url = medias[0]["file_id"]
 
     from app.services.publisher.publisher_manager import publish_to_channel
     import asyncio

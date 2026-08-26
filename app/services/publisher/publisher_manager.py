@@ -118,7 +118,7 @@ async def _publish_to_telegram_channel(
     product: Product,
     caption: str,
 ) -> UnifiedPublishResult:
-    """ارسال پست به کانال تلگرام"""
+    """ارسال پست به کانال تلگرام (با پشتیبانی از آلبوم عکس و ویدیو)"""
     from app.services.publisher.telegram_publisher import (
         publish_post_to_telegram,
         publish_media_group_to_telegram,
@@ -147,81 +147,86 @@ async def _publish_to_telegram_channel(
         log.error(f"[TG Publish] خطا در ساخت Bot تلگرام: {e}")
 
     try:
-        # ۱. گرفتن عکس‌ها
+        # 💡 ۱. بررسی اینکه آیا این یک پست سفارشی (Custom Post) است؟
+        if product.sku == "CUSTOM" and product.specs and "custom_medias" in product.specs:
+            custom_medias = product.specs["custom_medias"] # لیست dictها: [{"file_id":.., "type":..}]
+            
+            if not custom_medias:
+                res = await publish_post_to_telegram(actual_bot, channel.channel_identifier, caption)
+                return UnifiedPublishResult(success=res.success, message_id=res.message_id, platform=Platform.TELEGRAM, error_message=res.error_message)
+
+            if len(custom_medias) == 1:
+                m = custom_medias[0]
+                is_bale = (not m["file_id"].startswith("http") and not m["file_id"].startswith("AgAC") and not m["file_id"].startswith("AgAD"))
+                
+                if is_bale:
+                    temp_p = await _download_bale_file_by_id(m["file_id"], is_video=(m["type"]=="video"))
+                    if temp_p:
+                        try:
+                            with open(temp_p, "rb") as f:
+                                if m["type"] == "video":
+                                    msg = await actual_bot.send_video(chat_id=channel.channel_identifier, video=f, caption=caption[:1024])
+                                else:
+                                    msg = await actual_bot.send_photo(chat_id=channel.channel_identifier, photo=f, caption=caption[:1024])
+                            return UnifiedPublishResult(success=True, message_id=msg.message_id, message_ids=[msg.message_id], platform=Platform.TELEGRAM)
+                        finally:
+                            if os.path.exists(temp_p): os.remove(temp_p)
+                else:
+                    if m["type"] == "video":
+                        msg = await actual_bot.send_video(chat_id=channel.channel_identifier, video=m["file_id"], caption=caption[:1024])
+                        return UnifiedPublishResult(success=True, message_id=msg.message_id, message_ids=[msg.message_id], platform=Platform.TELEGRAM)
+                    else:
+                        res = await publish_post_to_telegram(actual_bot, channel.channel_identifier, caption, photo_url=m["file_id"])
+                        return UnifiedPublishResult(success=res.success, message_id=res.message_id, message_ids=[res.message_id] if res.message_id else [], platform=Platform.TELEGRAM)
+
+            else:
+                # 🚀 ارسال آلبوم ترکیبی (عکس و ویدیو)
+                from telegram import InputMediaPhoto, InputMediaVideo
+                media_list = []
+                temp_files_to_cleanup = []
+
+                try:
+                    for i, m in enumerate(custom_medias[:10]):
+                        cap = caption[:1024] if i == 0 else None
+                        src = m["file_id"]
+                        is_bale = (not src.startswith("http") and not src.startswith("AgAC") and not src.startswith("AgAD"))
+
+                        if is_bale:
+                            temp_p = await _download_bale_file_by_id(src, is_video=(m["type"]=="video"))
+                            if temp_p:
+                                temp_files_to_cleanup.append(temp_p)
+                                fh = open(temp_p, "rb")
+                                if m["type"] == "video": media_list.append(InputMediaVideo(media=fh, caption=cap))
+                                else: media_list.append(InputMediaPhoto(media=fh, caption=cap))
+                        else:
+                            if m["type"] == "video": media_list.append(InputMediaVideo(media=src, caption=cap))
+                            else: media_list.append(InputMediaPhoto(media=src, caption=cap))
+
+                    messages = await actual_bot.send_media_group(chat_id=channel.channel_identifier, media=media_list)
+                    all_ids = [msg.message_id for msg in messages]
+                    return UnifiedPublishResult(success=True, message_id=all_ids[0], message_ids=all_ids, platform=Platform.TELEGRAM)
+                finally:
+                    for tp in temp_files_to_cleanup:
+                        if os.path.exists(tp):
+                            try: os.remove(tp)
+                            except: pass
+
+        # ۲. روال عادی برای محصولات معمولی دیتابیس
         async with AsyncSessionLocal() as session:
             tg_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
 
         photo_sources = get_photo_sources_for_platform(product, tg_medias)
 
-        # 💡 اگر عکس مال پست سفارشی یا بله است (یعنی image_url مقدار file_id بله دارد یا عکس تلگرامی نیست)
         if not photo_sources and product.image_url:
             photo_sources = [product.image_url]
 
-        # ۲. بررسی اینکه آیا عکس‌ها نیاز به دانلود از بله دارند؟ (تشخیص file_id بله)
-        processed_photos = []
-        temp_files_to_cleanup = []
+        if len(photo_sources) > 1:
+            result = await publish_media_group_to_telegram(bot=actual_bot, channel_identifier=channel.channel_identifier, caption=caption, photo_sources=photo_sources)
+        else:
+            photo_url = photo_sources[0] if photo_sources else None
+            result = await publish_post_to_telegram(bot=actual_bot, channel_identifier=channel.channel_identifier, caption=caption, photo_url=photo_url)
 
-        for src in photo_sources:
-            # عکس نیتیو تلگرام همیشه با AgAC یا AgAD شروع می‌شود
-            is_telegram_native = src.startswith("AgAC") or src.startswith("AgAD")
-            is_url = src.startswith("http://") or src.startswith("https://")
-
-            # فقط اگر آیدی مربوط به بله باشد (یعنی شامل دو نقطه است و نیتیو تلگرام نیست) دانلود از بله انجام می‌شود
-            is_bale_id = not is_telegram_native and not is_url and ":" in src
-            
-            if is_bale_id:
-                log.info(f"[TG Publish] عکس از بله شناسایی شد ({src[:20]}...). در حال دانلود برای تلگرام...")
-                temp_p = await _download_bale_file_by_id(src)
-                if temp_p:
-                    temp_files_to_cleanup.append(temp_p)
-                    processed_photos.append(str(temp_p))
-            else:
-                processed_photos.append(src)
-
-        # ۳. ارسال به تلگرام
-        try:
-            if len(processed_photos) > 1:
-                result = await publish_media_group_to_telegram(
-                    bot=actual_bot,
-                    channel_identifier=channel.channel_identifier,
-                    caption=caption,
-                    photo_sources=processed_photos,
-                )
-            else:
-                photo_url = processed_photos[0] if processed_photos else None
-                
-                # اگر عکس بصورت فایل موقت محلی دانلود شده
-                if photo_url and os.path.exists(photo_url):
-                    with open(photo_url, "rb") as f:
-                        msg = await actual_bot.send_photo(
-                            chat_id=channel.channel_identifier,
-                            photo=f,
-                            caption=caption[:1024]
-                        )
-                        result = UnifiedPublishResult(success=True, message_id=msg.message_id, message_ids=[msg.message_id], platform=Platform.TELEGRAM)
-                else:
-                    result = await publish_post_to_telegram(
-                        bot=actual_bot,
-                        channel_identifier=channel.channel_identifier,
-                        caption=caption,
-                        photo_url=photo_url,
-                    )
-
-            return UnifiedPublishResult(
-                success=result.success,
-                message_id=result.message_id,
-                message_ids=getattr(result, 'message_ids', []),
-                platform=Platform.TELEGRAM,
-                error_message=result.error_message,
-                used_fallback=result.used_fallback,
-            )
-
-        finally:
-            # پاکسازی فایل‌های موقت دانلود شده
-            for tp in temp_files_to_cleanup:
-                if os.path.exists(tp):
-                    try: os.remove(tp)
-                    except Exception: pass
+        return UnifiedPublishResult(success=result.success, message_id=result.message_id, message_ids=getattr(result, 'message_ids', []), platform=Platform.TELEGRAM, error_message=result.error_message)
 
     finally:
         if is_temp_bot and actual_bot:
@@ -317,32 +322,29 @@ async def _get_photo_for_eitaa(
     bot,
     product: Product,
 ) -> Path | None:
-    """
-    گرفتن یک عکس برای ارسال به ایتا
-    اولویت: عکس‌های تلگرام > عکس‌های بله > image_url (برای پست دستی)
-    """
+    """گرفتن یک فایل مدیا برای ارسال به ایتا با تنظیم پسوند درستی برای عکس یا ویدیو"""
     from app.services.product_media_service import get_all_product_medias
-    from app.services.publisher.eitaa_publisher import (
-        _download_telegram_file,
-        _download_url_to_temp,
-    )
+    from app.services.publisher.eitaa_publisher import _download_telegram_file, _download_url_to_temp
     from app.database.connection import AsyncSessionLocal
-    import os
 
-    # 1. 💡 بررسی آیا این یک پست سفارشی/دستی (Dummy Product) است؟
-    if product.sku == "CUSTOM" and product.image_url:
-        src = product.image_url
-        is_telegram_native = src.startswith("AgAC") or src.startswith("AgAD")
-        is_bale_id = not is_telegram_native and not src.startswith("http") and ":" in src
+    # ۱. پست سفارشی (CUSTOM)
+    if product.sku == "CUSTOM" and product.specs and "custom_medias" in product.specs:
+        medias = product.specs["custom_medias"]
+        if medias:
+            m = medias[0] # اولین مدیای انتخابی
+            src = m["file_id"]
+            is_video = (m["type"] == "video")
+            is_telegram_native = src.startswith("AgAC") or src.startswith("AgAD") or is_video
+            is_bale_id = not is_telegram_native and not src.startswith("http") and ":" in src
 
-        if is_telegram_native:
-            return await _download_telegram_file(bot, src)
-        elif is_bale_id:
-            return await _download_bale_file_by_id(src)
-        else:
-            return await _download_url_to_temp(src)
+            if is_bale_id:
+                return await _download_bale_file_by_id(src, is_video=is_video)
+            elif src.startswith("http"):
+                return await _download_url_to_temp(src)
+            else:
+                return await _download_telegram_file(bot, src)
 
-    # 2. روال عادی برای محصولات دیتابیس
+    # ۲. محصولات دیتابیس
     async with AsyncSessionLocal() as session:
         all_medias = await get_all_product_medias(session, product.id)
 
@@ -353,7 +355,6 @@ async def _get_photo_for_eitaa(
         elif first_media.platform == Platform.BALE:
             return await _download_bale_file_by_id(first_media.file_id)
 
-    # 3. اولویت ۲: image_url
     if product.image_url and product.image_url.strip():
         return await _download_url_to_temp(product.image_url)
 
@@ -371,25 +372,20 @@ async def _publish_to_bale_channel(
 ) -> UnifiedPublishResult:
     """
     ارسال پست به کانال بله
-    چون API بله مثل تلگرامه، مستقیم از bot بله استفاده می‌کنیم
+    با پشتیبانی کامل از پست‌های معمولی (تک‌عکس و آلبوم) و پست‌های سفارشی (Custom)
     """
-    from app.services.product_media_service import (
-        get_product_medias,
-        get_photo_sources_for_platform,
-        get_all_product_medias,
-    )
+    from app.services.product_media_service import get_product_medias
     from app.database.connection import AsyncSessionLocal
     from app.config import settings
     import os
 
-    # ─── مطمئن شو Bot بله داریم ───
     actual_bot = bot
     is_temp_bot = False
 
+    # ─── 1. ساخت Bot بله در صورتی که مبدأ تلگرام باشد ───
     try:
         base_url = str(getattr(bot, "base_url", "") or "")
         if "bale" not in base_url.lower():
-            # ربات فعلی تلگرامه، Bot بله بساز
             if settings.BALE_BOT_TOKEN:
                 from telegram import Bot
                 actual_bot = Bot(
@@ -414,220 +410,199 @@ async def _publish_to_bale_channel(
             error_message=f"خطا در ساخت Bot بله: {str(e)[:100]}",
         )
 
-    try:
-        # ─── عکس‌ها ───
-        # اول عکس‌های بله (file_id مستقیم)
-        async with AsyncSessionLocal() as session:
-            bale_medias = await get_product_medias(
-                session, product.id, Platform.BALE
-            )
-        # 💡 پشتیبانی از پست سفارشی (Dummy Product)
-        custom_photo_sources = []
-        if product.sku == "CUSTOM" and product.image_url:
-            custom_photo_sources = [product.image_url]
+    # ─── 2. کوتاه کردن کپشن ───
+    max_len = 1024
+    if len(caption) > max_len:
+        caption = caption[:max_len - 3] + "..."
 
-        if custom_photo_sources and not bale_medias:
-            # بررسی اینکه آیا این عکس از تلگرام است که باید دانلود شود؟
-            src = custom_photo_sources[0]
-            is_telegram = src.startswith("AgAC") or src.startswith("AgAD")
-            
-            if not is_telegram and not src.startswith("http"):
-                # عکس خود بله است، مستقیماً ارسال کن
-                message = await actual_bot.send_photo(
-                    chat_id=channel.channel_identifier,
-                    photo=src,
-                    caption=caption,
-                )
-                return UnifiedPublishResult(success=True, message_id=message.message_id, platform=Platform.BALE)
-            else:
-                # اگر از تلگرام است باید دانلود شود
-                temp_path = None
-                if is_telegram:
+    try:
+        # ─── 3. پشتیبانی از پست سفارشی (Dummy Product) ───
+        if product.sku == "CUSTOM" and product.specs and "custom_medias" in product.specs:
+            custom_medias = product.specs["custom_medias"]
+            if custom_medias:
+                m = custom_medias[0]  # در بله فعلاً فقط اولین مدیا برای پست سفارشی ارسال می‌شود
+                src = m["file_id"]
+                is_video = (m.get("type") == "video")
+                is_telegram = src.startswith("AgAC") or src.startswith("AgAD") or src.startswith("BAAC") or is_video
+
+                if not is_telegram and not src.startswith("http"):
+                    # فایل نیتیو خود بله است
+                    try:
+                        if is_video:
+                            msg = await actual_bot.send_video(chat_id=channel.channel_identifier, video=src, caption=caption)
+                        else:
+                            msg = await actual_bot.send_photo(chat_id=channel.channel_identifier, photo=src, caption=caption)
+                        return UnifiedPublishResult(success=True, message_id=msg.message_id, message_ids=[msg.message_id], platform=Platform.BALE)
+                    except Exception as e:
+                        log.error(f"[Bale Publish Custom Native] خطا: {e}")
+                else:
+                    # نیاز به دانلود از تلگرام دارد
+                    temp_p = None
                     from app.services.publisher.eitaa_publisher import _download_telegram_file
-                    # باید ربات تلگرام بسازیم تا دانلود کنیم
                     from telegram import Bot
                     tg_temp = Bot(token=settings.BOT_TOKEN)
                     await tg_temp.initialize()
                     try:
-                        temp_path = await _download_telegram_file(tg_temp, src)
+                        temp_p = await _download_telegram_file(tg_temp, src)
+                    except Exception as e:
+                        log.error(f"[Bale Publish Custom Download] خطا: {e}")
                     finally:
                         await tg_temp.shutdown()
-                
-                if temp_path:
-                    try:
-                        with open(temp_path, "rb") as f:
-                            message = await actual_bot.send_photo(chat_id=channel.channel_identifier, photo=f, caption=caption)
-                        return UnifiedPublishResult(success=True, message_id=message.message_id, platform=Platform.BALE)
-                    finally:
-                        try: os.remove(temp_path)
-                        except: pass
-        # کوتاه کردن caption
-        max_len = 1024
-        if len(caption) > max_len:
-            caption = caption[:max_len - 3] + "..."
 
-        if bale_medias:
-            # ─── file_id بله داریم → مستقیم بفرست ───
-            if len(bale_medias) == 1:
-                # تک عکس
-                try:
-                    message = await actual_bot.send_photo(
-                        chat_id=channel.channel_identifier,
-                        photo=bale_medias[0].file_id,
-                        caption=caption,
-                    )
-                    log.info(f"✅ [Bale Publish] پست با ۱ عکس ارسال شد")
-                    return UnifiedPublishResult(
-                        success=True,
-                        message_id=message.message_id,
-                        message_ids=[message.message_id],
-                        platform=Platform.BALE,
-                    )
-                except Exception as e:
-                    log.error(f"[Bale Publish] خطا در ارسال عکس: {e}")
+                    if temp_p:
+                        try:
+                            with open(temp_p, "rb") as f:
+                                if is_video:
+                                    msg = await actual_bot.send_video(chat_id=channel.channel_identifier, video=f, caption=caption)
+                                else:
+                                    msg = await actual_bot.send_photo(chat_id=channel.channel_identifier, photo=f, caption=caption)
+                            return UnifiedPublishResult(success=True, message_id=msg.message_id, message_ids=[msg.message_id], platform=Platform.BALE)
+                        except Exception as e:
+                            log.error(f"[Bale Publish Custom File] خطا: {e}")
+                        finally:
+                            if os.path.exists(temp_p):
+                                try: os.remove(temp_p)
+                                except: pass
+            
+            # اگر اجرای بلوک بالا به هر دلیلی موفق نبود، فال‌بک متنی
+            pass
 
-            else:
-                # آلبوم
-                try:
-                    from telegram import InputMediaPhoto
-
-                    media_list = []
-                    for i, media in enumerate(bale_medias[:10]):
-                        if i == 0:
-                            media_list.append(
-                                InputMediaPhoto(
-                                    media=media.file_id,
-                                    caption=caption,
-                                )
-                            )
-                        else:
-                            media_list.append(
-                                InputMediaPhoto(media=media.file_id)
-                            )
-
-                    messages = await actual_bot.send_media_group(
-                        chat_id=channel.channel_identifier,
-                        media=media_list,
-                    )
-                    all_ids = [msg.message_id for msg in messages]
-                    log.info(
-                        f"✅ [Bale Publish] آلبوم {len(messages)} عکسی "
-                        f"ارسال شد (ids: {all_ids})"
-                    )
-                    return UnifiedPublishResult(
-                        success=True,
-                        message_id=all_ids[0],
-                        message_ids=all_ids,
-                        platform=Platform.BALE,
-                    )
-                except Exception as e:
-                    log.error(f"[Bale Publish] خطا در ارسال آلبوم: {e}")
-
-        # ─── اگه عکس بله نبود، از تلگرام یا URL ───
-        if not bale_medias:
-            # عکس تلگرام داره؟ دانلود و آپلود
+        # ─── 4. روال عادی برای محصولات دیتابیس ───
+        else:
             async with AsyncSessionLocal() as session:
-                tg_medias = await get_product_medias(
-                    session, product.id, Platform.TELEGRAM
-                )
+                bale_medias = await get_product_medias(session, product.id, Platform.BALE)
 
-            if tg_medias:
-                # دانلود از تلگرام و آپلود به بله
-                temp_files = []
-                try:
-                    from app.services.publisher.eitaa_publisher import _download_telegram_file
-
-                    # ⚠️ برای دانلود از تلگرام باید Bot تلگرام بسازیم
-                    from telegram import Bot
-                    tg_bot = Bot(token=settings.BOT_TOKEN)
-                    await tg_bot.initialize()
-
+            # الف) اگر عکس نیتیو بله وجود دارد
+            if bale_medias:
+                if len(bale_medias) == 1:
                     try:
-                        for media in tg_medias[:10]:
-                            temp_path = await _download_telegram_file(
-                                tg_bot, media.file_id
-                            )
-                            if temp_path:
-                                temp_files.append(temp_path)
-                    finally:
-                        await tg_bot.shutdown()
-
-                    if len(temp_files) == 1:
-                        with open(temp_files[0], "rb") as f:
-                            message = await actual_bot.send_photo(
-                                chat_id=channel.channel_identifier,
-                                photo=f,
-                                caption=caption,
-                            )
-                        log.info(f"✅ [Bale Publish] عکس تلگرام → بله ارسال شد")
+                        message = await actual_bot.send_photo(
+                            chat_id=channel.channel_identifier,
+                            photo=bale_medias[0].file_id,
+                            caption=caption,
+                        )
+                        log.info(f"✅ [Bale Publish] پست با ۱ عکس نیتیو بله ارسال شد")
                         return UnifiedPublishResult(
                             success=True,
                             message_id=message.message_id,
                             message_ids=[message.message_id],
                             platform=Platform.BALE,
                         )
-                    elif len(temp_files) > 1:
+                    except Exception as e:
+                        log.error(f"[Bale Publish] خطا در ارسال عکس نیتیو: {e}")
+                else:
+                    # آلبوم بله
+                    try:
                         from telegram import InputMediaPhoto
-
                         media_list = []
-                        file_handles = []
+                        for i, media in enumerate(bale_medias[:10]):
+                            cap = caption if i == 0 else None
+                            media_list.append(InputMediaPhoto(media=media.file_id, caption=cap))
 
-                        for i, path in enumerate(temp_files[:10]):
-                            fh = open(path, "rb")
-                            file_handles.append(fh)
-                            if i == 0:
-                                media_list.append(
-                                    InputMediaPhoto(media=fh, caption=caption)
-                                )
-                            else:
-                                media_list.append(InputMediaPhoto(media=fh))
+                        messages = await actual_bot.send_media_group(
+                            chat_id=channel.channel_identifier,
+                            media=media_list,
+                        )
+                        all_ids = [msg.message_id for msg in messages]
+                        log.info(f"✅ [Bale Publish] آلبوم نیتیو با {len(all_ids)} عکس ارسال شد")
+                        return UnifiedPublishResult(
+                            success=True,
+                            message_id=all_ids[0],
+                            message_ids=all_ids,
+                            platform=Platform.BALE,
+                        )
+                    except Exception as e:
+                        log.error(f"[Bale Publish] خطا در ارسال آلبوم نیتیو: {e}")
+
+            # ب) اگر عکس بله نبود، سعی می‌کنیم از تلگرام دانلود کنیم
+            if not bale_medias:
+                async with AsyncSessionLocal() as session:
+                    tg_medias = await get_product_medias(session, product.id, Platform.TELEGRAM)
+
+                if tg_medias:
+                    temp_files = []
+                    try:
+                        from app.services.publisher.eitaa_publisher import _download_telegram_file
+                        from telegram import Bot
+                        tg_bot = Bot(token=settings.BOT_TOKEN)
+                        await tg_bot.initialize()
 
                         try:
-                            messages = await actual_bot.send_media_group(
-                                chat_id=channel.channel_identifier,
-                                media=media_list,
-                            )
-                            all_ids = [msg.message_id for msg in messages]
-                            log.info(
-                                f"✅ [Bale Publish] آلبوم تلگرام → بله ارسال شد"
-                            )
+                            for media in tg_medias[:10]:
+                                temp_path = await _download_telegram_file(tg_bot, media.file_id)
+                                if temp_path:
+                                    temp_files.append(temp_path)
+                        finally:
+                            await tg_bot.shutdown()
+
+                        if len(temp_files) == 1:
+                            with open(temp_files[0], "rb") as f:
+                                message = await actual_bot.send_photo(
+                                    chat_id=channel.channel_identifier,
+                                    photo=f,
+                                    caption=caption,
+                                )
+                            log.info(f"✅ [Bale Publish] عکس تلگرام → بله ارسال شد")
                             return UnifiedPublishResult(
                                 success=True,
-                                message_id=all_ids[0],
-                                message_ids=all_ids,
+                                message_id=message.message_id,
+                                message_ids=[message.message_id],
                                 platform=Platform.BALE,
                             )
-                        finally:
-                            for fh in file_handles:
-                                fh.close()
+                        elif len(temp_files) > 1:
+                            from telegram import InputMediaPhoto
+                            media_list = []
+                            file_handles = []
 
-                except Exception as e:
-                    log.error(f"[Bale Publish] خطا در انتقال عکس تلگرام: {e}")
-                finally:
-                    for path in temp_files:
-                        try:
-                            os.unlink(path)
-                        except Exception:
-                            pass
+                            for i, path in enumerate(temp_files):
+                                fh = open(path, "rb")
+                                file_handles.append(fh)
+                                cap = caption if i == 0 else None
+                                media_list.append(InputMediaPhoto(media=fh, caption=cap))
 
-            # ─── image_url ───
-            if product.image_url and product.image_url.strip():
-                try:
-                    message = await actual_bot.send_photo(
-                        chat_id=channel.channel_identifier,
-                        photo=product.image_url.strip(),
-                        caption=caption,
-                    )
-                    log.info(f"✅ [Bale Publish] عکس URL ارسال شد")
-                    return UnifiedPublishResult(
-                        success=True,
-                        message_id=message.message_id,
-                        platform=Platform.BALE,
-                    )
-                except Exception as e:
-                    log.warning(f"[Bale Publish] URL fail: {e}")
+                            try:
+                                messages = await actual_bot.send_media_group(
+                                    chat_id=channel.channel_identifier,
+                                    media=media_list,
+                                )
+                                all_ids = [msg.message_id for msg in messages]
+                                log.info(f"✅ [Bale Publish] آلبوم تلگرام → بله ارسال شد")
+                                return UnifiedPublishResult(
+                                    success=True,
+                                    message_id=all_ids[0],
+                                    message_ids=all_ids,
+                                    platform=Platform.BALE,
+                                )
+                            finally:
+                                for fh in file_handles:
+                                    fh.close()
+                    except Exception as e:
+                        log.error(f"[Bale Publish] خطا در انتقال عکس تلگرام: {e}")
+                    finally:
+                        for path in temp_files:
+                            if os.path.exists(path):
+                                try: os.remove(path)
+                                except: pass
 
-        # ─── fallback: ارسال متنی ───
+                # ج) اگر هیچ عکسی در دیتابیس نبود اما لینک (image_url) بود
+                if product.image_url and product.image_url.strip():
+                    try:
+                        message = await actual_bot.send_photo(
+                            chat_id=channel.channel_identifier,
+                            photo=product.image_url.strip(),
+                            caption=caption,
+                        )
+                        log.info(f"✅ [Bale Publish] عکس URL ارسال شد")
+                        return UnifiedPublishResult(
+                            success=True,
+                            message_id=message.message_id,
+                            message_ids=[message.message_id],
+                            platform=Platform.BALE,
+                        )
+                    except Exception as e:
+                        log.warning(f"[Bale Publish] URL fail: {e}")
+
+        # ─── 5. Fallback نهایی: ارسال متنی ───
         try:
             message = await actual_bot.send_message(
                 chat_id=channel.channel_identifier,
@@ -637,6 +612,7 @@ async def _publish_to_bale_channel(
             return UnifiedPublishResult(
                 success=True,
                 message_id=message.message_id,
+                message_ids=[message.message_id],
                 platform=Platform.BALE,
                 used_fallback=True,
             )
@@ -649,6 +625,7 @@ async def _publish_to_bale_channel(
             )
 
     finally:
+        # پاکسازی ربات موقت
         if is_temp_bot and actual_bot:
             try:
                 await actual_bot.shutdown()
@@ -899,8 +876,8 @@ async def _cache_file_id(
     except Exception as e:
         log.warning(f"[Cache] خطا در ذخیره file_id: {e}")
 
-async def _download_bale_file_by_id(file_id: str) -> Path | None:
-    """دانلود یک فایل از بله صرفاً با داشتن file_id (مستقل از مدل Product)"""
+async def _download_bale_file_by_id(file_id: str, is_video: bool = False) -> Path | None:
+    """دانلود فایل از بله با تنظیم پسوند صحیح (.jpg یا .mp4)"""
     import tempfile
     import httpx
     from app.config import settings
@@ -908,8 +885,10 @@ async def _download_bale_file_by_id(file_id: str) -> Path | None:
     if not settings.BALE_BOT_TOKEN or not file_id:
         return None
 
+    suffix = ".mp4" if is_video else ".jpg"
+
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=35) as client:
             file_url = f"{settings.BALE_API_BASE}{settings.BALE_BOT_TOKEN}/getFile"
             response = await client.post(file_url, json={"file_id": file_id})
 
@@ -921,7 +900,7 @@ async def _download_bale_file_by_id(file_id: str) -> Path | None:
 
             file_response = await client.get(download_url)
             if file_response.status_code == 200 and len(file_response.content) > 100:
-                temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False, mode="wb")
+                temp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode="wb")
                 temp_file.write(file_response.content)
                 temp_file.close()
                 return Path(temp_file.name)
