@@ -531,6 +531,7 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
                 missing_fields=sync_result["missing_fields"],
                 headers=sync_result["headers"],
                 sheet_id=sync_result["sheet_id"],
+                context=context,  # ✅ اضافه شد
             )
             return
 
