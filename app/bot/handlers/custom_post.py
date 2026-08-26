@@ -84,7 +84,7 @@ async def custom_post_text_received_handler(update: Update, context: ContextType
 
 
 async def custom_post_photo_received_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """دریافت عکس/ویدیو از کاربر برای پست سفارشی"""
+    """دریافت عکس/ویدیو از کاربر برای پست سفارشی (پشتیبانی کامل از تلگرام و بله)"""
     user = update.effective_user
     state = get_user_state(user.id)
 
@@ -94,13 +94,23 @@ async def custom_post_photo_received_handler(update: Update, context: ContextTyp
     media_file_id = None
     media_type = "photo"
 
+    # ۱. بررسی عکس
     if update.message.photo:
         media_file_id = update.message.photo[-1].file_id
+        media_type = "photo"
+    # ۲. بررسی ویدیو
     elif update.message.video:
         media_file_id = update.message.video.file_id
         media_type = "video"
-    elif update.message.document and update.message.document.mime_type.startswith("image/"):
-        media_file_id = update.message.document.file_id
+    # ۳. بررسی فایل/سند (مخصوص بله که عکس و ویدیو را به صورت Document می‌فرستد)
+    elif update.message.document:
+        mime = (update.message.document.mime_type or "").lower()
+        if mime.startswith("image/"):
+            media_file_id = update.message.document.file_id
+            media_type = "photo"
+        elif mime.startswith("video/"):
+            media_file_id = update.message.document.file_id
+            media_type = "video"
 
     if not media_file_id:
         await update.message.reply_text("⚠️ لطفاً فقط عکس یا ویدیو ارسال کنید.")
@@ -109,12 +119,13 @@ async def custom_post_photo_received_handler(update: Update, context: ContextTyp
     user_data = get_user_data(user.id)
     medias = user_data.get("media", [])
     
-    # ذخیره فایل همراه با نوع آن
+    # ذخیره فایل همراه با نوع دقیق آن
     medias.append({"file_id": media_file_id, "type": media_type})
     set_user_state(user.id, UserState.WAITING_CUSTOM_POST_PHOTOS, data={"media": medias})
 
+    type_fa = "ویدیو" if media_type == "video" else "عکس"
     text = (
-        f"✅ <b>فایل دریافت شد ({len(medias)} مدیا ثبت شده).</b>\n"
+        f"✅ <b>{type_fa} دریافت شد ({len(medias)} مدیا ثبت شده).</b>\n"
         f"━━━━━━━━━━━━━━━\n\n"
         f"می‌توانید عکس/ویدیوی بیشتری بفرستید یا جهت پیش‌نمایش کلیک کنید:"
     )
