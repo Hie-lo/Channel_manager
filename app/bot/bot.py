@@ -18,6 +18,31 @@ from app.bot.handlers.mapping_wizard import (
     process_mapping_answer_callback,
     mapping_cancel_callback,
 )
+from app.bot.handlers.smart_mapping_wizard import (
+    wizard_sheet_selected_callback,
+    wizard_subtype_selected_callback,
+    wizard_req_col_callback,
+    wizard_opt_col_callback,
+    wizard_confirm_callback,
+    wizard_restart_callback,
+    wizard_cancel_callback,
+)
+from app.bot.handlers.post_template_editor import (
+    post_template_menu_handler,
+    post_template_main_callback,
+    tpl_edit_title_callback,
+    tpl_title_received_handler,
+    tpl_edit_fields_callback,
+    tpl_toggle_field_callback,
+    tpl_edit_hashtags_callback,
+    tpl_hashtags_received_handler,
+    tpl_edit_contact_callback,
+    tpl_contact_received_handler,
+    tpl_clear_contact_callback,
+    tpl_preview_callback,
+    tpl_reset_callback,
+    tpl_reset_confirm_callback,
+)
 from app.bot.handlers.custom_post import (
     custom_post_start_handler,
     custom_post_text_received_handler,
@@ -259,6 +284,34 @@ async def text_router(update, context):
     elif state == UserState.WAITING_CUSTOM_POST_PHOTOS:
         from app.bot.handlers.custom_post import custom_post_photo_received_handler
         await custom_post_photo_received_handler(update, context)
+    elif state == UserState.TPL_WAITING_TITLE:
+        from app.bot.handlers.post_template_editor import tpl_title_received_handler
+        await tpl_title_received_handler(update, context)
+    elif state == UserState.TPL_WAITING_HASHTAGS:
+        from app.bot.handlers.post_template_editor import tpl_hashtags_received_handler
+        await tpl_hashtags_received_handler(update, context)
+    elif state == UserState.TPL_WAITING_CONTACT:
+        from app.bot.handlers.post_template_editor import tpl_contact_received_handler
+        await tpl_contact_received_handler(update, context)
+
+async def _smwiz_col_router(update, context):
+    """مسیریاب کالبک انتخاب ستون در ویزارد هوشمند — بر اساس مرحله جاری"""
+    from app.bot.states.user_state import get_user_data, UserState, get_user_state
+    from app.bot.handlers.smart_mapping_wizard import (
+        wizard_req_col_callback,
+        wizard_opt_col_callback,
+        STEP_REQUIRED_COL,
+        STEP_OPTIONAL_COL,
+    )
+    user_id = update.callback_query.from_user.id
+    if get_user_state(user_id) != UserState.SMART_MAPPING_WIZARD:
+        return
+    step = get_user_data(user_id).get("step")
+    if step == STEP_OPTIONAL_COL:
+        await wizard_opt_col_callback(update, context)
+    else:
+        await wizard_req_col_callback(update, context)
+
 
 async def document_router(update, context):
     """مسیریاب فایل‌ها"""
@@ -451,9 +504,30 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(custom_post_send_confirm_callback, pattern="^custom_post_send_confirm$"))
     app.add_handler(CallbackQueryHandler(custom_post_cancel_callback, pattern="^custom_post_cancel$"))
 
-    # ─── کالبک‌های ویزارد مپینگ ───
+    # ─── کالبک‌های ویزارد مپینگ (قدیمی — Google Sheet) ───
     app.add_handler(CallbackQueryHandler(process_mapping_answer_callback, pattern="^map_col_"))
     app.add_handler(CallbackQueryHandler(mapping_cancel_callback, pattern="^map_cancel$"))
+
+    # ─── کالبک‌های ویزارد هوشمند مپینگ اکسل (smwiz_) ───
+    app.add_handler(CallbackQueryHandler(wizard_sheet_selected_callback,   pattern="^smwiz_sheet_"))
+    app.add_handler(CallbackQueryHandler(wizard_subtype_selected_callback, pattern="^smwiz_sub_"))
+    # smwiz_col_ برای هر دو مرحله اجباری و اختیاری — dispatch بر اساس step
+    app.add_handler(CallbackQueryHandler(_smwiz_col_router,                pattern="^smwiz_col_"))
+    app.add_handler(CallbackQueryHandler(wizard_confirm_callback,          pattern="^smwiz_confirm$"))
+    app.add_handler(CallbackQueryHandler(wizard_restart_callback,          pattern="^smwiz_restart$"))
+    app.add_handler(CallbackQueryHandler(wizard_cancel_callback,           pattern="^smwiz_cancel$"))
+
+    # ─── کالبک‌های ویرایشگر قالب پست (tpl_) ───
+    app.add_handler(CallbackQueryHandler(tpl_reset_confirm_callback,   pattern="^tpl_reset_confirm$"))
+    app.add_handler(CallbackQueryHandler(tpl_reset_callback,           pattern="^tpl_reset$"))
+    app.add_handler(CallbackQueryHandler(tpl_toggle_field_callback,    pattern="^tpl_toggle_"))
+    app.add_handler(CallbackQueryHandler(tpl_edit_title_callback,      pattern="^tpl_edit_title$"))
+    app.add_handler(CallbackQueryHandler(tpl_edit_fields_callback,     pattern="^tpl_edit_fields$"))
+    app.add_handler(CallbackQueryHandler(tpl_edit_hashtags_callback,   pattern="^tpl_edit_hashtags$"))
+    app.add_handler(CallbackQueryHandler(tpl_edit_contact_callback,    pattern="^tpl_edit_contact$"))
+    app.add_handler(CallbackQueryHandler(tpl_clear_contact_callback,   pattern="^tpl_clear_contact$"))
+    app.add_handler(CallbackQueryHandler(tpl_preview_callback,         pattern="^tpl_preview$"))
+    app.add_handler(CallbackQueryHandler(post_template_main_callback,  pattern="^tpl_menu$"))
         
     # ─── کالبک‌های لینک اکانت ───
     app.add_handler(CallbackQueryHandler(link_account_start_callback, pattern="^link_account_start$"))

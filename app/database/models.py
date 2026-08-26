@@ -424,3 +424,109 @@ class AccountLinkCode(Base):
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
+# ═══════════════════════════════════════════════════════
+# مدل‌های ماژول هوشمند مپینگ و قالب پست
+# ═══════════════════════════════════════════════════════
+
+class BusinessMappingProfile(Base):
+    """
+    پروفایل مپینگ هر کسب‌وکار.
+    ذخیره دائمی نگاشت شیت→زیردسته و ستون→فیلد استاندارد.
+    یک رکورد به ازای هر customer.
+    برای اضافه کردن کسب‌وکار جدید فقط باید config.py را گسترش داد؛
+    این جدول به‌طور خودکار پروفایل جدید می‌سازد.
+    """
+    __tablename__ = "business_mapping_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id"), unique=True, index=True
+    )
+
+    # نام شیت شناسایی‌شده (e.g. "لباس", "laptops", "Sheet1")
+    detected_sheet_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # کلید زیردسته‌ای که به این شیت نگاشته شده (e.g. "clothing", "laptop")
+    subcategory_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+    # روش شناسایی: auto_exact | auto_fuzzy | auto_heuristic | wizard
+    detection_method: Mapped[str] = mapped_column(String(30), default="wizard")
+
+    # امتیاز اطمینان (0.0 – 1.0)
+    confidence_score: Mapped[float] = mapped_column(Numeric(4, 3), default=0.0)
+
+    # نگاشت ستون‌ها: {"field_key": col_index}  e.g. {"product_name": 2, "price": 5}
+    column_map: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    # فیلدهایی که کاربر انتخاب کرده نادیده بگیره: ["color", "material"]
+    ignored_fields: Mapped[list] = mapped_column(JSONB, default=list)
+
+    # هدرهای خام اولین شیت (برای نمایش در ویرایش مجدد)
+    raw_headers: Mapped[list] = mapped_column(JSONB, default=list)
+
+    # آیا این مپینگ توسط کاربر تأیید و ذخیره شده؟
+    is_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive
+    )
+
+
+class PostTemplate(Base):
+    """
+    قالب پست هر کسب‌وکار — کاملاً سفارشی‌سازی‌پذیر توسط مشتری.
+    یک رکورد به ازای هر customer.
+    هر بار که کسب‌وکار جدیدی اضافه شود، متد get_default_body_fields
+    در post_template_service آن را پشتیبانی می‌کند.
+    """
+    __tablename__ = "post_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id"), unique=True, index=True
+    )
+
+    # نام نمایشی قالب
+    template_name: Mapped[str] = mapped_column(String(200), default="قالب پیش‌فرض")
+
+    # ─── عنوان ───
+    # الگوی عنوان: از placeholder {field_key} پشتیبانی می‌کند
+    # مثال: "🧥 {brand} | {product_name}"
+    title_pattern: Mapped[str] = mapped_column(String(500), default="{product_name}")
+    title_bold: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # ─── بدنه ───
+    # لیست مرتب فیلدها برای نمایش در بدنه پست:
+    # [{"key": "price", "label": "💰 قیمت", "format": "{value:,} تومان", "enabled": true}, ...]
+    body_fields: Mapped[list] = mapped_column(JSONB, default=list)
+
+    # جداکننده بین فیلدها (پیش‌فرض: خط جدید)
+    field_separator: Mapped[str] = mapped_column(String(20), default="\n")
+
+    # ─── فیلترهای ردیف ───
+    skip_if_out_of_stock: Mapped[bool] = mapped_column(Boolean, default=True)
+    skip_if_price_zero: Mapped[bool] = mapped_column(Boolean, default=True)
+    min_stock: Mapped[int] = mapped_column(Integer, default=1)
+
+    # ─── رسانه ───
+    use_image: Mapped[bool] = mapped_column(Boolean, default=True)
+    fallback_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ─── پاورقی ───
+    contact_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # هشتگ‌های ثابت: ["#پوشاک", "#خرید_آنلاین"]
+    static_hashtags: Mapped[list] = mapped_column(JSONB, default=list)
+    # هشتگ‌های پویا: [{"field": "brand", "prefix": "#"}, {"field": "color", "prefix": "#رنگ_"}]
+    dynamic_hashtags: Mapped[list] = mapped_column(JSONB, default=list)
+
+    # ─── چیدمان ───
+    # text_only | text_with_image
+    layout: Mapped[str] = mapped_column(String(30), default="text_with_image")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive
+    )

@@ -259,9 +259,90 @@ async def excel_file_received_handler(update: Update, context: ContextTypes.DEFA
                 await processing_msg.edit_text("❌ کسب‌وکار تنظیم نشده!")
                 return
 
+            # ── تشخیص هوشمند شیت و ستون‌ها ──
+            from app.services.data_input.smart_detector import run_smart_detection
+            detection = run_smart_detection(temp_file_path, business_config)
+
+            # اگر ویزارد لازم است (امتیاز پایین یا شیت پیدا نشد)
+            if detection.needs_wizard:
+                await processing_msg.edit_text(
+                    "🧭 <b>شناسایی خودکار ناموفق بود</b>\n\n"
+                    "ویزارد مپینگ شروع می‌شود...",
+                    parse_mode="HTML",
+                )
+                from app.bot.handlers.smart_mapping_wizard import start_smart_wizard
+                all_sheet_names = detection.sheet.all_sheet_names
+                await start_smart_wizard(
+                    update=update,
+                    context=context,
+                    user_id=user.id,
+                    file_path=temp_file_path,
+                    business_type_key=business_config.key,
+                    all_sheet_names=all_sheet_names,
+                    detected_sheet=detection.sheet.sheet_name,
+                    detected_subcategory_key=(
+                        detection.sheet.subcategory.key
+                        if detection.sheet.subcategory else None
+                    ),
+                )
+                # فایل توسط ویزارد مدیریت می‌شود
+                temp_file_path = None
+                clear_user_state(user.id)
+                return
+
+            # اگر نیاز به تأیید کاربر دارد
+            if detection.needs_confirm:
+                from app.services.mapping_service import save_mapping_from_detection
+                await save_mapping_from_detection(session, customer.id, detection)
+
+                col_lines = []
+                for fkey, idx in detection.columns.column_map.items():
+                    header = detection.columns.raw_headers[idx] if idx < len(detection.columns.raw_headers) else f"ستون {idx}"
+                    col_lines.append(f"• {fkey} → {header}")
+
+                await processing_msg.edit_text(
+                    f"⚠️ <b>شناسایی نیمه‌خودکار (امتیاز: {detection.overall_score:.0%})</b>\n"
+                    f"━━━━━━━━━━━━━━━\n\n"
+                    f"شیت: <b>{detection.sheet.sheet_name}</b>\n"
+                    f"نگاشت ستون‌ها:\n" +
+                    "\n".join(col_lines) +
+                    "\n\nآیا این نگاشت درست است؟",
+                    parse_mode="HTML",
+                    reply_markup=__import__("telegram", fromlist=["InlineKeyboardMarkup", "InlineKeyboardButton"]).InlineKeyboardMarkup([
+                        [
+                            __import__("telegram", fromlist=["InlineKeyboardButton"]).InlineKeyboardButton(
+                                "✅ درست است", callback_data="upload_confirm_mapping"
+                            ),
+                            __import__("telegram", fromlist=["InlineKeyboardButton"]).InlineKeyboardButton(
+                                "🧭 ویزارد", callback_data="upload_start_wizard"
+                            ),
+                        ]
+                    ])
+                )
+                # ذخیره موقت برای callback
+                from app.bot.states.user_state import set_user_state, UserState
+                set_user_state(user.id, UserState.SMART_MAPPING_WIZARD, data={
+                    "pending_confirm": True,
+                    "file_path": temp_file_path,
+                    "business_type_key": business_config.key,
+                    "column_map": detection.columns.column_map,
+                    "ignored_fields": [],
+                    "all_sheet_names": detection.sheet.all_sheet_names,
+                    "selected_sheet": detection.sheet.sheet_name,
+                    "selected_subcategory": detection.sheet.subcategory.key if detection.sheet.subcategory else None,
+                })
+                temp_file_path = None
+                return
+
+            # ── شناسایی کامل — پردازش مستقیم ──
+            from app.services.mapping_service import save_mapping_from_detection
+            await save_mapping_from_detection(session, customer.id, detection)
+
             # خواندن فایل
-            # خواندن فایل
-            read_result = read_excel_file(temp_file_path, business_config)
+            read_result = read_excel_file(
+                temp_file_path, business_config,
+                custom_map=detection.columns.column_map,
+            )
 
             # چک اگه فقط خطا داشت
             if read_result.is_empty and read_result.has_errors:

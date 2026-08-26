@@ -35,6 +35,12 @@ class UserState(Enum):
     WAITING_CUSTOM_POST_PHOTOS = "waiting_custom_post_photos"
     VIEWING_CUSTOM_POST_PREVIEW = "viewing_custom_post_preview"
     WAITING_COLUMN_MAPPING = "waiting_column_mapping"
+    # ─── ویزارد هوشمند مپینگ ───
+    SMART_MAPPING_WIZARD   = "smart_mapping_wizard"
+    # ─── ویرایشگر قالب پست ───
+    TPL_WAITING_TITLE      = "tpl_waiting_title"
+    TPL_WAITING_HASHTAGS   = "tpl_waiting_hashtags"
+    TPL_WAITING_CONTACT    = "tpl_waiting_contact"
     
 @dataclass
 class UserContext:

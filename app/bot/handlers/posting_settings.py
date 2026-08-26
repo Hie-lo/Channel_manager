@@ -66,6 +66,10 @@ def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
     keyboard.append([
         InlineKeyboardButton("🔄 تغییر نوع کسب‌وکار", callback_data="settings_change_business")
     ])
+    # دکمه ویرایش قالب پست
+    keyboard.append([
+        InlineKeyboardButton("✏️ قالب پست", callback_data="tpl_menu")
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 async def posting_settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
