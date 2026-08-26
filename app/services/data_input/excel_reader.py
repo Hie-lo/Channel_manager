@@ -21,14 +21,16 @@ class RowError:
     field: str
     message: str
     worksheet: str = ""
-    # 💡 افزودن فیلد برای تعیین نوع خطا تا سیستم ویزارد بتواند آن را تشخیص دهد
-    error_type: str = "validation"  # می‌تواند "missing_column" یا "validation" باشد
+    error_type: str = "validation"  # missing_column یا validation
+    field_object: any = None       # شیء فیلد گمشده جهت استفاده در ویزارد
 
 
 @dataclass
 class WorksheetReadResult:
+    """نتیجه خواندن یک sheet"""
     worksheet_name: str
     subcategory_key: str = ""
+    headers: list[str] = field(default_factory=list) # هدرهای این شیت
     products: list[dict] = field(default_factory=list)
     errors: list[RowError] = field(default_factory=list)
     total_rows: int = 0
@@ -37,6 +39,7 @@ class WorksheetReadResult:
 
 @dataclass
 class ExcelReadResult:
+    """نتیجه کلی خواندن فایل"""
     worksheets: list[WorksheetReadResult] = field(default_factory=list)
 
     @property
@@ -75,14 +78,24 @@ class ExcelReadResult:
                 products.append(p)
         return products
 
-    # 💡 این پراپرتی را اضافه کردیم تا هندلرِ ویزارد بتواند فیلدهای گمشده را بیرون بکشد
     @property
-    def missing_mapping_data(self) -> list[str]:
-        missing_fields = []
+    def missing_mapping_fields(self) -> list:
+        """استخراج فیلدهای گمشده برای ویزارد"""
+        fields = []
+        seen = set()
         for err in self.all_errors:
-            if err.error_type == "missing_column":
-                missing_fields.append(err.field)
-        return list(set(missing_fields)) # حذف موارد تکراری
+            if getattr(err, 'error_type', '') == "missing_column" and getattr(err, 'field_object', None):
+                if err.field_object.key not in seen:
+                    seen.add(err.field_object.key)
+                    fields.append(err.field_object)
+        return fields
+
+    @property
+    def headers(self) -> list[str]:
+        """گرفتن هدرهای اولین شیت"""
+        if self.worksheets and hasattr(self.worksheets[0], 'headers'):
+            return self.worksheets[0].headers
+        return []
 
 
 def read_excel_file(
@@ -174,12 +187,14 @@ def _read_worksheet(
     # چک فیلدهای اجباری
     missing_required = _check_missing_required(subcategory, field_map, ignored)
     if missing_required:
-        for field_name in missing_required:
+        for field_obj in missing_required:
             result.errors.append(RowError(
                 row_number=1,
-                field=field_name,
-                message=f"ستون '{field_name}' در sheet '{sheet.title}' پیدا نشد (اجباری)",
+                field=field_obj.excel_column,
+                message=f"ستون '{field_obj.excel_column}' در sheet '{sheet.title}' پیدا نشد (اجباری)",
                 worksheet=sheet.title,
+                error_type="missing_column",
+                field_object=field_obj # ثبت کامل شیء فیلد
             ))
         return result
 
@@ -237,13 +252,13 @@ def _build_field_map(subcategory: SubCategory, headers: list[str]) -> dict[str, 
 
     return field_map
 
-def _check_missing_required(subcategory: SubCategory, field_map: dict, ignored_fields: list) -> list[str]:
-    """چک کن فیلدهای اجباری جا نمونده باشن"""
+def _check_missing_required(subcategory: SubCategory, field_map: dict, ignored_fields: list) -> list:
+    """چک کن فیلدهای اجباری جا نمونده باشن (خروجی: لیست شیء فیلدها)"""
     missing = []
     ignored = ignored_fields or []
     for field in subcategory.fields:
         if field.required and field.key not in field_map and field.key not in ignored:
-            missing.append(field.excel_column)
+            missing.append(field)
     return missing
 
 def _parse_row(

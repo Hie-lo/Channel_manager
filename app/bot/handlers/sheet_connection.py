@@ -346,16 +346,21 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
     try:
         from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
         
-        sync_result = await sync_customer_sheet(context.bot, customer_id_for_sync, is_initial_sync=True)
+        sync_result = await sync_customer_sheet(
+            context.bot, 
+            customer_id_for_sync, 
+            is_manual=True # 💡 دستی
+        )
 
-        # 🚨 اگر ستون‌ها با روش A پیدا نشدند، ویزارد مپینگ دستی (روش B) را باز کن
         if sync_result.get("requires_mapping_wizard"):
             from app.bot.handlers.mapping_wizard import start_mapping_wizard_for_sheet
             await start_mapping_wizard_for_sheet(
                 update=update,
                 user_id=user.id,
                 customer_id=customer_id_for_sync,
-                missing_fields_data=sync_result["missing_fields_data"],
+                missing_fields=sync_result["missing_fields"],
+                headers=sync_result["headers"],
+                sheet_id=sync_result["sheet_id"],
             )
             return
 
@@ -464,12 +469,24 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.edit_message_text("❌ خطا!")
             return
 
-        # sync با ادیت پست‌ها = False (فقط دیتابیس آپدیت میشه)
         sync_result = await sync_customer_sheet(
             context.bot,
             customer.id,
-            edit_posts_now=False,   # ← پست‌ها ادیت نشن
+            edit_posts_now=False,
+            is_manual=True # 💡 دستی
         )
+
+        if sync_result.get("requires_mapping_wizard"):
+            from app.bot.handlers.mapping_wizard import start_mapping_wizard_for_sheet
+            await start_mapping_wizard_for_sheet(
+                update=update,
+                user_id=user.id,
+                customer_id=customer.id,
+                missing_fields=sync_result["missing_fields"],
+                headers=sync_result["headers"],
+                sheet_id=sync_result["sheet_id"],
+            )
+            return
 
         if sync_result.get("error"):
             await query.edit_message_text(

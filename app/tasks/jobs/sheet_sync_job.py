@@ -123,8 +123,9 @@ async def sync_customer_sheet(
     bot: Bot,
     customer_id: int,
     edit_posts_now: bool = True,
-    is_initial_sync: bool = False,  # 💡 پارامتر جدید
-    custom_maps: dict = None,       # 💡 مپینگ‌های دستی دریافتی از ویزارد
+    is_manual: bool = False, # 💡 پرچم همگام‌سازی دستی/اولیه
+    custom_maps: dict = None,
+    ignored_fields: list = None,
 ) -> dict:
     """
     همگام‌سازی شیت یک مشتری
@@ -178,26 +179,28 @@ async def sync_customer_sheet(
         business_config=business_config,
         worksheet_name=connection.worksheet_name,
         custom_map=custom_maps,
+        ignored_fields=ignored_fields,
     )
 
     if sheet_data.has_errors:
-        # 🛡️ بررسی ایمن: استفاده از error_type (که تازه ساختیم)
-        mapping_errors = [err for err in sheet_data.all_errors if getattr(err, 'error_type', 'validation') == "missing_column"]
+        mapping_errors = [err for err in sheet_data.all_errors if getattr(err, 'error_type', '') == "missing_column"]
         
-        if mapping_errors and (is_initial_sync or edit_posts_now is False):
-            # اگر خطای مپینگ بود، ویزارد را استارت بزن
+        # 🚨 اگر در حالت دستی/اولیه هستیم و ستونی گمشده است، ویزارد را فعال کن
+        if mapping_errors and (is_manual or edit_posts_now is False):
             return {
                 "requires_mapping_wizard": True,
-                "missing_fields_data": sheet_data.missing_mapping_data 
+                "missing_fields": sheet_data.missing_mapping_fields,
+                "headers": sheet_data.headers,
+                "sheet_id": connection.sheet_id,
             }
             
-        # در غیر اینصورت (یا اگر ارورها فقط ولیشن دیتایی باشند)، به روال قبلی برگرد
         error_msg = f"خطا در خواندن شیت: {sheet_data.all_errors[0].message}"
-        async with AsyncSessionLocal() as session:
-            await update_sync_status(session, customer_id, False, error_msg)
+        if edit_posts_now:
+            async with AsyncSessionLocal() as session:
+                await update_sync_status(session, customer_id, False, error_msg)
         result["error"] = error_msg
         return result
-
+    
     # تشخیص تغییرات
     for product_data in sheet_data.all_products:
         sku = product_data.get("sku")

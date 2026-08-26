@@ -19,6 +19,7 @@ from app.services.data_input.excel_reader import (
     ExcelReadResult,
     WorksheetReadResult,
     RowError,
+    _check_missing_required,
     _parse_field_value,
     _clean_value,
 )
@@ -188,6 +189,7 @@ def read_google_sheet(
 
 
 def _read_worksheet(
+    sheet,
     worksheet, 
     subcategory: SubCategory,
     custom_map: dict = None,
@@ -216,14 +218,16 @@ def _read_worksheet(
     else:
         field_map = custom_map
 
-    missing_required = _check_missing_required_sheet(subcategory, field_map, ignored)
+    missing_required = _check_missing_required(subcategory, field_map, ignored)
     if missing_required:
-        for field_name in missing_required:
+        for field_obj in missing_required:
             result.errors.append(RowError(
                 row_number=1,
-                field=field_name,
-                message=f"ستون '{field_name}' در sheet '{worksheet.title}' پیدا نشد",
-                worksheet=worksheet.title,
+                field=field_obj.excel_column,
+                message=f"ستون '{field_obj.excel_column}' در sheet '{sheet.title}' پیدا نشد (اجباری)",
+                worksheet=sheet.title,
+                error_type="missing_column",
+                field_object=field_obj # ثبت کامل شیء فیلد
             ))
         return result
 
@@ -279,12 +283,12 @@ def _build_field_map_sheet(subcategory: SubCategory, headers: list[str]) -> dict
     return field_map
 
 
-def _check_missing_required_sheet(subcategory: SubCategory, field_map: dict, ignored_fields: list) -> list[str]:
+def _check_missing_required_sheet(subcategory, field_map: dict, ignored_fields: list) -> list:
     missing = []
     ignored = ignored_fields or []
     for field in subcategory.fields:
         if field.required and field.key not in field_map and field.key not in ignored:
-            missing.append(field.excel_column)
+            missing.append(field) # برگرداندن شیء فیلد
     return missing
 
 

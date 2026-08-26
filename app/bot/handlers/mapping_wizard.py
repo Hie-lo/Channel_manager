@@ -154,7 +154,7 @@ async def mapping_cancel_callback(
 async def _finalize_and_process_file(update, user_id: int):
     """ویزارد تمام شده، حالا فایل را با مپینگ کاربر می‌خوانیم"""
     user_data = get_user_data(user_id)
-
+    source = user_data.get("source", "excel")
     file_path = user_data.get("file_path")
     custom_map = user_data.get("custom_map", {})
     ignored_fields = user_data.get("ignored_fields", [])
@@ -163,7 +163,32 @@ async def _finalize_and_process_file(update, user_id: int):
     await query.edit_message_text(
         "✅ ستون‌ها شناسایی شدند.\n🔄 در حال پردازش فایل با تنظیمات شما..."
     )
+    if source == "google_sheet":
+        customer_id = user_data["customer_id"]
+        custom_map = user_data.get("custom_map", {})
+        ignored_fields = user_data.get("ignored_fields", [])
 
+        from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
+        sync_result = await sync_customer_sheet(
+            query.bot,
+            customer_id,
+            edit_posts_now=True,
+            is_manual=True,
+            custom_maps=custom_map,
+            ignored_fields=ignored_fields,
+        )
+
+        clear_user_state(user_id)
+        if sync_result.get("error"):
+            await query.edit_message_text(f"❌ خطا در همگام‌سازی: {sync_result['error']}")
+        else:
+            await query.edit_message_text(
+                f"🎉 <b>همگام‌سازی گوگل‌شیت با موفقیت انجام شد!</b>\n"
+                f"محصولات جدید: {sync_result.get('new_count', 0)}\n"
+                f"بروزرسانی شده: {sync_result.get('updated_count', 0)}",
+                parse_mode="HTML"
+            )
+        return
     try:
         async with AsyncSessionLocal() as session:
             customer = await get_customer_by_telegram_id(session, user_id)
@@ -223,3 +248,28 @@ async def _finalize_and_process_file(update, user_id: int):
                 os.remove(file_path)
             except Exception:
                 pass
+
+async def start_mapping_wizard_for_sheet(
+    update: Update,
+    user_id: int,
+    customer_id: int,
+    missing_fields: list,
+    headers: list,
+    sheet_id: str,
+):
+    """شروع ویزارد مپینگ برای گوگل‌شیت"""
+    set_user_state(
+        user_id,
+        UserState.WAITING_COLUMN_MAPPING,
+        data={
+            "source": "google_sheet",
+            "customer_id": customer_id,
+            "sheet_id": sheet_id,
+            "headers": headers,
+            "missing_fields": missing_fields,
+            "custom_map": {},
+            "ignored_fields": [],
+        },
+    )
+
+    await _ask_next_mapping_question(update, user_id)
