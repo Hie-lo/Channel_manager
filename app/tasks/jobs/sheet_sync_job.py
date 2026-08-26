@@ -183,9 +183,10 @@ async def sync_customer_sheet(
     )
 
     if sheet_data.has_errors:
+        # بررسی اینکه آیا ارورها از جنس گم شدن ستون‌ها هستند
         mapping_errors = [err for err in sheet_data.all_errors if getattr(err, 'error_type', '') == "missing_column"]
         
-        # 🚨 اگر در حالت دستی/اولیه هستیم و ستونی گمشده است، ویزارد را فعال کن
+        # اگر در همگام‌سازی دستی یا اولیه هستیم و خطای مپینگ داریم، ویزارد را تریگر کن
         if mapping_errors and (is_manual or edit_posts_now is False):
             return {
                 "requires_mapping_wizard": True,
@@ -194,6 +195,7 @@ async def sync_customer_sheet(
                 "sheet_id": connection.sheet_id,
             }
             
+        # در غیر اینصورت (مثل اجرای شبانه خودکار)، فقط ارور را لاگ کن
         error_msg = f"خطا در خواندن شیت: {sheet_data.all_errors[0].message}"
         if edit_posts_now:
             async with AsyncSessionLocal() as session:

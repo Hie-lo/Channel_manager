@@ -342,18 +342,29 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
         f"🔄 در حال اجرای همگام‌سازی اولیه محصولات...\nلطفاً صبور باشید."
     )
 
-    # ۵. اجرای همگام‌سازی اولیه با قابلیت تریگر ویزارد مپینگ (روش B)
+     # مرحله بعد: شروع همگام‌سازی اولیه
+    connection_text += (
+        f"\n━━━━━━━━━━━━━━━\n\n"
+        f"🔄 در حال شروع همگام‌سازی اولیه...\n"
+        f"لطفاً چند لحظه صبر کنید."
+    )
+    await processing_msg.edit_text(connection_text)
+
+    # اجرای sync
     try:
         from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
         
         sync_result = await sync_customer_sheet(
-            context.bot, 
-            customer_id_for_sync, 
-            is_manual=True # 💡 دستی
+            context.bot,
+            customer_id_for_sync,
+            is_manual=True,
+            edit_posts_now=False,
         )
 
+        # 🚨 اگر خطای مپینگ ستون‌ها (Missing Fields) رخ داده باشد، ویزارد را استارت می‌زنیم
         if sync_result.get("requires_mapping_wizard"):
             from app.bot.handlers.mapping_wizard import start_mapping_wizard_for_sheet
+            
             await start_mapping_wizard_for_sheet(
                 update=update,
                 user_id=user.id,
@@ -362,33 +373,63 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
                 headers=sync_result["headers"],
                 sheet_id=sync_result["sheet_id"],
             )
-            return
+            return  # خروج از این هندلر، بقیه کار به عهده ویزارد است
 
-        # ۶. گزارش موفقیت‌آمیز نهایی
+        # ساخت گزارش نهایی
         if sync_result.get("error"):
-            final_text = f"⚠️ <b>اتصال برقرار شد اما همگام‌سازی خطا داشت:</b>\n{sync_result['error']}"
-        else:
-            new_c = sync_result.get("new_count", 0)
-            upd_c = sync_result.get("updated_count", 0)
             final_text = (
-                f"🎉 <b>همگام‌سازی اولیه با موفقیت کامل شد!</b>\n"
+                f"✅ اتصال برقرار شد ولی در همگام‌سازی خطا رخ داد.\n\n"
+                f"⚠️ {sync_result['error']}\n\n"
+                f"می‌تونید از منوی '📊 Google Sheet' →\n"
+                f"' همگام‌سازی الان' دوباره امتحان کنید."
+            )
+        else:
+            new_count = sync_result.get("new_count", 0)
+            updated_count = sync_result.get("updated_count", 0)
+            unchanged = sync_result.get("unchanged_count", 0)
+            errors = sync_result.get("error_count", 0)
+
+            final_text = (
+                f"✅ اتصال و همگام‌سازی کامل شد!\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f"🆕 محصولات جدید: {new_c}\n"
-                f"🔄 بروزرسانی شده: {upd_c}\n"
+                f" شیت: {result.sheet_title}\n"
+                f"📄 صفحه‌های فعال: {len(recognized_sheets)}\n"
                 f"━━━━━━━━━━━━━━━\n\n"
-                f"💡 از این پس سیستم به صورت خودکار هر ۲ ساعت تغییرات شیت را با کانال‌ها سینک می‌کند."
+                f"📊 نتیجه همگام‌سازی:\n"
+                f"├── 🆕 محصولات جدید: {new_count}\n"
+                f"├── 🔄 آپدیت شده: {updated_count}\n"
+                f"├── ✅ بدون تغییر: {unchanged}\n"
+                f"└── ❌ خطا: {errors}\n\n"
             )
 
-        await processing_msg.edit_text(final_text, parse_mode="HTML")
+            if new_count > 0:
+                final_text += (
+                    f" {new_count} محصول جدید به سیستم اضافه شد!\n\n"
+                    f"از این به بعد:\n"
+                    f"├── هر  ساعت خودکار همگام‌سازی میشه\n"
+                    f"├── تغییر قیمت/موجودی در شیت → آپدیت پست‌ها\n"
+                    f"└── محصولات جدید → اضافه به سیستم\n\n"
+                    f"💡 برای دیدن محصولات از ' مدیریت محصولات'"
+                )
+            else:
+                final_text += (
+                    f"از این به بعد:\n"
+                    f"├── هر ۲ ساعت خودکار همگام‌سازی میشه\n"
+                    f"└── تغییرات خودکار اعمال میشن\n\n"
+                    f"💡 اگه محصولی در شیت اضافه کنید،\n"
+                    f"در همگام‌سازی بعدی اضافه میشه."
+                )
+
+        await processing_msg.edit_text(final_text)
 
     except Exception as e:
-        log.error(f"خطا در همگام‌سازی اولیه گوگل‌شیت: {e}", exc_info=True)
+        log.error(f"خطا در sync اولیه: {e}", exc_info=True)
         await processing_msg.edit_text(
-            f"✅ اتصال برقرار شد اما همگام‌سازی اولیه با خطا مواجه شد.\n"
-            f"می‌توانید از منوی '📊 Google Sheet' دکمه همگام‌سازی دستی را بزنید.",
-            reply_markup=help_cancel_kb
+            f"✅ اتصال برقرار شد ولی در همگام‌سازی خطا رخ داد.\n\n"
+            f"لطفاً از منوی '📊 Google Sheet' →\n"
+            f"'🔃 همگام‌سازی الان' اقدام کنید.\n\n"
+            f"جزئیات خطا:\n{str(e)[:200]}"
         )
-
 
 async def sheet_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """لغو فرآیند اتصال"""
@@ -454,28 +495,33 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
 
     user = query.from_user
+    
+    # چک rate limit
     if is_rate_limited(user.id, "sheet_sync", max_requests=3, time_window_seconds=300):
-        await query.answer("⚠️ شما بیش از حد مجاز درخواست داده‌اید. لطفاً ۵ دقیقه دیگر تلاش کنید.", show_alert=True)
+        await query.answer("️ شما بیش از حد مجاز درخواست داده‌اید. لطفاً ۵ دقیقه دیگر تلاش کنید.", show_alert=True)
         return
-    await query.edit_message_text("🔄 در حال همگام‌سازی از Google Sheet...")
+
+    await query.edit_message_text("🔄 در حال همگام‌سازی از Google Sheet...\nلطفاً چند لحظه صبر کنید.")
 
     try:
         from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
-
+        
+        # گرفتن اطلاعات مشتری
         async with AsyncSessionLocal() as session:
             customer = await get_customer_by_telegram_id(session, user.id)
+            if not customer:
+                await query.edit_message_text("❌ مشتری یافت نشد!")
+                return
 
-        if not customer:
-            await query.edit_message_text("❌ خطا!")
-            return
-
+        # اجرای همگام‌سازی
         sync_result = await sync_customer_sheet(
             context.bot,
             customer.id,
             edit_posts_now=False,
-            is_manual=True # 💡 دستی
+            is_manual=True,
         )
 
+        #  اگر خطای مپینگ ستون‌ها رخ داده باشد، ویزارد را استارت می‌زنیم
         if sync_result.get("requires_mapping_wizard"):
             from app.bot.handlers.mapping_wizard import start_mapping_wizard_for_sheet
             await start_mapping_wizard_for_sheet(
@@ -488,36 +534,42 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
             )
             return
 
+        # بررسی خطا
         if sync_result.get("error"):
             await query.edit_message_text(
-                f"❌ خطا در همگام‌سازی\n"
-                f"━━━━━━━━━━━━━━━\n{sync_result['error']}"
+                f"❌ خطا در همگام‌سازی:\n"
+                f"━━━━━━━━━━━━━━━\n"
+                f"{sync_result['error']}\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+                f"می‌تونید از منوی ' Google Sheet' →\n"
+                f"'🔃 همگام‌سازی الان' دوباره امتحان کنید."
             )
             return
 
-        # ساخت متن گزارش
+        # استخراج نتایج
         new_count = sync_result.get("new_count", 0)
         updated_count = sync_result.get("updated_count", 0)
-        unchanged_count = sync_result.get("unchanged_count", 0)
+        unchanged = sync_result.get("unchanged_count", 0)
+        errors = sync_result.get("error_count", 0)
         price_changes = sync_result.get("price_changes", [])
         stock_changes = sync_result.get("stock_changes", [])
         pending_edits = sync_result.get("pending_edits_count", 0)
 
+        # ساخت متن گزارش
         text = (
-            f"✅ همگام‌سازی انجام شد\n"
+            f"✅ همگام‌سازی کامل شد!\n"
             f"━━━━━━━━━━━━━━━\n"
-            f"📊 نتیجه:\n"
-            f"├── 🆕 محصول جدید: {new_count}\n"
-            f"├── 🔄 آپدیت شده: {updated_count}\n"
-            f"├── ✅ بدون تغییر: {unchanged_count}\n"
+            f"🆕 محصولات جدید: {new_count}\n"
+            f"🔄 آپدیت شده: {updated_count}\n"
+            f"✅ بدون تغییر: {unchanged}\n"
+            f"❌ خطا: {errors}\n"
+            f"━━━━━━━━━━━━━━━\n"
         )
 
         if price_changes:
-            text += f"├── 💰 تغییر قیمت: {len(price_changes)}\n"
+            text += f"\n💰 تغییرات قیمت: {len(price_changes)} مورد\n"
         if stock_changes:
-            text += f"└── 📦 تغییر موجودی: {len(stock_changes)}\n"
-        else:
-            text += "\n"
+            text += f"📦 تغییرات موجودی: {len(stock_changes)} مورد\n"
 
         text += "━━━━━━━━━━━━━━━\n"
 
@@ -562,7 +614,7 @@ async def sheet_sync_now_callback(update: Update, context: ContextTypes.DEFAULT_
             # هیچ پست منتشر شده‌ای نیاز به ادیت نداره
             if price_changes or stock_changes:
                 text += (
-                    f"\n💡 محصولاتی که تغییر کردن، هنوز در کانال\n"
+                    f"\n محصولاتی که تغییر کردن، هنوز در کانال\n"
                     f"منتشر نشدن. وقتی منتشر بشن، با قیمت جدید ارسال می‌شن."
                 )
             else:

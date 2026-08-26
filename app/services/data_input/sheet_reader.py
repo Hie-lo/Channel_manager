@@ -223,8 +223,8 @@ def _read_worksheet(
                 field=field_obj.excel_column,
                 message=f"ستون '{field_obj.excel_column}' در G-Sheet '{worksheet.title}' پیدا نشد",
                 worksheet=worksheet.title,
-                error_type="missing_column", # ثبت دقیق نوع خطا
-                field_object=field_obj       # ثبت شیء فیلد برای ویزارد
+                error_type="missing_column",
+                field_object=field_obj
             ))
         return result
 

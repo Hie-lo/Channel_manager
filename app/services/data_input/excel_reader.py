@@ -30,7 +30,7 @@ class WorksheetReadResult:
     """نتیجه خواندن یک sheet"""
     worksheet_name: str
     subcategory_key: str = ""
-    headers: list[str] = field(default_factory=list) # هدرهای این شیت
+    headers: list[str] = field(default_factory=list)
     products: list[dict] = field(default_factory=list)
     errors: list[RowError] = field(default_factory=list)
     total_rows: int = 0
@@ -96,7 +96,6 @@ class ExcelReadResult:
         if self.worksheets and hasattr(self.worksheets[0], 'headers'):
             return self.worksheets[0].headers
         return []
-
 
 def read_excel_file(
     file_path: str | Path,
@@ -194,7 +193,7 @@ def _read_worksheet(
                 message=f"ستون '{field_obj.excel_column}' در sheet '{sheet.title}' پیدا نشد (اجباری)",
                 worksheet=sheet.title,
                 error_type="missing_column",
-                field_object=field_obj # ثبت کامل شیء فیلد
+                field_object=field_obj
             ))
         return result
 

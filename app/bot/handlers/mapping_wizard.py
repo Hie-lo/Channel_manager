@@ -4,7 +4,7 @@
 """
 
 import os
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, User
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
 from app.bot.states.user_state import (
@@ -41,7 +41,34 @@ async def start_mapping_wizard(
         user_id,
         UserState.WAITING_COLUMN_MAPPING,
         data={
+            "source": "excel",
             "file_path": file_path,
+            "headers": headers,
+            "missing_fields": missing_fields,
+            "custom_map": {},
+            "ignored_fields": [],
+        },
+    )
+
+    await _ask_next_mapping_question(update, user_id)
+
+
+async def start_mapping_wizard_for_sheet(
+    update: Update,
+    user_id: int,
+    customer_id: int,
+    missing_fields: list,
+    headers: list,
+    sheet_id: str,
+):
+    """شروع ویزارد مپینگ برای گوگل‌شیت"""
+    set_user_state(
+        user_id,
+        UserState.WAITING_COLUMN_MAPPING,
+        data={
+            "source": "google_sheet",
+            "customer_id": customer_id,
+            "sheet_id": sheet_id,
             "headers": headers,
             "missing_fields": missing_fields,
             "custom_map": {},
@@ -71,7 +98,7 @@ async def _ask_next_mapping_question(update, user_id: int):
         f"━━━━━━━━━━━━━━━\n\n"
         f"لطفاً به من کمک کنید:\n"
         f"در فایل شما، ستون مربوط به <b>«{next_field.label_fa}»</b> کدام است؟\n\n"
-        f"💡 <i>اگر این اطلاعات را در فایل ندارید، دکمه 'نادیده بگیر' را بزنید.</i>"
+        f" <i>اگر این اطلاعات را در فایل ندارید، دکمه 'نادیده بگیر' را بزنید.</i>"
     )
 
     keyboard = get_column_mapping_keyboard(headers)
@@ -161,35 +188,40 @@ async def _finalize_and_process_file(update, user_id: int):
 
     query = update.callback_query
     await query.edit_message_text(
-        "✅ ستون‌ها شناسایی شدند.\n🔄 در حال پردازش فایل با تنظیمات شما..."
+        "✅ ستون‌ها شناسایی شدند.\n🔄 در حال پردازش داده‌ها با تنظیمات شما..."
     )
-    if source == "google_sheet":
-        customer_id = user_data["customer_id"]
-        custom_map = user_data.get("custom_map", {})
-        ignored_fields = user_data.get("ignored_fields", [])
 
-        from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
-        sync_result = await sync_customer_sheet(
-            query.bot,
-            customer_id,
-            edit_posts_now=True,
-            is_manual=True,
-            custom_maps=custom_map,
-            ignored_fields=ignored_fields,
-        )
-
-        clear_user_state(user_id)
-        if sync_result.get("error"):
-            await query.edit_message_text(f"❌ خطا در همگام‌سازی: {sync_result['error']}")
-        else:
-            await query.edit_message_text(
-                f"🎉 <b>همگام‌سازی گوگل‌شیت با موفقیت انجام شد!</b>\n"
-                f"محصولات جدید: {sync_result.get('new_count', 0)}\n"
-                f"بروزرسانی شده: {sync_result.get('updated_count', 0)}",
-                parse_mode="HTML"
-            )
-        return
     try:
+        if source == "google_sheet":
+            # 💡 پردازش گوگل‌شیت
+            customer_id = user_data["customer_id"]
+            sheet_id = user_data.get("sheet_id")
+
+            from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
+            sync_result = await sync_customer_sheet(
+                query.message.bot,  # ✅ اصلاح: استفاده از query.message.bot
+                customer_id,
+                edit_posts_now=True,
+                is_manual=True,
+                custom_maps=custom_map,
+                ignored_fields=ignored_fields,
+            )
+
+            clear_user_state(user_id)
+            if sync_result.get("error"):
+                await query.edit_message_text(f"❌ خطا در همگام‌سازی: {sync_result['error']}")
+            else:
+                await query.edit_message_text(
+                    f" <b>همگام‌سازی گوگل‌شیت با موفقیت انجام شد!</b>\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"🆕 محصولات جدید: {sync_result.get('new_count', 0)}\n"
+                    f"🔄 بروزرسانی شده: {sync_result.get('updated_count', 0)}\n"
+                    f"━━━━━━━━━━━━━━━",
+                    parse_mode="HTML"
+                )
+            return
+
+        # 💡 پردازش اکسل
         async with AsyncSessionLocal() as session:
             customer = await get_customer_by_telegram_id(session, user_id)
             if not customer:
@@ -203,7 +235,7 @@ async def _finalize_and_process_file(update, user_id: int):
 
             if not business_config or not subscription:
                 await query.edit_message_text("❌ اطلاعات کسب‌وکار یا اشتراک یافت نشد.")
-                clear_user_state(User.id)
+                clear_user_state(user_id)
                 return
 
             plan = get_plan(subscription.plan_key)
@@ -232,7 +264,8 @@ async def _finalize_and_process_file(update, user_id: int):
             f"🆕 محصولات جدید: {save_result.new_count}\n"
             f"🔄 آپدیت شده: {save_result.updated_count}\n"
             f"✅ بدون تغییر: {save_result.unchanged_count}\n"
-            f"❌ خطا: {save_result.error_count}"
+            f"❌ خطا: {save_result.error_count}\n"
+            f"━━━━━━━━━━━━━━━"
         )
 
         await query.edit_message_text(summary_text, parse_mode="HTML")
@@ -248,28 +281,3 @@ async def _finalize_and_process_file(update, user_id: int):
                 os.remove(file_path)
             except Exception:
                 pass
-
-async def start_mapping_wizard_for_sheet(
-    update: Update,
-    user_id: int,
-    customer_id: int,
-    missing_fields: list,
-    headers: list,
-    sheet_id: str,
-):
-    """شروع ویزارد مپینگ برای گوگل‌شیت"""
-    set_user_state(
-        user_id,
-        UserState.WAITING_COLUMN_MAPPING,
-        data={
-            "source": "google_sheet",
-            "customer_id": customer_id,
-            "sheet_id": sheet_id,
-            "headers": headers,
-            "missing_fields": missing_fields,
-            "custom_map": {},
-            "ignored_fields": [],
-        },
-    )
-
-    await _ask_next_mapping_question(update, user_id)
