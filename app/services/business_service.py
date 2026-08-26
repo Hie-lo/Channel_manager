@@ -78,3 +78,104 @@ def get_excel_template_path(business_type_key: str) -> Path | None:
     if path and path.exists():
         return path
     return None
+
+
+async def reset_customer_data(
+    session: AsyncSession,
+    customer_id: int,
+) -> None:
+    """
+    ریست کامل داده‌های مشتری به‌جز اشتراک‌ها و توکن‌های AI
+
+    جداول پاک‌شونده:
+    - PostedMessage (وابسته به Product و Channel)
+    - ProductPlatformMedia (وابسته به Product)
+    - AIUsageLog (وابسته به Product)
+    - Product
+    - Channel
+    - PostingSettings
+    - GoogleSheetConnection
+    - AccountLinkCode
+    - Business
+    - Customer.business_type_key → None
+    """
+    from sqlalchemy import delete
+    from app.database.models import (
+        PostedMessage,
+        ProductPlatformMedia,
+        AIUsageLog,
+        Product,
+        Channel,
+        PostingSettings,
+        GoogleSheetConnection,
+        AccountLinkCode,
+        Business,
+        Customer,
+    )
+
+    # ۱. جمع‌آوری آیدی محصولات این مشتری
+    from sqlalchemy import select
+    product_ids_result = await session.execute(
+        select(Product.id).where(Product.customer_id == customer_id)
+    )
+    product_ids = [row[0] for row in product_ids_result.fetchall()]
+
+    # ۲. پاک کردن PostedMessage (وابسته به Product)
+    if product_ids:
+        await session.execute(
+            delete(PostedMessage).where(PostedMessage.product_id.in_(product_ids))
+        )
+
+    # ۳. پاک کردن ProductPlatformMedia (وابسته به Product)
+    if product_ids:
+        await session.execute(
+            delete(ProductPlatformMedia).where(ProductPlatformMedia.product_id.in_(product_ids))
+        )
+
+    # ۴. پاک کردن AIUsageLog های مرتبط با محصولات (لاگ‌های AI کلی مشتری نگه داشته می‌شه)
+    if product_ids:
+        await session.execute(
+            delete(AIUsageLog).where(AIUsageLog.product_id.in_(product_ids))
+        )
+
+    # ۵. پاک کردن محصولات
+    await session.execute(
+        delete(Product).where(Product.customer_id == customer_id)
+    )
+
+    # ۶. پاک کردن کانال‌ها
+    await session.execute(
+        delete(Channel).where(Channel.customer_id == customer_id)
+    )
+
+    # ۷. پاک کردن تنظیمات ارسال
+    await session.execute(
+        delete(PostingSettings).where(PostingSettings.customer_id == customer_id)
+    )
+
+    # ۸. پاک کردن اتصال Google Sheet
+    await session.execute(
+        delete(GoogleSheetConnection).where(GoogleSheetConnection.customer_id == customer_id)
+    )
+
+    # ۹. پاک کردن کدهای اتصال حساب
+    await session.execute(
+        delete(AccountLinkCode).where(AccountLinkCode.customer_id == customer_id)
+    )
+
+    # ۱۰. پاک کردن رکورد Business
+    await session.execute(
+        delete(Business).where(Business.customer_id == customer_id)
+    )
+
+    # ۱۱. ریست کردن business_type_key در جدول مشتری
+    from sqlalchemy import update as sa_update
+    from app.utils.time import utc_now_naive
+    await session.execute(
+        sa_update(Customer)
+        .where(Customer.id == customer_id)
+        .values(business_type_key=None, updated_at=utc_now_naive())
+    )
+
+    await session.commit()
+    log.info(f"[RESET] داده‌های مشتری {customer_id} پاک شدند (اشتراک‌ها و توکن‌های AI حفظ شدند)")
