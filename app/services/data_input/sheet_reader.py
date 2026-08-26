@@ -130,12 +130,16 @@ def read_google_sheet(
     worksheet_name: str | None = None,
     custom_map: dict[str, int] = None,
     ignored_fields: list[str] = None,
+    custom_maps: dict = None,  # 💡 اضافه شد جهت پشتیبانی از نام جمع
 ) -> ExcelReadResult:
     """
-    خواندن کل Google Sheet (همه worksheet ها)
+    خواندن کل Google Sheet با پشتیبانی کامل از مپینگ سفارشی
     """
     result = ExcelReadResult()
     ignored = ignored_fields or []
+
+    # استفاده از هر کدا‌م که ارسال شده باشد
+    effective_map = custom_map or custom_maps
 
     client = _get_gspread_client()
     if not client:
@@ -165,10 +169,11 @@ def read_google_sheet(
                     log.info(f"💡 G-Sheet '{sheet_name}' برای کسب‌وکار سایر متصل شد.")
 
             if not subcategory:
-                log.warning(f"Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست")
+                log.warning(f"G-Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست")
                 continue
 
-            ws_result = _read_worksheet(worksheet, subcategory, custom_map, ignored)
+            # پاس دادن effective_map
+            ws_result = _read_worksheet(worksheet, subcategory, effective_map, ignored)
             result.worksheets.append(ws_result)
 
         log.info(f"شیت خونده شد: {len(result.worksheets)} sheet، {result.valid_rows} محصول معتبر")

@@ -175,7 +175,8 @@ async def sync_customer_sheet(
     sheet_data = read_google_sheet(
         sheet_id=connection.sheet_id,
         business_config=business_config,
-        custom_maps=custom_maps, # باید به sheet_reader اضافه شود
+        worksheet_name=connection.worksheet_name,
+        custom_map=custom_maps,  # استانداردسازی پارامتر
     )
 
     if sheet_data.has_errors:
