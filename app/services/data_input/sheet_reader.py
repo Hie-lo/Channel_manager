@@ -4,7 +4,7 @@
 
 import re
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -19,7 +19,6 @@ from app.services.data_input.excel_reader import (
     ExcelReadResult,
     WorksheetReadResult,
     RowError,
-    _check_missing_required,
     _parse_field_value,
     _clean_value,
 )
@@ -131,15 +130,13 @@ def read_google_sheet(
     worksheet_name: str | None = None,
     custom_map: dict[str, int] = None,
     ignored_fields: list[str] = None,
-    custom_maps: dict = None,  # 💡 اضافه شد جهت پشتیبانی از نام جمع
+    custom_maps: dict = None,
 ) -> ExcelReadResult:
     """
     خواندن کل Google Sheet با پشتیبانی کامل از مپینگ سفارشی
     """
     result = ExcelReadResult()
     ignored = ignored_fields or []
-
-    # استفاده از هر کدا‌م که ارسال شده باشد
     effective_map = custom_map or custom_maps
 
     client = _get_gspread_client()
@@ -173,7 +170,7 @@ def read_google_sheet(
                 log.warning(f"G-Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست")
                 continue
 
-            # پاس دادن effective_map
+            # پاس دادن safe parameters به تابع خواندن
             ws_result = _read_worksheet(worksheet, subcategory, effective_map, ignored)
             result.worksheets.append(ws_result)
 
@@ -189,24 +186,24 @@ def read_google_sheet(
 
 
 def _read_worksheet(
-    sheet,
     worksheet, 
-    subcategory: SubCategory,
-    custom_map: dict = None,
-    ignored_fields: list = None,
+    subcategory: SubCategory, 
+    custom_map: dict = None, 
+    ignored_fields: list = None
 ) -> WorksheetReadResult:
-    """خواندن یک worksheet با پشتیبانی کامل از پارامترهای ویزارد"""
+    """خواندن یک worksheet از گوگل‌شیت"""
+    # 💡 استفاده مستقیم از title شیء worksheet برای جلوگیری از خطا
     result = WorksheetReadResult(
         worksheet_name=worksheet.title,
         subcategory_key=subcategory.key,
     )
 
     all_values = worksheet.get_all_values()
-
     if not all_values:
         return result
 
     headers = [str(cell).strip() for cell in all_values[0]]
+    result.headers = headers # ذخیره هدرها برای ویزارد
 
     if not any(headers):
         return result
@@ -218,16 +215,16 @@ def _read_worksheet(
     else:
         field_map = custom_map
 
-    missing_required = _check_missing_required(subcategory, field_map, ignored)
+    missing_required = _check_missing_required_sheet(subcategory, field_map, ignored)
     if missing_required:
         for field_obj in missing_required:
             result.errors.append(RowError(
                 row_number=1,
                 field=field_obj.excel_column,
-                message=f"ستون '{field_obj.excel_column}' در sheet '{sheet.title}' پیدا نشد (اجباری)",
-                worksheet=sheet.title,
-                error_type="missing_column",
-                field_object=field_obj # ثبت کامل شیء فیلد
+                message=f"ستون '{field_obj.excel_column}' در G-Sheet '{worksheet.title}' پیدا نشد",
+                worksheet=worksheet.title,
+                error_type="missing_column", # ثبت دقیق نوع خطا
+                field_object=field_obj       # ثبت شیء فیلد برای ویزارد
             ))
         return result
 
@@ -283,12 +280,13 @@ def _build_field_map_sheet(subcategory: SubCategory, headers: list[str]) -> dict
     return field_map
 
 
-def _check_missing_required_sheet(subcategory, field_map: dict, ignored_fields: list) -> list:
+def _check_missing_required_sheet(subcategory: SubCategory, field_map: dict, ignored_fields: list) -> list:
+    """برگرداندن لیست شیء فیلدهای گمشده برای ویزارد"""
     missing = []
     ignored = ignored_fields or []
     for field in subcategory.fields:
         if field.required and field.key not in field_map and field.key not in ignored:
-            missing.append(field) # برگرداندن شیء فیلد
+            missing.append(field)
     return missing
 
 
