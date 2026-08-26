@@ -1,7 +1,7 @@
 """
 راه‌اندازی و تنظیم ربات تلگرام
 """
-
+#sd
 
 from celery import app
 from sqlalchemy import Update
