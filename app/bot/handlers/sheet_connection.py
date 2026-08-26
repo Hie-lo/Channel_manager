@@ -291,7 +291,6 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
     # ۳. اتصال موفق اولیه - ذخیره در دیتابیس
     customer_id_for_sync = None
     recognized_sheets = []
-    unrecognized_sheets = []
 
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
@@ -301,20 +300,28 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
             return
 
         from app.business.config import get_business
+        from app.services.data_input.sheet_reader import _fuzzy_find_subcategory
         business_config = get_business(customer.business_type_key)
 
+        _SKIP_NAMES = {"راهنما", "info", "Sheet1", "Sheet2", "Sheet3"}
+        data_tabs = [t for t in result.worksheet_titles if t not in _SKIP_NAMES]
+
         if business_config:
-            if business_config.key == "other":
-                for ws_title in result.worksheet_titles:
-                    if ws_title not in ("راهنما", "info", "Sheet1", "Sheet2"):
-                        recognized_sheets.append(ws_title)
-            else:
-                expected_sheets = {sc.worksheet_name for sc in business_config.sub_categories}
-                for ws_title in result.worksheet_titles:
-                    if ws_title in expected_sheets:
-                        recognized_sheets.append(ws_title)
-                    elif ws_title not in ("راهنما", "info", "Sheet1", "Sheet2"):
-                        unrecognized_sheets.append(ws_title)
+            for ws_title in data_tabs:
+                # پاس ۱: تطابق دقیق
+                exact = any(
+                    sc.worksheet_name.lower() == ws_title.lower()
+                    for sc in business_config.sub_categories
+                )
+                # پاس ۲: تطابق فازی/alias
+                fuzzy = _fuzzy_find_subcategory(business_config, ws_title)
+                # پاس ۳: کسب‌وکار other یا تک‌شیت
+                fallback = (
+                    business_config.key == "other"
+                    or len(data_tabs) == 1
+                )
+                if exact or fuzzy or fallback:
+                    recognized_sheets.append(ws_title)
 
         await create_or_update_sheet_connection(
             session=session,
@@ -327,11 +334,12 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
 
     clear_user_state(user.id)
 
-    # ۴. اگر هیچ برگه معتبری پیدا نشد
+    # ۴. اگر هیچ برگه داده‌ای پیدا نشد (شیت کاملاً خالی یا فقط راهنما دارد)
     if not recognized_sheets:
         await processing_msg.edit_text(
-            f"⚠️ <b>هیچ صفحه معتبری در شیت شما پیدا نشد!</b>\n"
-            f"لطفاً از شیت نمونه استفاده کنید یا نام صفحه‌ها را بررسی کنید.",
+            f"⚠️ <b>شیت شما هیچ صفحه داده‌ای ندارد!</b>\n\n"
+            f"صفحه‌های موجود: <code>{', '.join(result.worksheet_titles) or '—'}</code>\n\n"
+            f"لطفاً مطمئن شوید شیت حداقل یک صفحه با محصولات دارد، سپس مجدداً لینک را ارسال کنید.",
             parse_mode="HTML",
             reply_markup=help_cancel_kb
         )
