@@ -178,10 +178,12 @@ def _read_worksheet(
 
     ignored = ignored_fields or []
 
-    if not custom_map:
-        field_map = _build_field_map(subcategory, headers)
-    else:
-        field_map = custom_map
+    # 💡 همیشه اول نقشه‌ی خودکار (Smart Match) ساخته می‌شود،
+    # سپس در صورت وجود custom_map (پاسخ‌های ویزارد)، فقط همون فیلدها override می‌شن.
+    # این‌طوری فیلدهایی که خودکار درست تشخیص داده شده بودن گم نمی‌شن.
+    field_map = _build_field_map(subcategory, headers)
+    if custom_map:
+        field_map.update(custom_map)
 
     # چک فیلدهای اجباری
     missing_required = _check_missing_required(subcategory, field_map, ignored)
