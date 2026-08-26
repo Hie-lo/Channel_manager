@@ -320,7 +320,6 @@ async def excel_file_received_handler(update: Update, context: ContextTypes.DEFA
                     ])
                 )
                 # ذخیره موقت برای callback
-                from app.bot.states.user_state import set_user_state, UserState
                 set_user_state(user.id, UserState.SMART_MAPPING_WIZARD, data={
                     "pending_confirm": True,
                     "file_path": temp_file_path,

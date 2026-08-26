@@ -210,6 +210,15 @@ def _read_worksheet(
 
     ignored = ignored_fields or []
 
+    # ─── تشخیص و رد کردن ردیف برچسب (ردیف ۲ در فایل‌های نمونه) ───
+    _LABEL_ROW_MARKERS = {"* اجباری", "اختیاری", "* required", "optional"}
+    data_rows = all_values[1:]
+    if data_rows:
+        row2_values = {str(v).strip() for v in data_rows[0]}
+        if row2_values & _LABEL_ROW_MARKERS:
+            data_rows = data_rows[1:]
+            log.info(f"[SheetReader] ردیف برچسب در worksheet '{worksheet.title}' شناسایی و رد شد.")
+
     # 💡 همیشه اول نقشه‌ی خودکار (Smart Match) ساخته می‌شود،
     # سپس در صورت وجود custom_map (پاسخ‌های ویزارد)، فقط همون فیلدها override می‌شن.
     # این‌طوری فیلدهایی که خودکار درست تشخیص داده شده بودن گم نمی‌شن.
@@ -230,7 +239,7 @@ def _read_worksheet(
             ))
         return result
 
-    for row_index, row in enumerate(all_values[1:], start=2):
+    for row_index, row in enumerate(data_rows, start=2):
         if all(cell is None or str(cell).strip() == "" for cell in row):
             continue
 

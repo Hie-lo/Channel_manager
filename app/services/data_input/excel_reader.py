@@ -178,6 +178,22 @@ def _read_worksheet(
 
     ignored = ignored_fields or []
 
+    # ─── تشخیص و رد کردن ردیف برچسب (ردیف ۲ در فایل‌های نمونه) ───
+    # اگر ردیف دوم شامل متن‌هایی مثل "* اجباری" یا "اختیاری" باشد،
+    # یک ردیف برچسب است و باید نادیده گرفته شود.
+    _LABEL_ROW_MARKERS = {"* اجباری", "اختیاری", "* required", "optional"}
+    data_start_row = 2   # پیش‌فرض: داده از ردیف ۲ شروع می‌شود
+    try:
+        row2_values = [
+            str(cell).strip() if cell is not None else ""
+            for cell in next(sheet.iter_rows(min_row=2, max_row=2, values_only=True))
+        ]
+        if any(v in _LABEL_ROW_MARKERS for v in row2_values):
+            data_start_row = 3
+            log.info(f"[ExcelReader] ردیف برچسب در sheet '{sheet.title}' شناسایی و رد شد.")
+    except StopIteration:
+        pass
+
     # 💡 همیشه اول نقشه‌ی خودکار (Smart Match) ساخته می‌شود،
     # سپس در صورت وجود custom_map (پاسخ‌های ویزارد)، فقط همون فیلدها override می‌شن.
     # این‌طوری فیلدهایی که خودکار درست تشخیص داده شده بودن گم نمی‌شن.
@@ -200,7 +216,7 @@ def _read_worksheet(
         return result
 
     # خواندن ردیف‌های داده
-    for row_index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+    for row_index, row in enumerate(sheet.iter_rows(min_row=data_start_row, values_only=True), start=data_start_row):
         if all(cell is None or str(cell).strip() == "" for cell in row):
             continue
 

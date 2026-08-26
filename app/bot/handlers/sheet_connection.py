@@ -339,16 +339,9 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
 
     await processing_msg.edit_text(
         f"✅ <b>اتصال برقرار شد!</b>\n"
-        f"🔄 در حال اجرای همگام‌سازی اولیه محصولات...\nلطفاً صبور باشید."
+        f"🔄 در حال اجرای همگام‌سازی اولیه محصولات...\nلطفاً صبور باشید.",
+        parse_mode="HTML",
     )
-
-     # مرحله بعد: شروع همگام‌سازی اولیه
-    connection_text += (
-        f"\n━━━━━━━━━━━━━━━\n\n"
-        f"🔄 در حال شروع همگام‌سازی اولیه...\n"
-        f"لطفاً چند لحظه صبر کنید."
-    )
-    await processing_msg.edit_text(connection_text)
 
     # اجرای sync
     try:
