@@ -1,5 +1,5 @@
 """
-هندلرهای مربوط به پست‌ساز دستی (ارسال پیام‌های عمومی به تمام کانال‌ها)
+هندلرهای مربوط به پست‌ساز دستی (ارسال پیام‌های عمومی به تمام کانال‌ها + پشتیبانی از مدیا)
 """
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
@@ -40,13 +40,12 @@ async def custom_post_start_handler(update: Update, context: ContextTypes.DEFAUL
             await update.message.reply_text("❌ هیچ کانال فعالی برای ارسال پست پیدا نشد. ابتدا کانال متصل کنید.")
             return
 
-    # تنظیم حالت انتظار برای متن
     set_user_state(user.id, UserState.WAITING_CUSTOM_POST_TEXT)
 
     text = (
         "📝 <b>پست‌ساز دستی</b>\n"
         "━━━━━━━━━━━━━━━\n\n"
-        "با این بخش می‌توانید پیام‌های عمومی (اعلاعیه‌ها، تخفیف‌ها، تبریک‌ها) را به تمام کانال‌های خود بفرستید.\n\n"
+        "با این بخش می‌توانید پیام‌های عمومی (اطلاعیه‌ها، تخفیف‌ها، تبریک‌ها) را به تمام کانال‌های خود بفرستید.\n\n"
         "✍️ <b>لطفاً متن پست خود را ارسال کنید:</b>"
     )
 
@@ -57,23 +56,27 @@ async def custom_post_start_handler(update: Update, context: ContextTypes.DEFAUL
 async def custom_post_text_received_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """دریافت متن پست از کاربر"""
     user = update.effective_user
-    post_text = update.message.text.strip()
+    post_text = update.message.text.strip() if update.message.text else ""
 
     if get_user_state(user.id) != UserState.WAITING_CUSTOM_POST_TEXT:
         return
+        
+    if not post_text:
+        await update.message.reply_text("⚠️ لطفاً فقط متن ارسال کنید.")
+        return
 
-    # ذخیره متن در داده‌های موقت
-    set_user_state(user.id, UserState.WAITING_CUSTOM_POST_PHOTOS, data={"text": post_text, "photos": []})
+    # ذخیره متن در داده‌های موقت و تغییر به حالت انتظار برای مدیا (عکس/ویدیو)
+    set_user_state(user.id, UserState.WAITING_CUSTOM_POST_PHOTOS, data={"text": post_text, "media": []})
 
     text = (
         "✅ <b>متن پست دریافت شد.</b>\n"
         "━━━━━━━━━━━━━━━\n\n"
-        "آیا می‌خواهید به این پست عکس اضافه کنید؟\n\n"
-        "💡 می‌توانید ۱ یا چند عکس ارسال کنید یا مستقیماً بدون عکس ارسال کنید."
+        "آیا می‌خواهید به این پست عکس یا ویدیو اضافه کنید؟\n\n"
+        "💡 می‌توانید ۱ یا چند مدیا (عکس/ویدیو) ارسال کنید یا مستقیماً بدون مدیا ارسال کنید."
     )
 
     keyboard = [
-        [InlineKeyboardButton("🚀 پیش‌نمایش و ارسال بدون عکس", callback_data="custom_post_preview")],
+        [InlineKeyboardButton("🚀 پیش‌نمایش و ارسال بدون مدیا", callback_data="custom_post_preview")],
         [InlineKeyboardButton("❌ انصراف", callback_data="custom_post_cancel")]
     ]
 
@@ -81,34 +84,39 @@ async def custom_post_text_received_handler(update: Update, context: ContextType
 
 
 async def custom_post_photo_received_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """دریافت عکس/عکس‌ها از کاربر برای پست سفارشی"""
+    """دریافت عکس/ویدیو از کاربر برای پست سفارشی"""
     user = update.effective_user
     state = get_user_state(user.id)
 
     if state != UserState.WAITING_CUSTOM_POST_PHOTOS:
         return
 
-    photo_file_id = None
-    if update.message.photo:
-        photo_file_id = update.message.photo[-1].file_id
-    elif update.message.document and update.message.document.mime_type.startswith("image/"):
-        photo_file_id = update.message.document.file_id
+    media_file_id = None
+    media_type = "photo"
 
-    if not photo_file_id:
-        await update.message.reply_text("⚠️ لطفاً فقط عکس ارسال کنید.")
+    if update.message.photo:
+        media_file_id = update.message.photo[-1].file_id
+    elif update.message.video:
+        media_file_id = update.message.video.file_id
+        media_type = "video"
+    elif update.message.document and update.message.document.mime_type.startswith("image/"):
+        media_file_id = update.message.document.file_id
+
+    if not media_file_id:
+        await update.message.reply_text("⚠️ لطفاً فقط عکس یا ویدیو ارسال کنید.")
         return
 
     user_data = get_user_data(user.id)
-    photos = user_data.get("photos", [])
-    photos.append(photo_file_id)
-
-    # آپدیت داده‌ها
-    set_user_state(user.id, UserState.WAITING_CUSTOM_POST_PHOTOS, data={"photos": photos})
+    medias = user_data.get("media", [])
+    
+    # ذخیره فایل همراه با نوع آن
+    medias.append({"file_id": media_file_id, "type": media_type})
+    set_user_state(user.id, UserState.WAITING_CUSTOM_POST_PHOTOS, data={"media": medias})
 
     text = (
-        f"✅ <b>عکس دریافت شد ({len(photos)} عکس ثبت شده).</b>\n"
+        f"✅ <b>فایل دریافت شد ({len(medias)} مدیا ثبت شده).</b>\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"می‌توانید عکس‌های بیشتری بفرستید یا جهت پیش‌نمایش کلیک کنید:"
+        f"می‌توانید عکس/ویدیوی بیشتری بفرستید یا جهت پیش‌نمایش کلیک کنید:"
     )
 
     keyboard = [
@@ -128,10 +136,15 @@ async def custom_post_preview_callback(update: Update, context: ContextTypes.DEF
     user_data = get_user_data(user.id)
 
     post_text = user_data.get("text", "")
-    photos = user_data.get("photos", [])
+    medias = user_data.get("media", [])
 
     if not post_text:
-        await query.edit_message_text("❌ خطایی رخ داد. متن پست پیدا نشد.")
+        # پاک کردن با حذف پیام و ارسال پیام جدید در صورت خطا
+        try:
+            await query.message.delete()
+        except:
+            pass
+        await context.bot.send_message(chat_id=user.id, text="❌ خطایی رخ داد. متن پست پیدا نشد.")
         clear_user_state(user.id)
         return
 
@@ -148,7 +161,7 @@ async def custom_post_preview_callback(update: Update, context: ContextTypes.DEF
         f"━━━━━━━━━━━━━━━\n\n"
         f"{post_text}\n\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"📷 تعداد عکس‌ها: {len(photos)}\n"
+        f"📷 تعداد مدیا: {len(medias)}\n"
         f"📢 ارسال به کانال‌های زیر:\n"
         f"{channels_summary}\n\n"
         f"آیا برای ارسال اطمینان دارید؟"
@@ -165,40 +178,64 @@ async def custom_post_preview_callback(update: Update, context: ContextTypes.DEF
         pass
 
     try:
-        if not photos:
+        if not medias:
+            # حالت متنی
             await context.bot.send_message(
                 chat_id=user.id,
                 text=preview_msg,
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
-        elif len(photos) == 1:
-            await context.bot.send_photo(
-                chat_id=user.id,
-                photo=photos[0],
-                caption=preview_msg,
-                parse_mode="HTML",
-                reply_markup=keyboard
-            )
+        elif len(medias) == 1:
+            # حالت تک مدیا (عکس یا ویدیو)
+            media = medias[0]
+            if media["type"] == "video":
+                await context.bot.send_video(
+                    chat_id=user.id,
+                    video=media["file_id"],
+                    caption=preview_msg,
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
+            else:
+                await context.bot.send_photo(
+                    chat_id=user.id,
+                    photo=media["file_id"],
+                    caption=preview_msg,
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                )
         else:
-            from telegram import InputMediaPhoto
+            # حالت آلبوم (ترکیب عکس و ویدیو)
+            from telegram import InputMediaPhoto, InputMediaVideo
             media_group = []
-            for i, src in enumerate(photos[:10]):
-                if i == 0:
-                    media_group.append(InputMediaPhoto(media=src, caption=post_text))
+            
+            # تلگرام محدودیت کپشن 1024 کاراکتری دارد، پس کوتاه می‌کنیم
+            short_preview = preview_msg[:1024-3] + "..." if len(preview_msg) > 1024 else preview_msg
+            
+            for i, m in enumerate(medias[:10]):
+                caption_to_use = short_preview if i == 0 else None
+                if m["type"] == "video":
+                    media_group.append(InputMediaVideo(media=m["file_id"], caption=caption_to_use, parse_mode="HTML"))
                 else:
-                    media_group.append(InputMediaPhoto(media=src))
+                    media_group.append(InputMediaPhoto(media=m["file_id"], caption=caption_to_use, parse_mode="HTML"))
             
             await context.bot.send_media_group(chat_id=user.id, media=media_group)
+            
             await context.bot.send_message(
                 chat_id=user.id,
-                text="👆 <b>پیش‌نمایش آلبوم شما</b>\nجهت تأیید یا انصراف کلیک کنید:",
+                text="👆 <b>پیش‌نمایش آلبوم شما</b>\nجهت تایید یا انصراف از دکمه‌های زیر استفاده کنید:",
                 parse_mode="HTML",
                 reply_markup=keyboard
             )
     except Exception as e:
-        log.error(f"خطا در پیش‌نمایش عکس سفارشی: {e}")
-        await context.bot.send_message(chat_id=user.id, text=preview_msg, parse_mode="HTML", reply_markup=keyboard)
+        log.error(f"خطا در پیش‌نمایش مدیا سفارشی: {e}", exc_info=True)
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=f"⚠️ فایل‌ها برای پیش‌نمایش بارگیری نشدند.\n\n{preview_msg}",
+            parse_mode="HTML",
+            reply_markup=keyboard
+        )
 
 
 async def custom_post_send_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -210,10 +247,22 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
     user_data = get_user_data(user.id)
 
     post_text = user_data.get("text", "")
-    photos = user_data.get("photos", [])
+    medias = user_data.get("media", [])
 
     clear_user_state(user.id)
-    await query.edit_message_text("⏳ در حال ارسال پست به کانال‌ها...")
+    
+    # 🛠 رفع خطای There is no text in message to edit
+    try:
+        # همیشه پیام قبلی (که حاوی کیبورد و دکمه‌ها بود) را پاک می‌کنیم
+        await query.message.delete()
+    except Exception:
+        pass
+        
+    # یک پیام متنی جدید برای نشان دادن وضعیت ارسال می‌فرستیم
+    progress_msg = await context.bot.send_message(
+        chat_id=user.id, 
+        text="⏳ در حال ارسال پست به کانال‌ها..."
+    )
 
     async with AsyncSessionLocal() as session:
         from app.services.customer_service import get_customer_by_platform_id
@@ -223,7 +272,7 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
         customer = await get_customer_by_platform_id(session, user.id, platform)
         
         if not customer:
-            await query.edit_message_text("❌ مشتری یافت نشد.")
+            await progress_msg.edit_text("❌ مشتری یافت نشد.")
             return
 
         channels = await get_customer_channels(session, customer.id, only_active=True)
@@ -233,13 +282,15 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
             from app.services.customer_service import get_customer_eitaa_token
             eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
-    # ساخت یک Dummy Product موقت فقط جهت استفاده از لایه Publisher Manager موجود
+    # استخراج فقط لینک‌ها یا فایل‌آیدی‌ها برای ارسال
+    media_file_ids = [m["file_id"] for m in medias]
+
     from app.database.models import Product
     dummy_prod = Product(product_name="پست سفارشی", price=0, stock_qty=1, is_available=True, sku="CUSTOM")
-    if photos:
-        # برای لایه Manager، کافیست image_url را تنظیم کنیم
-        # چون در حالت پست سفارشی، photos در واقع list of file_ids هستند.
-        dummy_prod.image_url = photos[0]
+    
+    # قرار دادن اولین فایل‌آیدی برای ساپورت منطق‌های زیرین
+    if media_file_ids:
+        dummy_prod.image_url = media_file_ids[0]
 
     from app.services.publisher.publisher_manager import publish_to_channel
     import asyncio
@@ -249,8 +300,7 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
 
     for ch in channels:
         try:
-            # 💡 جادوی معماری: publish_to_channel خودش تشخیص می‌دهد اگر در بله هستیم
-            # و می‌خواهیم به تلگرام بفرستیم، یک Temporary Telegram Bot بسازد.
+            # ارسال مدیاها به Publisher Manager
             res = await publish_to_channel(
                 bot=context.bot,
                 channel=ch,
@@ -265,7 +315,7 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
                 fail_count += 1
                 log.error(f"❌ ارسال پست سفارشی به {ch.channel_identifier} ناموفق: {res.error_message}")
                 
-            await asyncio.sleep(1) # تاخیر برای Rate Limit
+            await asyncio.sleep(1) 
 
         except Exception as e:
             log.error(f"خطا در ارسال پست سفارشی به {ch.channel_identifier}: {e}", exc_info=True)
@@ -278,7 +328,7 @@ async def custom_post_send_confirm_callback(update: Update, context: ContextType
         f"❌ ارسال ناموفق: {fail_count}"
     )
 
-    await query.edit_message_text(result_text, parse_mode="HTML")
+    await progress_msg.edit_text(result_text, parse_mode="HTML")
 
 
 async def custom_post_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -287,4 +337,13 @@ async def custom_post_cancel_callback(update: Update, context: ContextTypes.DEFA
     await query.answer()
 
     clear_user_state(query.from_user.id)
-    await query.edit_message_text("❌ ارسال پست سفارشی لغو شد.")
+    
+    try:
+        await query.message.delete()
+    except:
+        pass
+        
+    await context.bot.send_message(
+        chat_id=query.from_user.id,
+        text="❌ ارسال پست سفارشی لغو شد."
+    )

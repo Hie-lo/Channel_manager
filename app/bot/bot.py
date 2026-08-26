@@ -333,9 +333,20 @@ async def photo_router(update, context):
             await admin_get_file_id_handler(update, context)
 
 async def video_router(update, context):
-    """مسیریاب ویدیوها - فقط برای گرفتن file_id توسط ادمین"""
+    """مسیریاب ویدیوها"""
     user = update.effective_user
+    state = get_user_state(user.id)
+
+    # هدایت ویدیو به هندلر پست‌ساز سفارشی در صورت نیاز
+    if state == UserState.WAITING_CUSTOM_POST_PHOTOS:
+        from app.bot.handlers.custom_post import custom_post_photo_received_handler
+        await custom_post_photo_received_handler(update, context)
+        return
+
+    # برای ادمین جهت گرفتن file_id راهنمای آموزشی
+    from app.utils.admin_check import is_admin
     if is_admin(user.id):
+        from app.bot.handlers.admin_tutorial import admin_get_file_id_handler
         await admin_get_file_id_handler(update, context)
 
 async def document_image_router(update, context):
