@@ -364,16 +364,16 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
         # 🚨 اگر خطای مپینگ ستون‌ها (Missing Fields) رخ داده باشد، ویزارد را استارت می‌زنیم
         if sync_result.get("requires_mapping_wizard"):
             from app.bot.handlers.mapping_wizard import start_mapping_wizard_for_sheet
-            
             await start_mapping_wizard_for_sheet(
                 update=update,
                 user_id=user.id,
-                customer_id=customer_id_for_sync,
+                customer_id=customer.id,
                 missing_fields=sync_result["missing_fields"],
                 headers=sync_result["headers"],
                 sheet_id=sync_result["sheet_id"],
+                context=context,  # ✅ اضافه کردن context
             )
-            return  # خروج از این هندلر، بقیه کار به عهده ویزارد است
+            return
 
         # ساخت گزارش نهایی
         if sync_result.get("error"):

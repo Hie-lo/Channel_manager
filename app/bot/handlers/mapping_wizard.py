@@ -35,8 +35,9 @@ async def start_mapping_wizard(
     business_config,
     headers: list,
     missing_fields: list,
+    context: ContextTypes.DEFAULT_TYPE,
 ):
-    """استارت ویزارد سوالات مپینگ ستون‌ها"""
+    """استارت ویزارد سوالات مپینگ ستون‌ها برای اکسل"""
     set_user_state(
         user_id,
         UserState.WAITING_COLUMN_MAPPING,
@@ -50,7 +51,7 @@ async def start_mapping_wizard(
         },
     )
 
-    await _ask_next_mapping_question(update, user_id)
+    await _ask_next_mapping_question(update, user_id, context)
 
 
 async def start_mapping_wizard_for_sheet(
@@ -60,6 +61,7 @@ async def start_mapping_wizard_for_sheet(
     missing_fields: list,
     headers: list,
     sheet_id: str,
+    context: ContextTypes.DEFAULT_TYPE,
 ):
     """شروع ویزارد مپینگ برای گوگل‌شیت"""
     set_user_state(
@@ -76,10 +78,10 @@ async def start_mapping_wizard_for_sheet(
         },
     )
 
-    await _ask_next_mapping_question(update, user_id)
+    await _ask_next_mapping_question(update, user_id, context)
 
 
-async def _ask_next_mapping_question(update, user_id: int):
+async def _ask_next_mapping_question(update, user_id: int, context: ContextTypes.DEFAULT_TYPE):
     """پرسیدن سوال بعدی از صف"""
     user_data = get_user_data(user_id)
     missing_fields = user_data.get("missing_fields", [])
@@ -87,7 +89,7 @@ async def _ask_next_mapping_question(update, user_id: int):
 
     if not missing_fields:
         # سوالات تمام شد! اجرای پردازش نهایی
-        await _finalize_and_process_file(update, user_id)
+        await _finalize_and_process_file(update, user_id, context)
         return
 
     # گرفتن فیلد بعدی برای سوال
@@ -98,7 +100,7 @@ async def _ask_next_mapping_question(update, user_id: int):
         f"━━━━━━━━━━━━━━━\n\n"
         f"لطفاً به من کمک کنید:\n"
         f"در فایل شما، ستون مربوط به <b>«{next_field.label_fa}»</b> کدام است؟\n\n"
-        f" <i>اگر این اطلاعات را در فایل ندارید، دکمه 'نادیده بگیر' را بزنید.</i>"
+        f"<i>اگر این اطلاعات را در فایل ندارید، دکمه 'نادیده بگیر' را بزنید.</i>"
     )
 
     keyboard = get_column_mapping_keyboard(headers)
@@ -130,7 +132,7 @@ async def process_mapping_answer_callback(
 
     missing_fields = user_data.get("missing_fields", [])
     if not missing_fields:
-        await _finalize_and_process_file(update, user_id)
+        await _finalize_and_process_file(update, user_id, context)
         return
 
     current_field = missing_fields.pop(0)  # برداشتن از صف
@@ -149,7 +151,7 @@ async def process_mapping_answer_callback(
     set_user_state(user_id, UserState.WAITING_COLUMN_MAPPING, data=user_data)
 
     # پرسیدن سوال بعدی
-    await _ask_next_mapping_question(update, user_id)
+    await _ask_next_mapping_question(update, user_id, context)
 
 
 async def mapping_cancel_callback(
@@ -178,7 +180,7 @@ async def mapping_cancel_callback(
     )
 
 
-async def _finalize_and_process_file(update, user_id: int):
+async def _finalize_and_process_file(update, user_id: int, context: ContextTypes.DEFAULT_TYPE):
     """ویزارد تمام شده، حالا فایل را با مپینگ کاربر می‌خوانیم"""
     user_data = get_user_data(user_id)
     source = user_data.get("source", "excel")
@@ -188,18 +190,16 @@ async def _finalize_and_process_file(update, user_id: int):
 
     query = update.callback_query
     await query.edit_message_text(
-        "✅ ستون‌ها شناسایی شدند.\n🔄 در حال پردازش داده‌ها با تنظیمات شما..."
+        "✅ ستون‌ها شناسایی شدند.\n در حال پردازش داده‌ها با تنظیمات شما..."
     )
-
+    
     try:
         if source == "google_sheet":
-            # 💡 پردازش گوگل‌شیت
             customer_id = user_data["customer_id"]
-            sheet_id = user_data.get("sheet_id")
-
+            
             from app.tasks.jobs.sheet_sync_job import sync_customer_sheet
             sync_result = await sync_customer_sheet(
-                query.message.bot,  # ✅ اصلاح: استفاده از query.message.bot
+                context.bot,  # ✅ استفاده صحیح از context.bot
                 customer_id,
                 edit_posts_now=True,
                 is_manual=True,
@@ -221,7 +221,7 @@ async def _finalize_and_process_file(update, user_id: int):
                 )
             return
 
-        # 💡 پردازش اکسل
+        # پردازش اکسل عادی
         async with AsyncSessionLocal() as session:
             customer = await get_customer_by_telegram_id(session, user_id)
             if not customer:
@@ -264,7 +264,7 @@ async def _finalize_and_process_file(update, user_id: int):
             f"🆕 محصولات جدید: {save_result.new_count}\n"
             f"🔄 آپدیت شده: {save_result.updated_count}\n"
             f"✅ بدون تغییر: {save_result.unchanged_count}\n"
-            f"❌ خطا: {save_result.error_count}\n"
+            f" خطا: {save_result.error_count}\n"
             f"━━━━━━━━━━━━━━━"
         )
 
