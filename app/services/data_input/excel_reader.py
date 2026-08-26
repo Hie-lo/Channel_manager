@@ -21,11 +21,12 @@ class RowError:
     field: str
     message: str
     worksheet: str = ""
+    # 💡 افزودن فیلد برای تعیین نوع خطا تا سیستم ویزارد بتواند آن را تشخیص دهد
+    error_type: str = "validation"  # می‌تواند "missing_column" یا "validation" باشد
 
 
 @dataclass
 class WorksheetReadResult:
-    """نتیجه خواندن یک sheet"""
     worksheet_name: str
     subcategory_key: str = ""
     products: list[dict] = field(default_factory=list)
@@ -36,7 +37,6 @@ class WorksheetReadResult:
 
 @dataclass
 class ExcelReadResult:
-    """نتیجه کلی خواندن فایل"""
     worksheets: list[WorksheetReadResult] = field(default_factory=list)
 
     @property
@@ -68,13 +68,21 @@ class ExcelReadResult:
 
     @property
     def all_products(self) -> list[dict]:
-        """همه محصولات از همه sheet ها"""
         products = []
         for ws in self.worksheets:
             for p in ws.products:
                 p["sub_category_key"] = ws.subcategory_key
                 products.append(p)
         return products
+
+    # 💡 این پراپرتی را اضافه کردیم تا هندلرِ ویزارد بتواند فیلدهای گمشده را بیرون بکشد
+    @property
+    def missing_mapping_data(self) -> list[str]:
+        missing_fields = []
+        for err in self.all_errors:
+            if err.error_type == "missing_column":
+                missing_fields.append(err.field)
+        return list(set(missing_fields)) # حذف موارد تکراری
 
 
 def read_excel_file(
@@ -229,7 +237,6 @@ def _build_field_map(subcategory: SubCategory, headers: list[str]) -> dict[str, 
 
     return field_map
 
-
 def _check_missing_required(subcategory: SubCategory, field_map: dict, ignored_fields: list) -> list[str]:
     """چک کن فیلدهای اجباری جا نمونده باشن"""
     missing = []
@@ -238,7 +245,6 @@ def _check_missing_required(subcategory: SubCategory, field_map: dict, ignored_f
         if field.required and field.key not in field_map and field.key not in ignored:
             missing.append(field.excel_column)
     return missing
-
 
 def _parse_row(
     row: tuple,
