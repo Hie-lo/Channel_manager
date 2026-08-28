@@ -18,7 +18,7 @@ from app.services.admin_service import (
     get_ai_stats,
     get_all_active_customers,
 )
-from app.services.subscription.plans import get_plan
+from app.services.subscription.plans import get_plan, format_price
 from app.services.subscription.service import calculate_days_remaining
 from app.services.ai_token_service import add_purchased_tokens
 from app.bot.keyboards.admin import (
