@@ -32,9 +32,25 @@ def get_customers_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_customer_detail_keyboard(customer_id: int, is_active: bool) -> InlineKeyboardMarkup:
+def get_customer_detail_keyboard(customer_id: int, is_active: bool, has_subscription: bool = False) -> InlineKeyboardMarkup:
     """جزئیات یک مشتری با دکمه‌های عملیات"""
     keyboard = []
+
+    # اعطا یا حذف اشتراک
+    if has_subscription:
+        keyboard.append([
+            InlineKeyboardButton(
+                "❌ حذف اشتراک",
+                callback_data=f"admin_customer_revoke_sub_{customer_id}"
+            )
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton(
+                "💳 اعطای اشتراک",
+                callback_data=f"admin_customer_grant_sub_{customer_id}"
+            )
+        ])
 
     if is_active:
         keyboard.append([
@@ -293,6 +309,72 @@ def get_delete_confirm_keyboard(subscription_id: int) -> InlineKeyboardMarkup:
                 "❌ انصراف",
                 callback_data=f"admin_sub_view_{subscription_id}"
             ),
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+
+def get_grant_sub_plan_keyboard(customer_id: int) -> InlineKeyboardMarkup:
+    """کیبورد انتخاب پلن برای اعطای اشتراک"""
+    from app.services.subscription.plans import get_all_plans
+
+    keyboard = []
+    for plan in get_all_plans():
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{plan.emoji} {plan.name_fa}",
+                callback_data=f"admin_customer_grant_sub_plan_{customer_id}_{plan.key}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_customer_view_{customer_id}")
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_grant_sub_duration_keyboard(customer_id: int, plan_key: str) -> InlineKeyboardMarkup:
+    """کیبورد انتخاب مدت زمان اشتراک"""
+    durations = [
+        ("7 روز (آزمایشی)", 7),
+        ("30 روز (1 ماه)", 30),
+        ("90 روز (3 ماه)", 90),
+        ("180 روز (6 ماه)", 180),
+        ("365 روز (1 سال)", 365),
+    ]
+
+    keyboard = []
+    for label, days in durations:
+        keyboard.append([
+            InlineKeyboardButton(
+                label,
+                callback_data=f"admin_customer_grant_sub_confirm_{customer_id}_{plan_key}_{days}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton("🔙 بازگشت", callback_data=f"admin_customer_grant_sub_{customer_id}")
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_revoke_sub_confirm_keyboard(customer_id: int) -> InlineKeyboardMarkup:
+    """تایید حذف اشتراک"""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "✅ بله، حذف شود",
+                callback_data=f"admin_customer_revoke_sub_confirm_{customer_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "❌ انصراف",
+                callback_data=f"admin_customer_view_{customer_id}"
+            )
         ]
     ]
     return InlineKeyboardMarkup(keyboard)

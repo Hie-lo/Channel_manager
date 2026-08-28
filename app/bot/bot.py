@@ -166,6 +166,11 @@ from app.bot.handlers.admin_panel import (
     admin_cancel_callback,
     admin_customer_search_callback,
     admin_search_customer_handler,
+    admin_customer_grant_sub_callback,
+    admin_customer_grant_sub_plan_callback,
+    admin_customer_grant_sub_confirm_callback,
+    admin_customer_revoke_sub_callback,
+    admin_customer_revoke_sub_confirm_callback,
 )
 from app.bot.handlers.admin_subscriptions import (
     admin_subs_menu_handler,
@@ -471,6 +476,14 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(admin_customer_activate_callback, pattern="^admin_customer_activate_"))
     app.add_handler(CallbackQueryHandler(admin_customer_message_callback, pattern="^admin_customer_message_"))
     app.add_handler(CallbackQueryHandler(admin_customer_gift_tokens_callback, pattern="^admin_customer_gift_tokens_"))
+    
+    # اعطا و حذف اشتراک برای مشتری (confirm ها اول)
+    app.add_handler(CallbackQueryHandler(admin_customer_grant_sub_confirm_callback, pattern="^admin_customer_grant_sub_confirm_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_revoke_sub_confirm_callback, pattern="^admin_customer_revoke_sub_confirm_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_grant_sub_plan_callback, pattern="^admin_customer_grant_sub_plan_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_grant_sub_callback, pattern="^admin_customer_grant_sub_"))
+    app.add_handler(CallbackQueryHandler(admin_customer_revoke_sub_callback, pattern="^admin_customer_revoke_sub_"))
+    
     app.add_handler(CallbackQueryHandler(admin_broadcast_confirm_callback, pattern="^admin_broadcast_confirm$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast_cancel_callback, pattern="^admin_broadcast_cancel$"))
     app.add_handler(CallbackQueryHandler(admin_cancel_callback, pattern="^admin_cancel$"))

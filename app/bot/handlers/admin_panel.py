@@ -336,10 +336,11 @@ async def _show_customer_detail(query, customer_id: int) -> None:
     )
 
     is_active = customer.customer_status == CustomerStatus.ACTIVE
+    has_subscription = subscription is not None
 
     await query.edit_message_text(
         text,
-        reply_markup=get_customer_detail_keyboard(customer_id, is_active),
+        reply_markup=get_customer_detail_keyboard(customer_id, is_active, has_subscription),
     )
 
 
@@ -843,3 +844,204 @@ async def admin_search_customer_handler(update: Update, context: ContextTypes.DE
         text,
         reply_markup=get_customer_detail_keyboard(customer_obj.id, is_active),
     )
+
+
+# ═══════════════════════════════════════════════
+# مدیریت اشتراک مشتری (اعطا / حذف)
+# ═══════════════════════════════════════════════
+
+async def admin_customer_grant_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """نمایش لیست پلن‌ها برای اعطای اشتراک"""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_admin(query.from_user.id):
+        return
+
+    customer_id = int(query.data.replace("admin_customer_grant_sub_", ""))
+
+    from app.services.subscription.plans import get_all_plans
+    plans = get_all_plans()
+
+    text = (
+        f"💳 اعطای اشتراک به مشتری #{customer_id}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"📦 لطفاً پلن مورد نظر را انتخاب کنید:\n\n"
+    )
+
+    for plan in plans:
+        text += (
+            f"{plan.emoji} <b>{plan.name_fa}</b>\n"
+            f"   💰 {format_price(plan.price_monthly)} ت/ماه\n"
+            f"   📢 {plan.max_channels if plan.max_channels < 9999 else '∞'} کانال | "
+            f"📦 {plan.max_products if plan.max_products < 9999 else '∞'} محصول\n\n"
+        )
+
+    text += f"━━━━━━━━━━━━━━━"
+
+    from app.bot.keyboards.admin import get_grant_sub_plan_keyboard
+    await query.edit_message_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=get_grant_sub_plan_keyboard(customer_id),
+    )
+
+
+async def admin_customer_grant_sub_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """نمایش گزینه‌های مدت زمان بعد از انتخاب پلن"""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_admin(query.from_user.id):
+        return
+
+    # admin_customer_grant_sub_plan_{customer_id}_{plan_key}
+    parts = query.data.replace("admin_customer_grant_sub_plan_", "").split("_", 1)
+    if len(parts) != 2:
+        return
+
+    try:
+        customer_id = int(parts[0])
+        plan_key = parts[1]
+    except ValueError:
+        return
+
+    plan = get_plan(plan_key)
+    if not plan:
+        await query.answer("❌ پلن نامعتبر", show_alert=True)
+        return
+
+    text = (
+        f"💳 اعطای اشتراک: {plan.emoji} {plan.name_fa}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"⏱ لطفاً مدت زمان را انتخاب کنید:\n\n"
+        f"💡 اشتراک از همین لحظه فعال می‌شود.\n"
+        f"💡 اگر مشتری قبلاً اشتراک داشت، اشتراک جدید جایگزین می‌شود."
+    )
+
+    from app.bot.keyboards.admin import get_grant_sub_duration_keyboard
+    await query.edit_message_text(
+        text,
+        reply_markup=get_grant_sub_duration_keyboard(customer_id, plan_key),
+    )
+
+
+async def admin_customer_grant_sub_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """اعطای نهایی اشتراک"""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_admin(query.from_user.id):
+        return
+
+    # admin_customer_grant_sub_confirm_{customer_id}_{plan_key}_{days}
+    parts = query.data.replace("admin_customer_grant_sub_confirm_", "").split("_")
+    if len(parts) != 3:
+        return
+
+    try:
+        customer_id = int(parts[0])
+        plan_key = parts[1]
+        days = int(parts[2])
+    except ValueError:
+        return
+
+    async with AsyncSessionLocal() as session:
+        from app.services.admin_service import grant_subscription_to_customer
+        subscription = await grant_subscription_to_customer(
+            session, customer_id, plan_key, days
+        )
+
+        if not subscription:
+            await query.edit_message_text("❌ خطا در اعطای اشتراک!")
+            return
+
+        from app.services.customer_service import get_customer_by_id
+        customer = await get_customer_by_id(session, customer_id)
+
+    # اطلاع به مشتری
+    if customer and customer.telegram_user_id:
+        try:
+            plan = get_plan(plan_key)
+            await context.bot.send_message(
+                chat_id=customer.telegram_user_id,
+                text=(
+                    f"🎁 اشتراک جدید برای شما فعال شد!\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"📦 پلن: {plan.emoji if plan else '?'} {plan.name_fa if plan else plan_key}\n"
+                    f"⏱ مدت: {days} روز\n"
+                    f"📅 تاریخ انقضا: {subscription.end_at.strftime('%Y/%m/%d')}\n"
+                    f"━━━━━━━━━━━━━━━\n\n"
+                    f"از خدمات ربات لذت ببرید! 🎉"
+                ),
+            )
+        except Exception as e:
+            log.error(f"خطا در اطلاع به مشتری: {e}")
+
+    await query.answer(f"✅ اشتراک {days} روزه اعطا شد", show_alert=True)
+    await _show_customer_detail(query, customer_id)
+
+
+async def admin_customer_revoke_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """درخواست تایید حذف اشتراک"""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_admin(query.from_user.id):
+        return
+
+    customer_id = int(query.data.replace("admin_customer_revoke_sub_", ""))
+
+    text = (
+        f"⚠️ حذف اشتراک مشتری #{customer_id}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"با حذف این اشتراک:\n"
+        f"├── مشتری فوراً غیرفعال می‌شود\n"
+        f"├── اشتراک لغو و به حالت Expired تغییر می‌کند\n"
+        f"└── امکان بازگشت وجود ندارد\n\n"
+        f"آیا مطمئن هستید؟"
+    )
+
+    from app.bot.keyboards.admin import get_revoke_sub_confirm_keyboard
+    await query.edit_message_text(
+        text,
+        reply_markup=get_revoke_sub_confirm_keyboard(customer_id),
+    )
+
+
+async def admin_customer_revoke_sub_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تایید نهایی حذف اشتراک"""
+    query = update.callback_query
+    await query.answer()
+
+    if not _is_admin(query.from_user.id):
+        return
+
+    customer_id = int(query.data.replace("admin_customer_revoke_sub_confirm_", ""))
+
+    async with AsyncSessionLocal() as session:
+        from app.services.admin_service import revoke_customer_subscription
+        success = await revoke_customer_subscription(session, customer_id)
+
+        if not success:
+            await query.edit_message_text("❌ خطا در حذف اشتراک!")
+            return
+
+        from app.services.customer_service import get_customer_by_id
+        customer = await get_customer_by_id(session, customer_id)
+
+    # اطلاع به مشتری
+    if customer and customer.telegram_user_id:
+        try:
+            await context.bot.send_message(
+                chat_id=customer.telegram_user_id,
+                text=(
+                    "⚠️ اشتراک شما توسط ادمین لغو شد.\n\n"
+                    "برای اطلاعات بیشتر با پشتیبانی تماس بگیرید."
+                ),
+            )
+        except Exception as e:
+            log.error(f"خطا در اطلاع به مشتری: {e}")
+
+    await query.answer("✅ اشتراک حذف شد", show_alert=True)
+    await _show_customer_detail(query, customer_id)

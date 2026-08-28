@@ -497,3 +497,109 @@ async def get_customer_of_subscription(
         select(Customer).where(Customer.id == subscription.customer_id)
     )
     return result.scalar_one_or_none()
+
+
+# ═══════════════════════════════════════════════════════════════
+# مدیریت اشتراک توسط ادمین
+# ═══════════════════════════════════════════════════════════════
+
+async def grant_subscription_to_customer(
+    session,
+    customer_id: int,
+    plan_key: str,
+    days: int,
+) -> Subscription | None:
+    """
+    اعطای اشتراک جدید به مشتری توسط ادمین.
+    اگر اشتراک قبلی وجود داشت، لغو و جایگزین می‌شود.
+    """
+    from datetime import timedelta
+    from app.utils.time import utc_now_naive
+    from app.database.models import Subscription, SubscriptionStatus, Customer
+    from app.services.subscription.service import activate_subscription_features
+    from sqlalchemy import select
+
+    # بررسی وجود مشتری
+    customer_result = await session.execute(
+        select(Customer).where(Customer.id == customer_id)
+    )
+    customer = customer_result.scalar_one_or_none()
+    if not customer:
+        log.error(f"[AdminService] مشتری {customer_id} پیدا نشد")
+        return None
+
+    # لغو اشتراک‌های قبلی فعال
+    existing_result = await session.execute(
+        select(Subscription).where(
+            Subscription.customer_id == customer_id,
+            Subscription.status.in_([
+                SubscriptionStatus.ACTIVE,
+                SubscriptionStatus.GRACE,
+            ])
+        )
+    )
+    existing = existing_result.scalars().all()
+    for sub in existing:
+        sub.status = SubscriptionStatus.EXPIRED
+        sub.end_at = utc_now_naive()
+        log.info(f"[AdminService] اشتراک قبلی #{sub.id} لغو شد")
+
+    # ساخت اشتراک جدید
+    now = utc_now_naive()
+    end_at = now + timedelta(days=days)
+    grace_end_at = end_at + timedelta(days=7)
+
+    new_sub = Subscription(
+        customer_id=customer_id,
+        plan_key=plan_key,
+        status=SubscriptionStatus.ACTIVE,
+        start_at=now,
+        end_at=end_at,
+        grace_end_at=grace_end_at,
+    )
+    session.add(new_sub)
+    await session.commit()
+    await session.refresh(new_sub)
+
+    # فعال‌سازی ویژگی‌ها (توکن AI، فعال کردن مشتری)
+    await activate_subscription_features(session, new_sub)
+
+    log.info(
+        f"[AdminService] اشتراک جدید #{new_sub.id} به مشتری {customer_id} "
+        f"اعطا شد: {plan_key} برای {days} روز"
+    )
+
+    return new_sub
+
+
+async def revoke_customer_subscription(session, customer_id: int) -> bool:
+    """
+    لغو و حذف همه اشتراک‌های فعال مشتری.
+    اشتراک‌ها به Expired تغییر وضعیت می‌دهند.
+    """
+    from app.utils.time import utc_now_naive
+    from app.database.models import Subscription, SubscriptionStatus
+    from sqlalchemy import select
+
+    result = await session.execute(
+        select(Subscription).where(
+            Subscription.customer_id == customer_id,
+            Subscription.status.in_([
+                SubscriptionStatus.ACTIVE,
+                SubscriptionStatus.GRACE,
+            ])
+        )
+    )
+    subscriptions = result.scalars().all()
+
+    if not subscriptions:
+        log.warning(f"[AdminService] مشتری {customer_id} اشتراک فعالی ندارد")
+        return False
+
+    for sub in subscriptions:
+        sub.status = SubscriptionStatus.EXPIRED
+        sub.end_at = utc_now_naive()
+        log.info(f"[AdminService] اشتراک #{sub.id} توسط ادمین لغو شد")
+
+    await session.commit()
+    return True
