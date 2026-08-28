@@ -17,7 +17,7 @@ from app.database.models import (
     TokenSource,
 )
 from app.utils.time import utc_now_naive
-
+from app.utils.logger import log     # ⬅️ این خط اضافه بشه
 
 # ═══════════════════════════════════════════════
 # لیست مشتریان
