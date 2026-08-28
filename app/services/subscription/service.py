@@ -176,3 +176,33 @@ def is_subscription_active(subscription: Subscription | None) -> bool:
 
     now = utc_now_naive()
     return now < subscription.grace_end_at
+
+async def activate_subscription_features(
+    session: AsyncSession,
+    subscription: Subscription,
+) -> None:
+    """
+    فعال‌سازی ویژگی‌های مرتبط با اشتراک بعد از فعال شدنش
+    (تخصیص توکن AI ماهانه در صورتی که پلن شامل بشه)
+    """
+    from app.services.subscription.plans import get_plan
+    from app.services.ai_token_service import allocate_monthly_tokens
+
+    plan = get_plan(subscription.plan_key)
+    if not plan or plan.monthly_ai_tokens <= 0:
+        return
+
+    duration_days = (subscription.end_at - subscription.start_at).days
+    try:
+        await allocate_monthly_tokens(
+            session=session,
+            customer_id=subscription.customer_id,
+            amount=plan.monthly_ai_tokens,
+            duration_days=duration_days,
+        )
+        log.info(
+            f"✅ {plan.monthly_ai_tokens} توکن AI ماهانه "
+            f"به مشتری {subscription.customer_id} تخصیص یافت"
+        )
+    except Exception as e:
+        log.error(f"خطا در تخصیص توکن ماهانه: {e}")

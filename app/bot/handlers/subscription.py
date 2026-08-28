@@ -4,7 +4,6 @@
 
 from telegram import Update
 from telegram.ext import ContextTypes
-from app.services.ai_token_service import allocate_monthly_tokens
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
 from app.database.models import CustomerStatus
@@ -18,6 +17,7 @@ from app.services.subscription.service import (
     cancel_pending_subscription,
     calculate_days_remaining,
     is_subscription_active,
+    activate_subscription_features,
 )
 from app.services.subscription.plans import (
     get_plan,
@@ -389,22 +389,10 @@ async def sub_admin_approve_callback(update: Update, context: ContextTypes.DEFAU
         duration_days = (subscription.end_at - subscription.start_at).days
 
         # فعال کردن اشتراک
+        # فعال کردن اشتراک
         activated = await activate_subscription(session, subscription_id, duration_days)
-        # اگه پلن پرو (طلایی) هست، توکن AI ماهانه تخصیص بده
-        if activated and plan and plan.monthly_ai_tokens > 0:
-            try:
-                await allocate_monthly_tokens(
-                    session=session,
-                    customer_id=activated.customer_id,
-                    amount=plan.monthly_ai_tokens,
-                    duration_days=duration_days,
-                )
-                log.info(
-                    f"✅ {plan.monthly_ai_tokens} توکن AI ماهانه "
-                    f"به مشتری {activated.customer_id} تخصیص یافت"
-                )
-            except Exception as e:
-                log.error(f"خطا در تخصیص توکن ماهانه: {e}")
+        if activated:
+            await activate_subscription_features(session, activated)
         # گرفتن اطلاعات مشتری
         from app.database.models import Customer
         customer_result = await session.execute(
