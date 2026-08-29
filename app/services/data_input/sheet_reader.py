@@ -21,6 +21,7 @@ from app.services.data_input.excel_reader import (
     RowError,
     _parse_field_value,
     _clean_value,
+    generate_deterministic_sku,
 )
 from app.utils.logger import log
 
@@ -133,13 +134,7 @@ def read_google_sheet(
     custom_maps: dict = None,
 ) -> ExcelReadResult:
     """
-    خواندن کل Google Sheet با پشتیبانی کامل از مپینگ سفارشی.
-
-    شناسایی شیت در چهار پاس:
-      1. تطابق دقیق worksheet_name تعریف‌شده در config
-      2. تطابق فازی با alias های شناخته‌شده (از smart_detector)
-      3. شیت اول موجود (اگر فقط یک شیت داده وجود دارد)
-      4. خطا → لاگ + ادامه
+    خواندن کل Google Sheet با پشتیبانی کامل از مپینگ سفارشی
     """
     result = ExcelReadResult()
     ignored = ignored_fields or []
@@ -158,96 +153,47 @@ def read_google_sheet(
 
     try:
         spreadsheet = client.open_by_key(sheet_id)
-        all_worksheets = spreadsheet.worksheets()
 
-        # جمع‌آوری شیت‌های قابل پردازش (بدون راهنما)
-        _SKIP_NAMES = {"راهنما", "info", "Sheet1", "Sheet2", "Sheet3"}
-        data_worksheets = [ws for ws in all_worksheets if ws.title not in _SKIP_NAMES]
-
-        for worksheet in data_worksheets:
+        for worksheet in spreadsheet.worksheets():
             sheet_name = worksheet.title
 
-            # ─── پاس ۱: تطابق دقیق worksheet_name ───
-            subcategory = get_subcategory_by_worksheet(business_config.key, sheet_name)
-
-            # ─── پاس ۲: تطابق فازی / alias ───
-            if not subcategory:
-                subcategory = _fuzzy_find_subcategory(business_config, sheet_name)
-
-            # ─── پاس ۳: اگر فقط یک شیت داده وجود دارد ───
-            if not subcategory and len(data_worksheets) == 1 and business_config.sub_categories:
-                subcategory = business_config.sub_categories[0]
-                log.info(
-                    f"[SheetReader] تک‌شیت '{sheet_name}' → زیردسته پیش‌فرض "
-                    f"'{subcategory.key}' انتخاب شد."
-                )
-
-            # ─── پاس ۴ (other): هر شیت به زیردسته عمومی ───
-            if not subcategory and business_config.key == "other" and business_config.sub_categories:
-                subcategory = business_config.sub_categories[0]
-                log.info(f"[SheetReader] G-Sheet '{sheet_name}' → other/general_item")
-
-            if not subcategory:
-                log.warning(f"[SheetReader] G-Sheet '{sheet_name}' → زیردسته پیدا نشد، رد شد")
+            if sheet_name in ("راهنما", "info", "Sheet1", "Sheet2", "Sheet3"):
                 continue
 
+            subcategory = get_subcategory_by_worksheet(business_config.key, sheet_name)
+            
+            if not subcategory and business_config.key == "other":
+                if business_config.sub_categories:
+                    subcategory = business_config.sub_categories[0]
+                    log.info(f"💡 G-Sheet '{sheet_name}' برای کسب‌وکار سایر متصل شد.")
+
+            if not subcategory:
+                log.warning(f"G-Sheet '{sheet_name}' متعلق به هیچ زیردسته نیست")
+                continue
+
+            # پاس دادن safe parameters به تابع خواندن
             ws_result = _read_worksheet(worksheet, subcategory, effective_map, ignored)
             result.worksheets.append(ws_result)
 
-        log.info(
-            f"[SheetReader] شیت خونده شد: {len(result.worksheets)} sheet، "
-            f"{result.valid_rows} محصول معتبر"
-        )
+        log.info(f"شیت خونده شد: {len(result.worksheets)} sheet، {result.valid_rows} محصول معتبر")
         return result
 
     except Exception as e:
-        log.error(f"[SheetReader] خطا در خواندن شیت {sheet_id}: {e}", exc_info=True)
+        log.error(f"خطا در خواندن شیت {sheet_id}: {e}", exc_info=True)
         ws_result = WorksheetReadResult(worksheet_name="")
         ws_result.errors.append(RowError(row_number=0, field="general", message=f"خطا: {str(e)[:200]}"))
         result.worksheets.append(ws_result)
         return result
 
 
-def _fuzzy_find_subcategory(business_config: BusinessConfig, sheet_name: str):
-    """
-    تطابق فازی نام شیت با زیردسته‌ها.
-    از SHEET_ALIAS_EXTRA در smart_detector استفاده می‌کند.
-    """
-    try:
-        from app.services.data_input.smart_detector import _SHEET_ALIAS_EXTRA, _normalize, _levenshtein
-    except ImportError:
-        return None
-
-    norm_name = _normalize(sheet_name)
-
-    # بررسی alias های هر SubCategory
-    for sc in business_config.sub_categories:
-        wn = sc.worksheet_name
-        # alias های تعریف‌شده در smart_detector
-        aliases = [_normalize(a) for a in _SHEET_ALIAS_EXTRA.get(wn, [])]
-        aliases.append(_normalize(wn))
-
-        # exact alias match
-        if norm_name in aliases:
-            log.info(f"[SheetReader] '{sheet_name}' → alias exact → '{sc.key}'")
-            return sc
-
-        # fuzzy match (لونشتاین ≤ 2)
-        for alias in aliases:
-            if _levenshtein(norm_name, alias) <= 2:
-                log.info(f"[SheetReader] '{sheet_name}' → alias fuzzy → '{sc.key}'")
-                return sc
-
-    return None
-
-
 def _read_worksheet(
-    worksheet,
-    subcategory: SubCategory,
-    custom_map: dict = None,
+    worksheet, 
+    subcategory: SubCategory, 
+    custom_map: dict = None, 
     ignored_fields: list = None
 ) -> WorksheetReadResult:
     """خواندن یک worksheet از گوگل‌شیت"""
+    # 💡 استفاده مستقیم از title شیء worksheet برای جلوگیری از خطا
     result = WorksheetReadResult(
         worksheet_name=worksheet.title,
         subcategory_key=subcategory.key,
@@ -257,52 +203,21 @@ def _read_worksheet(
     if not all_values:
         return result
 
-    _LABEL_ROW_MARKERS = {"* اجباری", "اختیاری", "* required", "optional"}
+    headers = [str(cell).strip() for cell in all_values[0]]
+    result.headers = headers # ذخیره هدرها برای ویزارد
+
+    if not any(headers):
+        return result
+
     ignored = ignored_fields or []
 
-    # ─── تشخیص ساختار شیت ───────────────────────────────────────────────────
-    # حالت A: ردیف ۱ = هدر ستون‌ها، ردیف ۲ = برچسب، ردیف ۳+ = داده
-    # حالت B: ردیف ۱ = برچسب (بدون هدر)، ردیف ۲+ = داده   ← شیت کاربر این حالت است
-    # حالت C: ردیف ۱ = هدر، ردیف ۲+ = داده                ← شیت دستی کاربر
+    # 💡 همیشه اول نقشه‌ی خودکار (Smart Match) ساخته می‌شود،
+    # سپس در صورت وجود custom_map (پاسخ‌های ویزارد)، فقط همون فیلدها override می‌شن.
+    # این‌طوری فیلدهایی که خودکار درست تشخیص داده شده بودن گم نمی‌شن.
+    field_map = _build_field_map_sheet(subcategory, headers)
+    if custom_map:
+        field_map.update(custom_map)
 
-    row1_values = {str(v).strip() for v in all_values[0]}
-    row1_is_label = bool(row1_values & _LABEL_ROW_MARKERS)
-
-    if row1_is_label:
-        # حالت B: بدون هدر — از نگاشت موضعی (positional) استفاده می‌کنیم
-        # فیلدهای subcategory به ترتیب ستون‌ها نگاشته می‌شوند
-        positional_map = {f.key: idx for idx, f in enumerate(subcategory.fields)}
-        headers = [f.excel_column for f in subcategory.fields]
-        result.headers = headers
-        log.info(
-            f"[SheetReader] '{worksheet.title}': بدون هدر — نگاشت موضعی فعال شد "
-            f"({len(subcategory.fields)} فیلد)"
-        )
-        field_map = positional_map
-        if custom_map:
-            field_map.update(custom_map)
-        data_rows = all_values[1:]    # ردیف ۱ (label) رد می‌شود
-    else:
-        # حالت A یا C: ردیف ۱ هدر واقعی دارد
-        headers = [str(cell).strip() for cell in all_values[0]]
-        result.headers = headers
-
-        if not any(headers):
-            return result
-
-        # رد کردن ردیف برچسب (حالت A)
-        data_rows = all_values[1:]
-        if data_rows:
-            row2_values = {str(v).strip() for v in data_rows[0]}
-            if row2_values & _LABEL_ROW_MARKERS:
-                data_rows = data_rows[1:]
-                log.info(f"[SheetReader] ردیف برچسب در '{worksheet.title}' رد شد.")
-
-        field_map = _build_field_map_sheet(subcategory, headers)
-        if custom_map:
-            field_map.update(custom_map)
-
-    # ─── بررسی فیلدهای اجباری گمشده ────────────────────────────────────────
     missing_required = _check_missing_required_sheet(subcategory, field_map, ignored)
     if missing_required:
         for field_obj in missing_required:
@@ -316,8 +231,7 @@ def _read_worksheet(
             ))
         return result
 
-    # ─── خواندن ردیف‌های داده ───────────────────────────────────────────────
-    for row_index, row in enumerate(data_rows, start=2):
+    for row_index, row in enumerate(all_values[1:], start=2):
         if all(cell is None or str(cell).strip() == "" for cell in row):
             continue
 
@@ -383,20 +297,10 @@ def _parse_sheet_row(row, field_map, subcategory, row_number, worksheet_name, ig
     product_data = {"row_number": row_number, "specs": {}}
     errors = []
     ignored = ignored_fields or []
-    import uuid
 
+    # مرحله ۱: پردازش فیلدهای معمولی (غیر ignored) — از جمله product_name
     for field in subcategory.fields:
         if field.key in ignored:
-            if field.key == "sku": parsed_value = str(uuid.uuid4())[:8].upper()
-            elif field.key == "price": parsed_value = 0
-            elif field.key == "stock": parsed_value = 0
-            elif field.key == "product_name": parsed_value = "محصول بدون نام"
-            else: parsed_value = ""
-            
-            if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
-                product_data[field.key] = parsed_value
-            else:
-                product_data["specs"][field.key] = parsed_value
             continue
 
         if field.key not in field_map:
@@ -425,6 +329,33 @@ def _parse_sheet_row(row, field_map, subcategory, row_number, worksheet_name, ig
                 worksheet=worksheet_name,
             ))
             continue
+
+        if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
+            product_data[field.key] = parsed_value
+        else:
+            product_data["specs"][field.key] = parsed_value
+
+    # مرحله ۲: تولید مقدار خودکار برای فیلدهای ignored
+    # (product_name اول ساخته می‌شه چون sku خودکار به اون وابسته‌ست)
+    if "product_name" in ignored:
+        product_data["product_name"] = f"محصول بدون نام - ردیف {row_number}"
+
+    for field in subcategory.fields:
+        if field.key not in ignored or field.key == "product_name":
+            continue
+
+        if field.key == "sku":
+            parsed_value = generate_deterministic_sku(
+                product_name=product_data.get("product_name", ""),
+                subcategory_key=subcategory.key,
+                extra_seed=worksheet_name,
+            )
+        elif field.key == "price":
+            parsed_value = 0
+        elif field.key == "stock":
+            parsed_value = 0
+        else:
+            parsed_value = ""
 
         if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
             product_data[field.key] = parsed_value

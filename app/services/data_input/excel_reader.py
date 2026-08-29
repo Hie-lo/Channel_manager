@@ -6,6 +6,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from openpyxl import load_workbook
 import uuid
+import hashlib
 
 from app.business.config import (
     BusinessConfig,
@@ -13,6 +14,19 @@ from app.business.config import (
     get_subcategory_by_worksheet,
 )
 from app.utils.logger import log
+
+
+def generate_deterministic_sku(product_name: str, subcategory_key: str, extra_seed: str = "") -> str:
+    """
+    ساخت SKU پایدار (deterministic) وقتی ستون کد محصول در فایل موجود نیست.
+    بر پایه‌ی نام محصول ساخته می‌شه تا در sync های بعدی همون SKU دوباره
+    تولید بشه و محصول به‌جای duplicate شدن، درست آپدیت بخوره.
+    ⚠️ اگه دو محصول دقیقاً اسم یکسان داشته باشن، SKU یکسان می‌گیرن (به‌عنوان یک محصول در نظر گرفته می‌شن).
+    """
+    normalized_name = " ".join((product_name or "").strip().lower().split())
+    basis = f"{subcategory_key}|{normalized_name}|{extra_seed}"
+    digest = hashlib.sha256(basis.encode("utf-8")).hexdigest()
+    return f"AUTO-{digest[:10].upper()}"
 
 
 @dataclass
@@ -178,22 +192,6 @@ def _read_worksheet(
 
     ignored = ignored_fields or []
 
-    # ─── تشخیص و رد کردن ردیف برچسب (ردیف ۲ در فایل‌های نمونه) ───
-    # اگر ردیف دوم شامل متن‌هایی مثل "* اجباری" یا "اختیاری" باشد،
-    # یک ردیف برچسب است و باید نادیده گرفته شود.
-    _LABEL_ROW_MARKERS = {"* اجباری", "اختیاری", "* required", "optional"}
-    data_start_row = 2   # پیش‌فرض: داده از ردیف ۲ شروع می‌شود
-    try:
-        row2_values = [
-            str(cell).strip() if cell is not None else ""
-            for cell in next(sheet.iter_rows(min_row=2, max_row=2, values_only=True))
-        ]
-        if any(v in _LABEL_ROW_MARKERS for v in row2_values):
-            data_start_row = 3
-            log.info(f"[ExcelReader] ردیف برچسب در sheet '{sheet.title}' شناسایی و رد شد.")
-    except StopIteration:
-        pass
-
     # 💡 همیشه اول نقشه‌ی خودکار (Smart Match) ساخته می‌شود،
     # سپس در صورت وجود custom_map (پاسخ‌های ویزارد)، فقط همون فیلدها override می‌شن.
     # این‌طوری فیلدهایی که خودکار درست تشخیص داده شده بودن گم نمی‌شن.
@@ -216,7 +214,7 @@ def _read_worksheet(
         return result
 
     # خواندن ردیف‌های داده
-    for row_index, row in enumerate(sheet.iter_rows(min_row=data_start_row, values_only=True), start=data_start_row):
+    for row_index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
         if all(cell is None or str(cell).strip() == "" for cell in row):
             continue
 
@@ -291,23 +289,9 @@ def _parse_row(
     errors = []
     ignored = ignored_fields or []
 
+    # مرحله ۱: پردازش فیلدهای معمولی (غیر ignored) — از جمله product_name
     for field in subcategory.fields:
         if field.key in ignored:
-            if field.key == "sku":
-                parsed_value = str(uuid.uuid4())[:8].upper()
-            elif field.key == "price":
-                parsed_value = 0
-            elif field.key == "stock":
-                parsed_value = 0
-            elif field.key == "product_name":
-                parsed_value = "محصول بدون نام"
-            else:
-                parsed_value = ""
-
-            if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
-                product_data[field.key] = parsed_value
-            else:
-                product_data["specs"][field.key] = parsed_value
             continue
 
         if field.key not in field_map:
@@ -336,6 +320,33 @@ def _parse_row(
                 worksheet=worksheet_name,
             ))
             continue
+
+        if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
+            product_data[field.key] = parsed_value
+        else:
+            product_data["specs"][field.key] = parsed_value
+
+    # مرحله ۲: تولید مقدار خودکار برای فیلدهای ignored
+    # (product_name اول ساخته می‌شه چون sku خودکار به اون وابسته‌ست)
+    if "product_name" in ignored:
+        product_data["product_name"] = f"محصول بدون نام - ردیف {row_number}"
+
+    for field in subcategory.fields:
+        if field.key not in ignored or field.key == "product_name":
+            continue
+
+        if field.key == "sku":
+            parsed_value = generate_deterministic_sku(
+                product_name=product_data.get("product_name", ""),
+                subcategory_key=subcategory.key,
+                extra_seed=worksheet_name,
+            )
+        elif field.key == "price":
+            parsed_value = 0
+        elif field.key == "stock":
+            parsed_value = 0
+        else:
+            parsed_value = ""
 
         if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
             product_data[field.key] = parsed_value
