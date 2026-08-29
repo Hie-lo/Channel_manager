@@ -183,9 +183,10 @@ async def sync_customer_sheet(
     )
 
     if sheet_data.has_errors:
-        # بررسی اینکه آیا ارورها از جنس گم شدن ستون‌ها هستند
+        # جدا کردن خطای سطح ستون (missing_column) از خطای سطح یک محصول خاص (validation)
         mapping_errors = [err for err in sheet_data.all_errors if getattr(err, 'error_type', '') == "missing_column"]
-        
+        validation_errors = [err for err in sheet_data.all_errors if getattr(err, 'error_type', '') != "missing_column"]
+
         # اگر در همگام‌سازی دستی یا اولیه هستیم و خطای مپینگ داریم، ویزارد را تریگر کن
         if mapping_errors and (is_manual or edit_posts_now is False):
             return {
@@ -194,15 +195,31 @@ async def sync_customer_sheet(
                 "headers": sheet_data.headers,
                 "sheet_id": connection.sheet_id,
             }
-            
-        # در غیر اینصورت (مثل اجرای شبانه خودکار)، فقط ارور را لاگ کن
-        error_msg = f"خطا در خواندن شیت: {sheet_data.all_errors[0].message}"
-        if edit_posts_now:
-            async with AsyncSessionLocal() as session:
-                await update_sync_status(session, customer_id, False, error_msg)
-        result["error"] = error_msg
-        return result
-    
+
+        # خطای مپینگ در اجرای خودکار شبانه: واقعاً نمی‌تونیم ادامه بدیم چون ستون‌ها نامشخصن
+        if mapping_errors:
+            error_msg = f"خطا در خواندن شیت: {mapping_errors[0].message}"
+            if edit_posts_now:
+                async with AsyncSessionLocal() as session:
+                    await update_sync_status(session, customer_id, False, error_msg)
+            result["error"] = error_msg
+            return result
+
+        # 💡 خطاهای validation (مثل قیمت خالی توی یک محصول خاص) نباید کل sync رو متوقف کنن.
+        # این ردیف‌ها همین الان توی read_google_sheet از products حذف شدن؛
+        # فقط گزارششون می‌کنیم و به ذخیره‌ی بقیه‌ی محصولات سالم ادامه می‌دیم.
+        if validation_errors:
+            result["skipped_rows"] = [
+                f"ردیف {e.row_number} ({e.worksheet}): {e.message}"
+                for e in validation_errors[:20]
+            ]
+            result["skipped_count"] = len(validation_errors)
+            log.warning(
+                f"[Sync Customer {customer_id}] {len(validation_errors)} ردیف "
+                f"به‌خاطر داده‌ی ناقص/نامعتبر نادیده گرفته شدن"
+            )
+
+
     # تشخیص تغییرات
     for product_data in sheet_data.all_products:
         sku = product_data.get("sku")

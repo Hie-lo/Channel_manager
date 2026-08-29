@@ -230,14 +230,24 @@ async def _finalize_and_process_file(update, user_id: int, context: ContextTypes
             if sync_result.get("error"):
                 await query.edit_message_text(f"❌ خطا در همگام‌سازی: {sync_result['error']}")
             else:
-                await query.edit_message_text(
+                summary = (
                     f" <b>همگام‌سازی گوگل‌شیت با موفقیت انجام شد!</b>\n"
                     f"━━━━━━━━━━━━━━━\n"
                     f"🆕 محصولات جدید: {sync_result.get('new_count', 0)}\n"
                     f"🔄 بروزرسانی شده: {sync_result.get('updated_count', 0)}\n"
-                    f"━━━━━━━━━━━━━━━",
-                    parse_mode="HTML"
+                    f"━━━━━━━━━━━━━━━"
                 )
+
+                skipped_count = sync_result.get("skipped_count", 0)
+                if skipped_count:
+                    summary += (
+                        f"\n\n⚠️ <b>{skipped_count} ردیف به‌خاطر اطلاعات ناقص/نامعتبر خونده نشدن.</b>\n"
+                        f"لطفاً این ردیف‌ها رو توی شیت تکمیل کن، خودشون در sync بعدی اضافه می‌شن:\n"
+                    )
+                    for line in sync_result.get("skipped_rows", [])[:10]:
+                        summary += f"• {line}\n"
+
+                await query.edit_message_text(summary, parse_mode="HTML")
             return
 
         # پردازش اکسل عادی

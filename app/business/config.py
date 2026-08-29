@@ -21,11 +21,40 @@ class BusinessField:
     aliases: list[str] = field(default_factory=list) # ← لیست مترادف‌ها
 
 # لیست مترادف‌های استاندارد
-PRICE_ALIASES = ["قیمت", "مبلغ", "بها", "قیمت نهایی", "ارزش", "قیمت (تومان)", "price", "amount"]
-STOCK_ALIASES = ["موجودی", "تعداد", "تعداد موجود", "انبار", "موجودی انبار", "stock", "qty", "quantity"]
+PRICE_ALIASES = ["قیمت", "مبلغ", "بها", "قیمت نهایی", "ارزش", "قیمت (تومان)", "قیمت فروش", "price", "amount", "sale price", "cost"]
+STOCK_ALIASES = ["موجودی", "تعداد", "تعداد موجود", "انبار", "موجودی انبار", "stock", "qty", "quantity", "no", "count"]
 SKU_ALIASES = ["کد", "کد محصول", "کد کالا", "شناسه", "شناسه کالا", "sku", "code", "id"]
-NAME_ALIASES = ["نام", "نام محصول", "نام کالا", "عنوان", "عنوان محصول", "product_name", "title", "name"]
+NAME_ALIASES = ["نام", "نام محصول", "نام کالا", "عنوان", "عنوان محصول", "مدل", "product_name", "title", "name", "model"]
 BRAND_ALIASES = ["برند", "مارک", "سازنده", "شرکت سازنده", "brand", "make"]
+DESC_ALIASES = ["توضیحات", "شرح", "توضیح", "desc", "description", "des", "note", "notes"]
+IMAGE_ALIASES = ["لینک عکس", "عکس", "تصویر", "image", "photo", "image_url", "img"]
+
+# مترادف‌های مخصوص دسته‌ی لپتاپ/کامپیوتر
+CPU_ALIASES = ["پردازنده", "سی پی یو", "cpu", "processor"]
+RAM_ALIASES = ["رم", "حافظه رم", "ram", "memory"]
+STORAGE_ALIASES = ["حافظه", "حافظه داخلی", "هارد", "storage", "hard", "hdd", "ssd", "disk", "rom"]
+GPU_ALIASES = ["گرافیک", "کارت گرافیک", "gpu", "vga", "graphics", "graphic"]
+SCREEN_ALIASES = ["صفحه نمایش", "نمایشگر", "screen", "display", "mon", "monitor"]
+PSU_ALIASES = ["منبع تغذیه", "پاور", "psu", "power supply", "power"]
+CASE_ALIASES = ["مدل کیس", "کیس", "case", "case model"]
+SCREEN_SIZE_ALIASES = ["سایز", "اندازه صفحه", "سایز صفحه", "size", "screen size"]
+RESOLUTION_ALIASES = ["رزولوشن", "resolution"]
+REFRESH_RATE_ALIASES = ["نرخ رفرش", "رفرش ریت", "refresh rate", "hz", "refresh"]
+PANEL_TYPE_ALIASES = ["نوع پنل", "پنل", "panel", "panel type"]
+COMPONENT_TYPE_ALIASES = ["نوع قطعه", "component type", "type"]
+SPECS_ALIASES = ["مشخصات", "specs", "specifications"]
+ACCESSORY_TYPE_ALIASES = ["نوع لوازم", "accessory type"]
+CONNECTION_ALIASES = ["نوع اتصال", "اتصال", "connection", "connectivity"]
+FEATURES_ALIASES = ["ویژگی‌ها", "ویژگی", "features", "feature"]
+
+# مترادف‌های مخصوص دسته‌ی موبایل
+CAMERA_ALIASES = ["دوربین", "camera"]
+BATTERY_ALIASES = ["باتری", "battery"]
+COLOR_ALIASES = ["رنگ", "رنگ‌بندی", "color", "colour"]
+
+# مترادف‌های مخصوص دسته‌ی پوشاک
+SIZE_ALIASES = ["سایزبندی", "سایز", "size"]
+MATERIAL_ALIASES = ["جنس پارچه", "جنس", "material", "fabric"]
 
 @dataclass
 class SubCategory:
@@ -68,16 +97,16 @@ class BusinessConfig:
 # ═══════════════════════════════════════════════════════
 
 COMMON_FIELDS_START = [
-    BusinessField(key="sku", label_fa="کد محصول", emoji="🔖", excel_column="کد محصول", required=True),
-    BusinessField(key="product_name", label_fa="نام محصول", emoji="📦", excel_column="نام محصول", required=True),
-    BusinessField(key="brand", label_fa="برند", emoji="🏭", excel_column="برند", required=True),
+    BusinessField(key="sku", label_fa="کد محصول", emoji="🔖", excel_column="کد محصول", required=True, aliases=SKU_ALIASES),
+    BusinessField(key="product_name", label_fa="نام محصول", emoji="📦", excel_column="نام محصول", required=True, aliases=NAME_ALIASES),
+    BusinessField(key="brand", label_fa="برند", emoji="🏭", excel_column="برند", required=True, aliases=BRAND_ALIASES),
 ]
 
 COMMON_FIELDS_END = [
-    BusinessField(key="price", label_fa="قیمت", emoji="💰", excel_column="قیمت", required=True),
-    BusinessField(key="stock", label_fa="موجودی", emoji="📦", excel_column="موجودی", required=True),
-    BusinessField(key="description", label_fa="توضیحات", emoji="📝", excel_column="توضیحات", required=False),
-    BusinessField(key="image_url", label_fa="لینک عکس", emoji="🖼", excel_column="لینک عکس", required=False),
+    BusinessField(key="price", label_fa="قیمت", emoji="💰", excel_column="قیمت", required=True, aliases=PRICE_ALIASES),
+    BusinessField(key="stock", label_fa="موجودی", emoji="📦", excel_column="موجودی", required=True, aliases=STOCK_ALIASES),
+    BusinessField(key="description", label_fa="توضیحات", emoji="📝", excel_column="توضیحات", required=False, aliases=DESC_ALIASES),
+    BusinessField(key="image_url", label_fa="لینک عکس", emoji="🖼", excel_column="لینک عکس", required=False, aliases=IMAGE_ALIASES),
 ]
 
 
@@ -91,11 +120,11 @@ LAPTOP_SUBCATEGORY = SubCategory(
     emoji="💻",
     worksheet_name="laptops",
     fields=COMMON_FIELDS_START + [
-        BusinessField(key="cpu", label_fa="پردازنده", emoji="⚡", excel_column="پردازنده", required=True),
-        BusinessField(key="ram", label_fa="رم", emoji="🧠", excel_column="رم", required=True),
-        BusinessField(key="storage", label_fa="حافظه", emoji="💾", excel_column="حافظه", required=True),
-        BusinessField(key="gpu", label_fa="گرافیک", emoji="🎮", excel_column="گرافیک", required=False),
-        BusinessField(key="screen", label_fa="صفحه نمایش", emoji="📐", excel_column="صفحه نمایش", required=False),
+        BusinessField(key="cpu", label_fa="پردازنده", emoji="⚡", excel_column="پردازنده", required=True, aliases=CPU_ALIASES),
+        BusinessField(key="ram", label_fa="رم", emoji="🧠", excel_column="رم", required=True, aliases=RAM_ALIASES),
+        BusinessField(key="storage", label_fa="حافظه", emoji="💾", excel_column="حافظه", required=True, aliases=STORAGE_ALIASES),
+        BusinessField(key="gpu", label_fa="گرافیک", emoji="🎮", excel_column="گرافیک", required=False, aliases=GPU_ALIASES),
+        BusinessField(key="screen", label_fa="صفحه نمایش", emoji="📐", excel_column="صفحه نمایش", required=False, aliases=SCREEN_ALIASES),
     ] + COMMON_FIELDS_END,
     post_template_file="post_templates/computer_shop/laptop.txt",
     static_hashtags=["#لپتاپ", "#کامپیوتر"],
@@ -108,12 +137,12 @@ PREBUILT_PC_SUBCATEGORY = SubCategory(
     emoji="🖥",
     worksheet_name="prebuilt_pcs",
     fields=COMMON_FIELDS_START + [
-        BusinessField(key="cpu", label_fa="پردازنده", emoji="⚡", excel_column="پردازنده", required=True),
-        BusinessField(key="ram", label_fa="رم", emoji="🧠", excel_column="رم", required=True),
-        BusinessField(key="storage", label_fa="حافظه", emoji="💾", excel_column="حافظه", required=True),
-        BusinessField(key="gpu", label_fa="گرافیک", emoji="🎮", excel_column="گرافیک", required=True),
-        BusinessField(key="psu", label_fa="منبع تغذیه", emoji="⚡", excel_column="منبع تغذیه", required=False),
-        BusinessField(key="case_model", label_fa="مدل کیس", emoji="📦", excel_column="مدل کیس", required=False),
+        BusinessField(key="cpu", label_fa="پردازنده", emoji="⚡", excel_column="پردازنده", required=True, aliases=CPU_ALIASES),
+        BusinessField(key="ram", label_fa="رم", emoji="🧠", excel_column="رم", required=True, aliases=RAM_ALIASES),
+        BusinessField(key="storage", label_fa="حافظه", emoji="💾", excel_column="حافظه", required=True, aliases=STORAGE_ALIASES),
+        BusinessField(key="gpu", label_fa="گرافیک", emoji="🎮", excel_column="گرافیک", required=True, aliases=GPU_ALIASES),
+        BusinessField(key="psu", label_fa="منبع تغذیه", emoji="⚡", excel_column="منبع تغذیه", required=False, aliases=PSU_ALIASES),
+        BusinessField(key="case_model", label_fa="مدل کیس", emoji="📦", excel_column="مدل کیس", required=False, aliases=CASE_ALIASES),
     ] + COMMON_FIELDS_END,
     post_template_file="post_templates/computer_shop/prebuilt_pc.txt",
     static_hashtags=["#کامپیوتر_آماده", "#کیس_گیمینگ"],
@@ -126,10 +155,10 @@ MONITOR_SUBCATEGORY = SubCategory(
     emoji="🖥",
     worksheet_name="monitors",
     fields=COMMON_FIELDS_START + [
-        BusinessField(key="screen_size", label_fa="سایز", emoji="📐", excel_column="سایز", required=True),
-        BusinessField(key="resolution", label_fa="رزولوشن", emoji="🔍", excel_column="رزولوشن", required=True),
-        BusinessField(key="refresh_rate", label_fa="نرخ رفرش", emoji="⚡", excel_column="نرخ رفرش", required=False),
-        BusinessField(key="panel_type", label_fa="نوع پنل", emoji="🎨", excel_column="نوع پنل", required=False),
+        BusinessField(key="screen_size", label_fa="سایز", emoji="📐", excel_column="سایز", required=True, aliases=SCREEN_SIZE_ALIASES),
+        BusinessField(key="resolution", label_fa="رزولوشن", emoji="🔍", excel_column="رزولوشن", required=True, aliases=RESOLUTION_ALIASES),
+        BusinessField(key="refresh_rate", label_fa="نرخ رفرش", emoji="⚡", excel_column="نرخ رفرش", required=False, aliases=REFRESH_RATE_ALIASES),
+        BusinessField(key="panel_type", label_fa="نوع پنل", emoji="🎨", excel_column="نوع پنل", required=False, aliases=PANEL_TYPE_ALIASES),
     ] + COMMON_FIELDS_END,
     post_template_file="post_templates/computer_shop/monitor.txt",
     static_hashtags=["#مانیتور", "#مانیتور_گیمینگ"],
@@ -142,8 +171,8 @@ COMPONENTS_SUBCATEGORY = SubCategory(
     emoji="⚙️",
     worksheet_name="components",
     fields=COMMON_FIELDS_START + [
-        BusinessField(key="component_type", label_fa="نوع قطعه", emoji="🔧", excel_column="نوع قطعه", required=True),
-        BusinessField(key="specs", label_fa="مشخصات", emoji="📋", excel_column="مشخصات", required=True),
+        BusinessField(key="component_type", label_fa="نوع قطعه", emoji="🔧", excel_column="نوع قطعه", required=True, aliases=COMPONENT_TYPE_ALIASES),
+        BusinessField(key="specs", label_fa="مشخصات", emoji="📋", excel_column="مشخصات", required=True, aliases=SPECS_ALIASES),
     ] + COMMON_FIELDS_END,
     post_template_file="post_templates/computer_shop/component.txt",
     static_hashtags=["#قطعات_کامپیوتر"],
@@ -156,9 +185,9 @@ ACCESSORIES_SUBCATEGORY = SubCategory(
     emoji="🖱",
     worksheet_name="accessories",
     fields=COMMON_FIELDS_START + [
-        BusinessField(key="accessory_type", label_fa="نوع لوازم", emoji="🎧", excel_column="نوع لوازم", required=True),
-        BusinessField(key="connection", label_fa="نوع اتصال", emoji="🔌", excel_column="نوع اتصال", required=False),
-        BusinessField(key="features", label_fa="ویژگی‌ها", emoji="✨", excel_column="ویژگی‌ها", required=False),
+        BusinessField(key="accessory_type", label_fa="نوع لوازم", emoji="🎧", excel_column="نوع لوازم", required=True, aliases=ACCESSORY_TYPE_ALIASES),
+        BusinessField(key="connection", label_fa="نوع اتصال", emoji="🔌", excel_column="نوع اتصال", required=False, aliases=CONNECTION_ALIASES),
+        BusinessField(key="features", label_fa="ویژگی‌ها", emoji="✨", excel_column="ویژگی‌ها", required=False, aliases=FEATURES_ALIASES),
     ] + COMMON_FIELDS_END,
     post_template_file="post_templates/computer_shop/accessory.txt",
     static_hashtags=["#لوازم_جانبی_کامپیوتر"],
@@ -203,11 +232,11 @@ MOBILE_SHOP = BusinessConfig(
             emoji="📱",
             worksheet_name="smartphones",
             fields=COMMON_FIELDS_START + [
-                BusinessField(key="ram", label_fa="حافظه رم", emoji="🧠", excel_column="حافظه رم", required=True),
-                BusinessField(key="storage", label_fa="حافظه داخلی", emoji="💾", excel_column="حافظه داخلی", required=True),
-                BusinessField(key="camera", label_fa="دوربین", emoji="📸", excel_column="دوربین", required=False),
-                BusinessField(key="battery", label_fa="باتری", emoji="🔋", excel_column="باتری", required=False),
-                BusinessField(key="color", label_fa="رنگ", emoji="🎨", excel_column="رنگ", required=False),
+                BusinessField(key="ram", label_fa="حافظه رم", emoji="🧠", excel_column="حافظه رم", required=True, aliases=RAM_ALIASES),
+                BusinessField(key="storage", label_fa="حافظه داخلی", emoji="💾", excel_column="حافظه داخلی", required=True, aliases=STORAGE_ALIASES),
+                BusinessField(key="camera", label_fa="دوربین", emoji="📸", excel_column="دوربین", required=False, aliases=CAMERA_ALIASES),
+                BusinessField(key="battery", label_fa="باتری", emoji="🔋", excel_column="باتری", required=False, aliases=BATTERY_ALIASES),
+                BusinessField(key="color", label_fa="رنگ", emoji="🎨", excel_column="رنگ", required=False, aliases=COLOR_ALIASES),
             ] + COMMON_FIELDS_END,
             post_template_file="post_templates/mobile_shop/smartphone.txt",
             static_hashtags=["#موبایل", "#گوشی_موبایل", "#خرید_گوشی"],
@@ -234,9 +263,9 @@ CLOTHING_SHOP = BusinessConfig(
             emoji="👗",
             worksheet_name="clothing",
             fields=COMMON_FIELDS_START + [
-                BusinessField(key="size", label_fa="سایزبندی", emoji="📏", excel_column="سایزبندی", required=True),
-                BusinessField(key="color", label_fa="رنگ‌بندی", emoji="🎨", excel_column="رنگ‌بندی", required=False),
-                BusinessField(key="material", label_fa="جنس پارچه", emoji="🧶", excel_column="جنس", required=False),
+                BusinessField(key="size", label_fa="سایزبندی", emoji="📏", excel_column="سایزبندی", required=True, aliases=SIZE_ALIASES),
+                BusinessField(key="color", label_fa="رنگ‌بندی", emoji="🎨", excel_column="رنگ‌بندی", required=False, aliases=COLOR_ALIASES),
+                BusinessField(key="material", label_fa="جنس پارچه", emoji="🧶", excel_column="جنس", required=False, aliases=MATERIAL_ALIASES),
             ] + COMMON_FIELDS_END,
             post_template_file="post_templates/clothing_shop/clothing.txt",
             static_hashtags=["#پوشاک", "#لباس", "#مد"],
@@ -334,8 +363,8 @@ OTHER_STORE = BusinessConfig(
                 BusinessField(key="brand", label_fa="برند / سازنده", emoji="🏭", excel_column="برند", required=False, aliases=BRAND_ALIASES),
                 BusinessField(key="price", label_fa="قیمت", emoji="💰", excel_column="قیمت", required=True, aliases=PRICE_ALIASES),
                 BusinessField(key="stock", label_fa="موجودی", emoji="📦", excel_column="موجودی", required=True, aliases=STOCK_ALIASES),
-                BusinessField(key="description", label_fa="توضیحات", emoji="📝", excel_column="توضیحات", required=False, aliases=["توضیحات", "شرح", "desc", "description"]),
-                BusinessField(key="image_url", label_fa="لینک عکس", emoji="🖼", excel_column="لینک عکس", required=False, aliases=["لینک عکس", "عکس", "تصویر", "image", "photo"]),
+                BusinessField(key="description", label_fa="توضیحات", emoji="📝", excel_column="توضیحات", required=False, aliases=DESC_ALIASES),
+                BusinessField(key="image_url", label_fa="لینک عکس", emoji="🖼", excel_column="لینک عکس", required=False, aliases=IMAGE_ALIASES),
             ],
             post_template_file="post_templates/other/general.txt",
             static_hashtags=["#فروشگاه", "#خرید_آنلاین"],
