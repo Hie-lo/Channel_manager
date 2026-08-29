@@ -145,6 +145,25 @@ async def process_mapping_answer_callback(
         col_index = int(data.replace("map_col_", ""))
         if "custom_map" not in user_data:
             user_data["custom_map"] = {}
+
+        # 🛡️ جلوگیری از تخصیص یک ستون به دو فیلد مختلف (اشتباه کلیک کاربر)
+        duplicate_field = next(
+            (k for k, v in user_data["custom_map"].items() if v == col_index),
+            None,
+        )
+        if duplicate_field:
+            missing_fields.insert(0, current_field)  # همون سوال دوباره پرسیده بشه
+            set_user_state(user_id, UserState.WAITING_COLUMN_MAPPING, data=user_data)
+            headers = user_data.get("headers", [])
+            await query.edit_message_text(
+                f"⚠️ این ستون قبلاً برای فیلد دیگه‌ای انتخاب شده.\n\n"
+                f"لطفاً ستون <b>«{current_field.label_fa}»</b> رو از بین ستون‌های "
+                f"باقی‌مونده انتخاب کن یا 'نادیده بگیر' رو بزن.",
+                parse_mode="HTML",
+                reply_markup=get_column_mapping_keyboard(headers),
+            )
+            return
+
         user_data["custom_map"][current_field.key] = col_index
 
     # بروزرسانی state

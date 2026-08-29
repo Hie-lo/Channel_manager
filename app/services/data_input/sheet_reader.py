@@ -31,6 +31,10 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
 ]
 
+# 💡 فقط شیت‌های راهنما/توضیحات واقعی skip می‌شن، نه اسم‌های پیش‌فرض
+# مثل "Sheet1" که خیلی از مشتری‌ها اصلاً عوضش نمی‌کنن.
+IGNORED_WORKSHEET_NAMES = {"راهنما", "راهنمای استفاده", "info", "instructions", "guide", "template", "قالب"}
+
 
 @dataclass
 class SheetConnectionResult:
@@ -157,7 +161,7 @@ def read_google_sheet(
         for worksheet in spreadsheet.worksheets():
             sheet_name = worksheet.title
 
-            if sheet_name in ("راهنما", "info", "Sheet1", "Sheet2", "Sheet3"):
+            if sheet_name.strip().lower() in IGNORED_WORKSHEET_NAMES:
                 continue
 
             subcategory = get_subcategory_by_worksheet(business_config.key, sheet_name)
@@ -256,31 +260,9 @@ def _read_worksheet(
 
 
 def _build_field_map_sheet(subcategory: SubCategory, headers: list[str]) -> dict[str, int]:
-    field_map = {}
-    normalized_headers = [str(h).strip().lower() for h in headers]
-
-    for field in subcategory.fields:
-        target_name = field.excel_column.strip().lower()
-        if target_name in normalized_headers:
-            field_map[field.key] = normalized_headers.index(target_name)
-            continue
-
-        found = False
-        if hasattr(field, 'aliases') and field.aliases:
-            for alias in field.aliases:
-                alias_clean = alias.strip().lower()
-                if alias_clean in normalized_headers:
-                    field_map[field.key] = normalized_headers.index(alias_clean)
-                    found = True
-                    break
-        if found: continue
-
-        for idx, header in enumerate(normalized_headers):
-            if target_name in header or header in target_name:
-                field_map[field.key] = idx
-                break
-
-    return field_map
+    """نگاشت هوشمند ستون‌ها — از الگوریتم امتیازدهی مشترک با excel_reader استفاده می‌کنه"""
+    from app.services.data_input.excel_reader import _build_field_map
+    return _build_field_map(subcategory, headers)
 
 
 def _check_missing_required_sheet(subcategory: SubCategory, field_map: dict, ignored_fields: list) -> list:

@@ -5,6 +5,7 @@
 from pathlib import Path
 from dataclasses import dataclass, field
 from openpyxl import load_workbook
+import re
 import uuid
 import hashlib
 
@@ -14,6 +15,10 @@ from app.business.config import (
     get_subcategory_by_worksheet,
 )
 from app.utils.logger import log
+
+# 💡 فقط شیت‌های راهنما/توضیحات واقعی skip می‌شن، نه اسم‌های پیش‌فرض
+# مثل "Sheet1" که خیلی از مشتری‌ها اصلاً عوضش نمی‌کنن.
+IGNORED_WORKSHEET_NAMES = {"راهنما", "راهنمای استفاده", "info", "instructions", "guide", "template", "قالب"}
 
 
 def generate_deterministic_sku(product_name: str, subcategory_key: str, extra_seed: str = "") -> str:
@@ -139,7 +144,7 @@ def read_excel_file(
     # پردازش هر sheet
     for sheet_name in workbook.sheetnames:
         # sheet راهنما یا خالی رو نادیده بگیر
-        if sheet_name in ("راهنما", "info", "Sheet1", "Sheet2", "Sheet3"):
+        if sheet_name.strip().lower() in IGNORED_WORKSHEET_NAMES:
             continue
 
         # پیدا کردن زیردسته متناظر
@@ -238,32 +243,59 @@ def _read_worksheet(
     return result
 
 
+def _normalize_header(h) -> str:
+    return re.sub(r"\s+", " ", str(h).strip().lower())
+
+
+def _header_words(h: str) -> set:
+    return set(re.findall(r"[a-z0-9\u0600-\u06FF]+", h))
+
+
 def _build_field_map(subcategory: SubCategory, headers: list[str]) -> dict[str, int]:
-    """نگاشت هوشمند فیلدها برای اکسل"""
-    field_map = {}
-    normalized_headers = [str(h).strip().lower() for h in headers]
+    """
+    نگاشت هوشمند فیلدها با سیستم امتیازدهی سطح‌بندی‌شده:
+    3 = تطبیق دقیق (کل متن ستون برابر نام فیلد/alias)
+    2 = تطبیق کلمه‌به‌کلمه (کلمات alias زیرمجموعه‌ی کلمات هدر هستن)
+    1 = تطبیق substring ضعیف (فقط آخرین راه‌حل)
+    هیچ دو فیلدی به یک ستون مپ نمی‌شن؛ در تعارض، امتیاز بالاتر برنده و
+    فیلد بازنده نامپ می‌مونه (می‌ره توی ویزارد) به‌جای حدس اشتباه.
+    """
+    normalized_headers = [_normalize_header(h) for h in headers]
+    header_word_sets = [_header_words(h) for h in normalized_headers]
 
-    for field in subcategory.fields:
-        target_name = field.excel_column.strip().lower()
-        if target_name in normalized_headers:
-            field_map[field.key] = normalized_headers.index(target_name)
-            continue
+    candidates: dict[str, tuple[int, int]] = {}
 
-        found = False
-        if hasattr(field, 'aliases') and field.aliases:
-            for alias in field.aliases:
-                alias_clean = alias.strip().lower()
-                if alias_clean in normalized_headers:
-                    field_map[field.key] = normalized_headers.index(alias_clean)
-                    found = True
-                    break
-        if found:
-            continue
+    for f in subcategory.fields:
+        names = [f.excel_column.strip().lower()] + [a.strip().lower() for a in (f.aliases or [])]
+        best_idx, best_score = None, 0
 
-        for idx, header in enumerate(normalized_headers):
-            if target_name in header or header in target_name:
-                field_map[field.key] = idx
-                break
+        for name in names:
+            name_words = _header_words(name)
+            for idx, header in enumerate(normalized_headers):
+                if header == name:
+                    score = 3
+                elif name_words and name_words.issubset(header_word_sets[idx]):
+                    score = 2
+                elif name in header or header in name:
+                    score = 1
+                else:
+                    continue
+                if score > best_score:
+                    best_score, best_idx = score, idx
+
+        if best_idx is not None:
+            candidates[f.key] = (best_idx, best_score)
+
+    field_map: dict[str, int] = {}
+    col_owner: dict[int, tuple[str, int]] = {}
+
+    for field_key, (col_idx, score) in candidates.items():
+        owner = col_owner.get(col_idx)
+        if owner is None or score > owner[1]:
+            if owner is not None:
+                field_map.pop(owner[0], None)
+            col_owner[col_idx] = (field_key, score)
+            field_map[field_key] = col_idx
 
     return field_map
 
