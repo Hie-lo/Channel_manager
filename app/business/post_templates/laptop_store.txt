@@ -1,18 +1,29 @@
-🖥 {product_name}
+🖥 {brand} {product_name}
 
-🏭 برند: {brand}
 ⚡ پردازنده: {cpu}
 🧠 رم: {ram}
 💾 حافظه: {storage}
 🎮 گرافیک: {gpu}
 📐 صفحه: {screen}
+
+⭐️ Grade
+
+{description_block}
+
+
+🎯 مناسب برای
+{hashtags}
+
 ─────────────────
 💰 قیمت: {price} تومان
 📦 {stock_status}
 ─────────────────
-{description_block}
 
-{hashtags}
+🛡️ یکماه گارانتی سخت افزاری مکتوب به همراه فاکتور معتبر
+
+➕ امکان گارانتی بیشتر:
+🔸 ۶ ماهه با ۷٪ افزایش قیمت
+🔸 ۱ ساله با ۱۰٪ افزایش قیمت
 
 📞 {contact}
 🔄 {update_date}
