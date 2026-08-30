@@ -44,17 +44,13 @@ def _is_message_processed(message_id: int) -> bool:
 
     _processed_messages.add(message_id)
 
-    # پاکسازی اگه خیلی بزرگ شد
     if len(_processed_messages) > _MAX_TRACKED:
-        # نگه دار فقط 500 تای آخر
         sorted_ids = sorted(_processed_messages)
         _processed_messages.clear()
         _processed_messages.update(sorted_ids[-500:])
 
     return False
-# ═══════════════════════════════════════════════════════════
-# منوی اصلی کانال
-# ═══════════════════════════════════════════════════════════
+
 
 async def channel_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش منوی مدیریت کانال"""
@@ -107,10 +103,6 @@ async def channel_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-# ═══════════════════════════════════════════════════════════
-# اضافه کردن کانال - انتخاب پلتفرم
-# ═══════════════════════════════════════════════════════════
-
 async def channel_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش انتخاب پلتفرم"""
     query = update.callback_query
@@ -137,7 +129,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
     platform_str = query.data.replace("channel_platform_", "")
     user = query.from_user
 
-    # چک محدودیت پلن
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
@@ -173,7 +164,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
             )
             return
 
-    # تنظیم state
     if platform_str == "TELEGRAM":
         set_user_state(user.id, UserState.WAITING_CHANNEL_ID_TELEGRAM)
         text = (
@@ -190,13 +180,11 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
             "یا -100123456789"
         )
     elif platform_str == "EITAA":
-        # چک کن مشتری قبلاً توکن ایتا داده یا نه
         async with AsyncSessionLocal() as session:
             from app.services.customer_service import get_customer_eitaa_token
             eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
         if not eitaa_token:
-            # اولین بار - توکن رو بگیر
             set_user_state(user.id, UserState.WAITING_EITAA_TOKEN)
             text = (
                 "📢 <b>اتصال کانال ایتا - مرحله ۱ از ۲</b>\n"
@@ -214,7 +202,6 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
                 "و برای همه کانال‌های ایتای شما استفاده میشه."
             )
         else:
-            # توکن قبلاً داده شده - فقط chat_id
             set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
             text = (
                 "📢 <b>اتصال کانال ایتا</b>\n"
@@ -248,15 +235,10 @@ async def channel_platform_selected_callback(update: Update, context: ContextTyp
     )
 
 
-# ═══════════════════════════════════════════════════════════
-# دریافت آیدی کانال - Router بر اساس platform
-# ═══════════════════════════════════════════════════════════
-
 async def channel_id_received_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """دریافت آیدی کانال - بر اساس پلتفرم متفاوت عمل می‌کنه"""
     user = update.effective_user
     state = get_user_state(user.id)
-
 
     if state == UserState.WAITING_CHANNEL_ID_TELEGRAM:
         await _handle_telegram_channel(update, context)
@@ -271,16 +253,12 @@ async def channel_id_received_handler(update: Update, context: ContextTypes.DEFA
     else:
         log.warning(f"⚠️ state نامعتبر: {state}")
 
-# ═══════════════════════════════════════════════════════════
-# پردازش کانال تلگرام (با احراز واقعی)
-# ═══════════════════════════════════════════════════════════
 
 async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """پردازش کانال تلگرام - با اعتبارسنجی کامل امنیتی و دکمه راهنما"""
     user = update.effective_user
     message_id = update.message.message_id
 
-    # ۱. جلوگیری از پردازش تکراری پیام (Deduplication)
     if _is_message_processed(message_id):
         log.warning(f"[Channel TG] message {message_id} قبلاً پردازش شده")
         return
@@ -288,14 +266,12 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
     channel_input = update.message.text.strip()
     log.info(f"🔍 [_handle_telegram_channel] input={channel_input}")
 
-    # کیبورد راهنما + انصراف برای استفاده در پیام‌های خطا
     from app.bot.keyboards.tutorial import get_inline_help_keyboard
     help_cancel_kb = get_inline_help_keyboard(
         tutorial_key="connect_channel", 
         existing_buttons=[[InlineKeyboardButton("❌ انصراف", callback_data="channel_menu")]]
     )
 
-    # ۲. اعتبارسنجی اولیه فرمت آیدی
     if not channel_input.startswith("@") and not channel_input.startswith("-100"):
         await update.message.reply_text(
             "❌ <b>فرمت آیدی کانال اشتباه است!</b>\n\n"
@@ -307,7 +283,6 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
         )
         return
 
-    # ۳. غیرفعال کردن موقت State جهت جلوگیری از تداخل
     set_user_state(user.id, UserState.IDLE)
 
     checking_msg = await update.message.reply_text(
@@ -321,16 +296,38 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             clear_user_state(user.id)
             return
 
-        # 🛡️ ۴. دیوار دفاعی دوم: چک تکراری نبودن کانال در کل دیتابیس (بین تمام کاربران)
         is_dup, dup_error = await check_channel_already_exists(
             session, customer.id, channel_input, Platform.TELEGRAM
         )
         if is_dup:
-            await checking_msg.edit_text(f"{dup_error}", reply_markup=help_cancel_kb)
-            clear_user_state(user.id)
-            return
+            # 🩺 Self-healing: قبل از رد قطعی، وضعیت واقعی رو از تلگرام استعلام کن
+            from app.services.channel_service import get_channel_by_identifier, disconnect_channel
 
-        # 🛡️ ۵. استخراج آیدی تلگرام کاربر برای چک ادمین بودن خودش در کانال
+            stale_channel = await get_channel_by_identifier(
+                session, channel_input, Platform.TELEGRAM
+            )
+            still_really_connected = True
+
+            if stale_channel:
+                try:
+                    live_check = await check_bot_is_admin_in_channel(context.bot, channel_input)
+                    still_really_connected = live_check.is_valid
+                except Exception:
+                    still_really_connected = False
+
+                if not still_really_connected:
+                    await disconnect_channel(session, stale_channel.id)
+                    log.info(
+                        f"🩺 [Self-heal] کانال {channel_input} دیگه واقعاً وصل نبود؛ "
+                        f"رکورد قطع شد و اجازه‌ی اتصال دوباره داده شد."
+                    )
+
+            if still_really_connected:
+                await checking_msg.edit_text(f"{dup_error}", reply_markup=help_cancel_kb)
+                clear_user_state(user.id)
+                return
+            # اگه واقعاً دیگه وصل نبود، ادامه می‌دیم به مراحل بعدی اتصال جدید
+
         tg_user_id = customer.telegram_user_id
         if not tg_user_id:
             await checking_msg.edit_text(
@@ -340,12 +337,10 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             clear_user_state(user.id)
             return
 
-    # ۶. بررسی ادمین بودن ربات و خودِ کاربر در کانال تلگرام
     from app.utils.admin_check import detect_platform_from_context
     current_platform = detect_platform_from_context(context)
 
     if current_platform == "BALE":
-        # اگر کاربر در ربات بله است، یک کلاینت تلگرام موقت می‌سازیم
         from telegram import Bot
         from app.config import settings
         try:
@@ -357,7 +352,6 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
             await checking_msg.edit_text(f"❌ خطا در بررسی کانال تلگرام: {e}", reply_markup=help_cancel_kb)
             return
     else:
-        # در ربات تلگرام
         result = await check_bot_is_admin_in_channel(context.bot, channel_input, tg_user_id)
 
     if not result.is_valid:
@@ -365,7 +359,6 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
         clear_user_state(user.id)
         return
 
-    # ۷. افزودن کانال به دیتابیس در صورت تایید کامل
     async with AsyncSessionLocal() as session:
         await add_channel_for_customer(
             session, customer.id, channel_input, Platform.TELEGRAM, "ACTIVE"
@@ -386,9 +379,7 @@ async def _handle_telegram_channel(update: Update, context: ContextTypes.DEFAULT
 
 
 async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    مرحله ۱: دریافت توکن ربات ایتا
-    """
+    """مرحله ۱: دریافت توکن ربات ایتا"""
     user = update.effective_user
     message_id = update.message.message_id
 
@@ -397,8 +388,6 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     token_input = update.message.text.strip()
 
-
-    # اعتبارسنجی فرمت توکن
     if not token_input.startswith("bot") or ":" not in token_input:
         await update.message.reply_text(
             "❌ فرمت توکن اشتباه است!\n\n"
@@ -419,28 +408,18 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # ⚠️ ابتدا state رو تغییر بده تا اگه پیام دوم اومد، اشتباه هندل نشه
-    # این کار جلوگیری از دوبار پاسخ می‌کنه
     from app.bot.states.user_state import UserState
-    set_user_state(user.id, UserState.IDLE)   # موقتاً IDLE
+    set_user_state(user.id, UserState.IDLE)
 
-    checking_msg = await update.message.reply_text(
-        "🔍 در حال بررسی توکن..."
-    )
+    checking_msg = await update.message.reply_text("🔍 در حال بررسی توکن...")
 
-    # تست توکن
     from app.services.publisher.eitaa_client import EitaaClient
 
     try:
         client = EitaaClient(token=token_input)
-        # پیام تست به chat_id="0" (احتمالاً وجود نداره)
-        # اگه توکن غلط باشه: 401
-        # اگه توکن درست باشه: 400 (chat_id غلط) یا موفق
         test_result = await client.send_message(chat_id="0", text=".")
 
-        # فقط 401 یعنی توکن غلطه
         if test_result.error_code == 401:
-            # برگردون state رو تا مشتری بتونه دوباره امتحان کنه
             set_user_state(user.id, UserState.WAITING_EITAA_TOKEN)
 
             await checking_msg.edit_text(
@@ -451,11 +430,8 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-
     except Exception as e:
         log.error(f"[Eitaa Token] خطا در بررسی: {e}", exc_info=True)
-
-        # برگردون state
         set_user_state(user.id, UserState.WAITING_EITAA_TOKEN)
 
         await checking_msg.edit_text(
@@ -465,7 +441,6 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    # ذخیره توکن (با رمزنگاری)
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
@@ -476,7 +451,6 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
         from app.services.customer_service import set_customer_eitaa_token
         await set_customer_eitaa_token(session, customer.id, token_input)
 
-    # حالا state رو تنظیم کن برای گرفتن chat_id
     set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
 
     await checking_msg.edit_text(
@@ -494,21 +468,17 @@ async def _handle_eitaa_token(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup=get_cancel_channel_add_keyboard(),
     )
 
+
 async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    مرحله ۲: دریافت chat_id کانال ایتا و ذخیره
-    """
+    """مرحله ۲: دریافت chat_id کانال ایتا و ذخیره"""
     user = update.effective_user
     message_id = update.message.message_id
 
-    # جلوگیری از پردازش دوباره
     if _is_message_processed(message_id):
         log.warning(f"[Eitaa Chat ID] message {message_id} قبلاً پردازش شده")
         return
     chat_id_input = update.message.text.strip()
 
-
-    # اعتبارسنجی: باید عددی باشه
     if not chat_id_input.lstrip("-").isdigit():
         await update.message.reply_text(
             "❌ فرمت chat_id اشتباه است!\n\n"
@@ -520,15 +490,11 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    # ⚠️ state رو موقتاً IDLE کن تا پیام‌های اضافه نره به این handler
     from app.bot.states.user_state import UserState
     set_user_state(user.id, UserState.IDLE)
 
-    checking_msg = await update.message.reply_text(
-        "🔍 در حال بررسی کانال..."
-    )
+    checking_msg = await update.message.reply_text("🔍 در حال بررسی کانال...")
 
-    # گرفتن مشتری و توکن
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
@@ -548,19 +514,17 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
             clear_user_state(user.id)
             return
 
-        # چک تکراری
-        already_exists = await check_channel_already_exists(
-            session, customer.id, chat_id_input
+        is_dup, dup_error = await check_channel_already_exists(
+            session, customer.id, chat_id_input, Platform.EITAA
         )
-        if already_exists:
+        if is_dup:
             clear_user_state(user.id)
             await checking_msg.edit_text(
-                "⚠️ این کانال قبلاً اضافه شده است.",
+                f"{dup_error}",
                 reply_markup=get_channel_management_keyboard(),
             )
             return
 
-    # تست ارسال یه پیام تست به chat_id
     from app.services.publisher.eitaa_client import EitaaClient
 
     try:
@@ -571,7 +535,6 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
         if not test_result.ok:
-            # برگردون state
             set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
 
             await checking_msg.edit_text(
@@ -589,11 +552,8 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
             )
             return
 
-
     except Exception as e:
         log.error(f"[Eitaa Chat] خطا در تست: {e}", exc_info=True)
-
-        # برگردون state
         set_user_state(user.id, UserState.WAITING_EITAA_CHAT_ID)
 
         await checking_msg.edit_text(
@@ -603,7 +563,6 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
 
-    # ذخیره کانال
     async with AsyncSessionLocal() as session:
         channel = await add_channel_for_customer(
             session=session,
@@ -625,16 +584,13 @@ async def _handle_eitaa_chat_id(update: Update, context: ContextTypes.DEFAULT_TY
         f"💡 یک پیام تستی به کانال ارسال شد.\n"
         f"از الان محصولات شما در این کانال ایتا هم منتشر میشن."
     )
-# ═══════════════════════════════════════════════════════════
-# پردازش کانال ایتا (فقط ثبت)
-# ═══════════════════════════════════════════════════════════
+
 
 async def _handle_eitaa_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """پردازش کانال ایتا (فقط ثبت، بدون احراز)"""
     user = update.effective_user
     channel_input = update.message.text.strip()
 
-    # اعتبارسنجی
     valid_prefixes = ["eitaa.com/", "https://eitaa.com/", "http://eitaa.com/", "@"]
     is_valid = any(channel_input.startswith(p) for p in valid_prefixes)
 
@@ -657,11 +613,11 @@ async def _handle_eitaa_channel(update: Update, context: ContextTypes.DEFAULT_TY
             clear_user_state(user.id)
             return
 
-        already_exists = await check_channel_already_exists(
-            session, customer.id, normalized
+        is_dup, dup_error = await check_channel_already_exists(
+            session, customer.id, normalized, Platform.EITAA
         )
-        if already_exists:
-            await update.message.reply_text("⚠️ این کانال قبلاً اضافه شده است.")
+        if is_dup:
+            await update.message.reply_text(dup_error)
             clear_user_state(user.id)
             return
 
@@ -670,7 +626,7 @@ async def _handle_eitaa_channel(update: Update, context: ContextTypes.DEFAULT_TY
             customer_id=customer.id,
             channel_identifier=normalized,
             platform=Platform.EITAA,
-            activation_status="ACTIVATE",
+            activation_status="ACTIVE",
         )
 
     clear_user_state(user.id)
@@ -686,10 +642,6 @@ async def _handle_eitaa_channel(update: Update, context: ContextTypes.DEFAULT_TY
     )
 
 
-# ═══════════════════════════════════════════════════════════
-# پردازش کانال بله (فقط ثبت)
-# ═══════════════════════════════════════════════════════════
-
 async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """پردازش کانال بله"""
     user = update.effective_user
@@ -698,7 +650,6 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
 
     checking_msg = await update.message.reply_text("🔍 در حال بررسی کانال بله...")
 
-    # جلوگیری از پردازش دوباره
     if _is_message_processed(message_id):
         log.warning(f"[Channel TG] message {message_id} قبلاً پردازش شده")
         return
@@ -725,18 +676,40 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
             clear_user_state(user.id)
             return
 
-        # 🛡️ ۱. چک دیوار دفاعی دوم در بله
         is_dup, dup_error = await check_channel_already_exists(
             session, customer.id, normalized, Platform.BALE
         )
         if is_dup:
-            await checking_msg.edit_text(f"{dup_error}")
-            clear_user_state(user.id)
-            return
+            # 🩺 Self-healing: همون منطق تلگرام برای بله
+            from app.services.channel_service import get_channel_by_identifier, disconnect_channel
+
+            stale_channel = await get_channel_by_identifier(
+                session, normalized, Platform.BALE
+            )
+            still_really_connected = True
+
+            bale_bot_probe = context.bot
+            if stale_channel:
+                try:
+                    live_check = await check_bot_is_admin_in_channel(bale_bot_probe, normalized)
+                    still_really_connected = live_check.is_valid
+                except Exception:
+                    still_really_connected = False
+
+                if not still_really_connected:
+                    await disconnect_channel(session, stale_channel.id)
+                    log.info(
+                        f"🩺 [Self-heal] کانال بله {normalized} دیگه واقعاً وصل نبود؛ "
+                        f"رکورد قطع شد و اجازه‌ی اتصال دوباره داده شد."
+                    )
+
+            if still_really_connected:
+                await checking_msg.edit_text(f"{dup_error}")
+                clear_user_state(user.id)
+                return
 
         bale_user_id = customer.bale_user_id
 
-    # 🛡️ ۲. چک ادمین بودن ربات و کاربر در بله
     from app.utils.admin_check import detect_platform_from_context
     current_platform = detect_platform_from_context(context)
 
@@ -744,7 +717,6 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
     is_temp = False
 
     if current_platform != "BALE":
-        # اگر کاربر از ربات تلگرام درخواست بله داده است
         from telegram import Bot
         from app.config import settings
         if settings.BALE_BOT_TOKEN:
@@ -757,7 +729,6 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
             is_temp = True
 
     try:
-        # استعلام ادمین بودن کاربر در بله (اگر آیدی بله‌اش را داریم)
         result = await check_bot_is_admin_in_channel(bale_bot, normalized, bale_user_id)
         
         if not result.is_valid:
@@ -765,7 +736,6 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
             clear_user_state(user.id)
             return
 
-        # ذخیره در دیتابیس
         async with AsyncSessionLocal() as session:
             await add_channel_for_customer(
                 session, customer.id, normalized, Platform.BALE, "ACTIVE"
@@ -786,10 +756,6 @@ async def _handle_bale_channel(update: Update, context: ContextTypes.DEFAULT_TYP
             await bale_bot.shutdown()
 
 
-# ═══════════════════════════════════════════════════════════
-# توابع کمکی - نرمال‌سازی لینک
-# ═══════════════════════════════════════════════════════════
-
 def _normalize_eitaa_link(input_str: str) -> str:
     """نرمال‌سازی لینک ایتا به @username"""
     input_str = input_str.strip()
@@ -809,10 +775,6 @@ def _normalize_bale_link(input_str: str) -> str:
             return f"@{input_str}"
     return input_str
 
-
-# ═══════════════════════════════════════════════════════════
-# لیست کانال‌ها
-# ═══════════════════════════════════════════════════════════
 
 async def channel_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش لیست کانال‌های مشتری"""
@@ -873,10 +835,6 @@ async def channel_list_callback(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=get_channel_list_keyboard(channels),
     )
 
-
-# ═══════════════════════════════════════════════════════════
-# حذف کانال
-# ═══════════════════════════════════════════════════════════
 
 async def channel_delete_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """درخواست تایید حذف کانال"""

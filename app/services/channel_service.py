@@ -147,6 +147,44 @@ async def delete_channel(
     return True
 
 
+async def get_channel_by_identifier(
+    session: AsyncSession,
+    channel_identifier: str,
+    platform: Platform,
+) -> Channel | None:
+    """
+    پیدا کردن کانال با آیدی/شناسه، صرف‌نظر از وضعیت اتصال.
+    برای self-healing استفاده می‌شه: پیدا کردن رکورد قدیمیِ احتمالاً یتیم.
+    """
+    result = await session.execute(
+        select(Channel).where(
+            Channel.channel_identifier == channel_identifier,
+            Channel.platform == platform,
+        ).order_by(Channel.id.desc()).limit(1)
+    )
+    return result.scalars().first()
+
+
+async def disconnect_channel(
+    session: AsyncSession,
+    channel_id: int,
+) -> bool:
+    """
+    قطع نرم یک کانال (بدون حذف رکورد) — برای وقتی خودمون تشخیص می‌دیم
+    که کانال دیگه واقعاً وصل نیست (مثلاً ربات ادمین نیست) و باید
+    اجازه‌ی اتصال دوباره داده بشه، ولی تاریخچه‌ی رکورد حفظ بشه.
+    """
+    channel = await get_channel_by_id(session, channel_id)
+    if not channel:
+        return False
+
+    channel.is_connected = False
+    channel.activation_status = "DISCONNECTED"
+    await session.commit()
+    log.info(f"🩺 کانال {channel_id} به‌صورت خودکار قطع شد (self-heal)")
+    return True
+
+
 async def check_channel_already_exists(
     session: AsyncSession,
     customer_id: int,
