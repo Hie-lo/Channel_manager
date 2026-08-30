@@ -155,24 +155,28 @@ async def check_channel_already_exists(
 ) -> tuple[bool, str]:
     """
     دیوار دفاعی دوم: بررسی وجود کانال در کل دیتابیس.
+    فقط کانال‌هایی که واقعاً "متصل" (is_connected=True) هستن باعث
+    تشخیص تکراری می‌شن — رکورد قدیمیِ قطع‌شده نباید جلوی اتصال دوباره رو بگیره.
     Returns: (is_duplicate: bool, error_message: str)
     """
-    # 1. آیا همین کاربر قبلاً این کانال را وصل کرده؟
+    # 1. آیا همین کاربر قبلاً این کانال را (به‌صورت فعال) وصل کرده؟
     result_self = await session.execute(
         select(Channel).where(
             Channel.customer_id == customer_id,
             Channel.channel_identifier == channel_identifier,
-            Channel.platform == platform
+            Channel.platform == platform,
+            Channel.is_connected == True,
         ).limit(1)
     )
     if result_self.scalars().first():
         return True, "⚠️ این کانال قبلاً در لیست کانال‌های شما ثبت شده است."
 
-    # 2. 🛡️ دیوار دفاعی دوم: آیا کاربر دیگری در کل سیستم این کانال را وصل کرده؟
+    # 2. 🛡️ دیوار دفاعی دوم: آیا کاربر دیگری این کانال را به‌صورت فعال وصل کرده؟
     result_global = await session.execute(
         select(Channel).where(
             Channel.channel_identifier == channel_identifier,
-            Channel.platform == platform
+            Channel.platform == platform,
+            Channel.is_connected == True,
         ).limit(1)
     )
     if result_global.scalars().first():
