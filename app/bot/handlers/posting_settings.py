@@ -20,7 +20,7 @@ from app.utils.logger import log
 
 
 # گزینه‌های از پیش تعریف شده
-INTERVAL_OPTIONS = [1, 2, 3, 4, 6, 8, 12, 24]
+INTERVAL_OPTIONS = [0.01,1, 2, 3, 4, 6, 8, 12, 24]
 
 
 def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
