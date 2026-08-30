@@ -11,16 +11,28 @@ from app.services.customer_service import get_customer_by_telegram_id
 from app.services.posting_settings_service import (
     get_or_create_posting_settings,
     set_auto_publish,
-    update_interval,
+    update_interval_minutes,
     update_posting_hours,
     calculate_posts_per_day,
-    set_auto_ai_description
+    set_auto_ai_description,
 )
 from app.utils.logger import log
 
 
-# گزینه‌های از پیش تعریف شده
-INTERVAL_OPTIONS = [0.01,1, 2, 3, 4, 6, 8, 12, 24]
+# 💡 همه‌ی گزینه‌های فاصله به دقیقه (واحد یکتا برای جلوگیری از خطای تبدیل ساعت/دقیقه)
+# مقدار ۱ دقیقه عملاً همون حالت «پست سریع پشت‌سرهم» رو می‌سازه (کمترین فاصله‌ی مجاز)
+BURST_INTERVAL_MINUTES = 1
+INTERVAL_OPTIONS_MINUTES = [5, 10, 15, 30, 45, 60, 120, 180, 240, 360, 480, 720, 1440]
+
+
+def _format_interval(minutes: int) -> str:
+    """نمایش فاصله به فارسی — دقیقه یا ساعت، هرکدوم خواناتره"""
+    if minutes < 60:
+        return f"{minutes} دقیقه"
+    hours = minutes / 60
+    if hours == int(hours):
+        return f"{int(hours)} ساعت"
+    return f"{hours:.1f} ساعت"
 
 
 def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
@@ -38,9 +50,10 @@ def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
     ]
 
     if settings_obj.auto_publish_enabled:
+        interval_label = _format_interval(settings_obj.interval_minutes)
         keyboard.append([
             InlineKeyboardButton(
-                f"⏱ فاصله: هر {settings_obj.interval_hours} ساعت",
+                f"⏱ فاصله: هر {interval_label}",
                 callback_data="posting_set_interval",
             )
         ])
@@ -51,26 +64,23 @@ def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
             )
         ])
 
-    # دکمه AI خودکار (همیشه)
     keyboard.append([
         InlineKeyboardButton(
             f"🤖 AI خودکار: {ai_status}",
             callback_data="posting_toggle_ai",
         )
     ])
-    # دکمه اتصال حساب
     keyboard.append([
         InlineKeyboardButton("🔗 تولید کد اتصال (به بله/تلگرام)", callback_data="settings_generate_link_code")
     ])
-    # دکمه تغییر نوع کسب‌وکار
     keyboard.append([
         InlineKeyboardButton("🔄 تغییر نوع کسب‌وکار", callback_data="settings_change_business")
     ])
-    # دکمه ویرایش قالب پست
     keyboard.append([
         InlineKeyboardButton("✏️ قالب پست", callback_data="tpl_menu")
     ])
     return InlineKeyboardMarkup(keyboard)
+
 
 async def posting_settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش منوی تنظیمات ارسال"""
@@ -107,8 +117,10 @@ def _build_settings_text(settings_obj) -> str:
 
     if settings_obj.auto_publish_enabled:
         posts_per_day = calculate_posts_per_day(settings_obj)
+        interval_label = _format_interval(settings_obj.interval_minutes)
+        burst_note = "\n🚀 حالت پست سریع فعاله!" if settings_obj.interval_minutes <= BURST_INTERVAL_MINUTES else ""
         text += (
-            f"⏱ فاصله بین پست‌ها: هر {settings_obj.interval_hours} ساعت\n"
+            f"⏱ فاصله بین پست‌ها: هر {interval_label}{burst_note}\n"
             f"🕐 ساعت مجاز: {settings_obj.posting_start_hour}:00 تا {settings_obj.posting_end_hour}:00\n"
             f"📊 تقریباً {posts_per_day} پست در روز\n"
         )
@@ -182,17 +194,24 @@ async def posting_toggle_auto_callback(update: Update, context: ContextTypes.DEF
 
 
 async def posting_set_interval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """نمایش گزینه‌های فاصله ارسال"""
+    """نمایش گزینه‌های فاصله ارسال (دقیقه‌ای/ساعتی + حالت پست سریع)"""
 
     query = update.callback_query
     await query.answer()
 
-    keyboard = []
-    for hours in INTERVAL_OPTIONS:
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🚀 پست سریع پشت‌سرهم (کمترین فاصله)",
+                callback_data=f"posting_interval_min_{BURST_INTERVAL_MINUTES}",
+            )
+        ],
+    ]
+    for minutes in INTERVAL_OPTIONS_MINUTES:
         keyboard.append([
             InlineKeyboardButton(
-                f"هر {hours} ساعت",
-                callback_data=f"posting_interval_{hours}",
+                f"هر {_format_interval(minutes)}",
+                callback_data=f"posting_interval_min_{minutes}",
             )
         ])
     keyboard.append([
@@ -203,29 +222,31 @@ async def posting_set_interval_callback(update: Update, context: ContextTypes.DE
         "⏱ فاصله بین پست‌ها را انتخاب کنید:\n\n"
         "💡 توصیه: هر ۳-۶ ساعت مناسبه\n"
         "کمتر = پست بیشتر ولی خستگی مخاطب\n"
-        "بیشتر = پست کمتر ولی بازدید بهتر",
+        "بیشتر = پست کمتر ولی بازدید بهتر\n\n"
+        "🚀 «پست سریع پشت‌سرهم» همه‌ی محصولات pending رو با کمترین "
+        "فاصله‌ی ممکن (طبق محدودیت پلتفرم) پشت‌سرهم منتشر می‌کنه.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 async def posting_interval_selected_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """کاربر یکی از گزینه‌های فاصله رو انتخاب کرد"""
+    """کاربر یکی از گزینه‌های فاصله (به دقیقه) رو انتخاب کرد"""
 
     query = update.callback_query
     await query.answer()
 
     user = query.from_user
-    hours = int(query.data.replace("posting_interval_", ""))
+    minutes = int(query.data.replace("posting_interval_min_", ""))
 
     async with AsyncSessionLocal() as session:
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer:
             return
 
-        settings_obj = await update_interval(session, customer.id, hours)
+        settings_obj = await update_interval_minutes(session, customer.id, minutes)
 
     text = _build_settings_text(settings_obj)
-    text += f"\n\n✅ فاصله ارسال به {hours} ساعت تنظیم شد!"
+    text += f"\n\n✅ فاصله ارسال به {_format_interval(minutes)} تنظیم شد!"
 
     await query.edit_message_text(
         text,
@@ -239,7 +260,6 @@ async def posting_set_hours_callback(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
 
-    # پیشنهادهای رایج
     presets = [
         ("🌅 صبح تا شب (9-22)", 9, 22),
         ("🌄 صبح زود تا شب (7-23)", 7, 23),
@@ -274,7 +294,6 @@ async def posting_hours_selected_callback(update: Update, context: ContextTypes.
     await query.answer()
 
     user = query.from_user
-    # posting_hours_9_22
     parts = query.data.replace("posting_hours_", "").split("_")
     start_hour = int(parts[0])
     end_hour = int(parts[1])
@@ -315,6 +334,7 @@ async def posting_back_callback(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=_get_settings_keyboard(settings_obj),
     )
 
+
 async def posting_toggle_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تغییر حالت AI خودکار"""
 
@@ -353,6 +373,7 @@ async def posting_toggle_ai_callback(update: Update, context: ContextTypes.DEFAU
         reply_markup=_get_settings_keyboard(settings_obj),
     )
 
+
 async def settings_generate_link_code_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """تولید کد 6 رقمی برای اتصال یک پلتفرم جدید به این حساب"""
     query = update.callback_query
@@ -363,7 +384,7 @@ async def settings_generate_link_code_callback(update: Update, context: ContextT
     async with AsyncSessionLocal() as session:
         from app.services.customer_service import get_customer_by_telegram_id
         from app.database.models import CustomerStatus
-        
+
         customer = await get_customer_by_telegram_id(session, user.id)
         if not customer or customer.customer_status != CustomerStatus.ACTIVE:
             await query.edit_message_text("❌ حساب شما فعال نیست.")
@@ -401,6 +422,7 @@ async def settings_generate_link_code_callback(update: Update, context: ContextT
             InlineKeyboardButton("🔙 بازگشت به تنظیمات", callback_data="posting_back")
         ]])
     )
+
 
 async def settings_change_business_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """نمایش هشدار تأیید قبل از تغییر نوع کسب‌وکار"""
@@ -449,7 +471,6 @@ async def change_business_confirm_callback(update: Update, context: ContextTypes
         from app.services.business_service import reset_customer_data
         await reset_customer_data(session, customer.id)
 
-    # نمایش منوی انتخاب کسب‌وکار
     from app.bot.keyboards.main_menu import get_business_type_keyboard
     biz_keyboard = list(get_business_type_keyboard().inline_keyboard)
 

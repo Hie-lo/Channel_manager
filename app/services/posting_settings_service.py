@@ -36,6 +36,7 @@ async def get_or_create_posting_settings(
         customer_id=customer_id,
         auto_publish_enabled=False,  # پیش‌فرض: دستی
         interval_hours=3,
+        interval_minutes=180,  # 💡 معادل دقیقه‌ای همون ۳ ساعت — واحد اصلی از این به بعد
         posting_start_hour=9,
         posting_end_hour=22,
         created_at=utc_now_naive(),
@@ -66,13 +67,34 @@ async def update_interval(
     customer_id: int,
     interval_hours: int,
 ) -> PostingSettings:
-    """آپدیت فاصله بین پست‌ها"""
+    """آپدیت فاصله بین پست‌ها (نسخه‌ی ساعتی - نگه‌داشته‌شده برای backward-compat)"""
+    return await update_interval_minutes(session, customer_id, interval_hours * 60)
+
+
+async def update_interval_minutes(
+    session: AsyncSession,
+    customer_id: int,
+    minutes: int,
+) -> PostingSettings:
+    """آپدیت فاصله بین پست‌ها به دقیقه (واحد اصلی و دقیق‌تر)"""
     settings_obj = await get_or_create_posting_settings(session, customer_id)
-    settings_obj.interval_hours = interval_hours
+    settings_obj.interval_minutes = minutes
+    settings_obj.interval_hours = max(1, minutes // 60)  # فقط برای سازگاری با کدهای قدیمی
     settings_obj.updated_at = utc_now_naive()
     await session.commit()
     await session.refresh(settings_obj)
     return settings_obj
+
+
+def _get_interval_minutes(settings_obj) -> int:
+    """
+    گرفتن فاصله به دقیقه، صرف‌نظر از اینکه ستون interval_minutes
+    قبلاً برای این رکورد ست شده یا نه (سازگاری با رکوردهای قدیمی).
+    """
+    minutes = getattr(settings_obj, "interval_minutes", None)
+    if minutes:
+        return minutes
+    return (settings_obj.interval_hours or 1) * 60
 
 
 async def update_posting_hours(
@@ -93,12 +115,13 @@ async def update_posting_hours(
 
 def calculate_posts_per_day(settings_obj: PostingSettings) -> int:
     """محاسبه تعداد پست در روز بر اساس تنظیمات"""
-    active_hours = settings_obj.posting_end_hour - settings_obj.posting_start_hour
-    if active_hours <= 0:
+    active_minutes = (settings_obj.posting_end_hour - settings_obj.posting_start_hour) * 60
+    if active_minutes <= 0:
         return 0
-    if settings_obj.interval_hours <= 0:
+    interval_minutes = _get_interval_minutes(settings_obj)
+    if interval_minutes <= 0:
         return 0
-    return active_hours // settings_obj.interval_hours
+    return active_minutes // interval_minutes
 
 from datetime import timedelta
 
@@ -143,7 +166,7 @@ def is_time_for_next_post(settings_obj) -> bool:
 
     now = utc_now_naive()
     time_since_last = now - settings_obj.last_post_at
-    required_interval = timedelta(hours=settings_obj.interval_hours)
+    required_interval = timedelta(minutes=_get_interval_minutes(settings_obj))
 
     return time_since_last >= required_interval
 

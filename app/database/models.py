@@ -259,7 +259,8 @@ class PostingSettings(Base):
 
     # فاصله بین پست‌ها (به ساعت)
     interval_hours: Mapped[int] = mapped_column(Integer, default=3)
-
+    # فاصله بین پست‌ها به دقیقه — واحد اصلی و دقیق‌تر از این به بعد
+    interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     # ساعت‌های مجاز (0-23)
     posting_start_hour: Mapped[int] = mapped_column(Integer, default=9)
     posting_end_hour: Mapped[int] = mapped_column(Integer, default=22)

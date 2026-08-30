@@ -153,12 +153,13 @@ async def run_auto_publish_job(bot: Bot) -> dict:
 def _calculate_remaining_minutes(settings_obj) -> int:
     """محاسبه دقیقه‌های باقیمانده تا پست بعدی"""
     from datetime import timedelta
+    from app.services.posting_settings_service import _get_interval_minutes
 
     if not settings_obj.last_post_at:
         return 0
 
     now = utc_now_naive()
-    required_interval = timedelta(hours=settings_obj.interval_hours)
+    required_interval = timedelta(minutes=_get_interval_minutes(settings_obj))
     next_post_time = settings_obj.last_post_at + required_interval
 
     if now >= next_post_time:
