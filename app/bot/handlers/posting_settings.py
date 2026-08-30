@@ -15,6 +15,7 @@ from app.services.posting_settings_service import (
     update_posting_hours,
     calculate_posts_per_day,
     set_auto_ai_description,
+    get_interval_minutes,
 )
 from app.utils.logger import log
 
@@ -50,7 +51,7 @@ def _get_settings_keyboard(settings_obj) -> InlineKeyboardMarkup:
     ]
 
     if settings_obj.auto_publish_enabled:
-        interval_label = _format_interval(settings_obj.interval_minutes)
+        interval_label = _format_interval(get_interval_minutes(settings_obj))
         keyboard.append([
             InlineKeyboardButton(
                 f"⏱ فاصله: هر {interval_label}",
@@ -117,8 +118,9 @@ def _build_settings_text(settings_obj) -> str:
 
     if settings_obj.auto_publish_enabled:
         posts_per_day = calculate_posts_per_day(settings_obj)
-        interval_label = _format_interval(settings_obj.interval_minutes)
-        burst_note = "\n🚀 حالت پست سریع فعاله!" if settings_obj.interval_minutes <= BURST_INTERVAL_MINUTES else ""
+        interval_minutes = get_interval_minutes(settings_obj)
+        interval_label = _format_interval(interval_minutes)
+        burst_note = "\n🚀 حالت پست سریع فعاله!" if interval_minutes <= BURST_INTERVAL_MINUTES else ""
         text += (
             f"⏱ فاصله بین پست‌ها: هر {interval_label}{burst_note}\n"
             f"🕐 ساعت مجاز: {settings_obj.posting_start_hour}:00 تا {settings_obj.posting_end_hour}:00\n"

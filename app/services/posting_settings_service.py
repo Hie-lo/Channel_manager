@@ -86,7 +86,7 @@ async def update_interval_minutes(
     return settings_obj
 
 
-def _get_interval_minutes(settings_obj) -> int:
+def get_interval_minutes(settings_obj) -> int:
     """
     گرفتن فاصله به دقیقه، صرف‌نظر از اینکه ستون interval_minutes
     قبلاً برای این رکورد ست شده یا نه (سازگاری با رکوردهای قدیمی).
@@ -118,7 +118,7 @@ def calculate_posts_per_day(settings_obj: PostingSettings) -> int:
     active_minutes = (settings_obj.posting_end_hour - settings_obj.posting_start_hour) * 60
     if active_minutes <= 0:
         return 0
-    interval_minutes = _get_interval_minutes(settings_obj)
+    interval_minutes = get_interval_minutes(settings_obj)
     if interval_minutes <= 0:
         return 0
     return active_minutes // interval_minutes
@@ -166,7 +166,7 @@ def is_time_for_next_post(settings_obj) -> bool:
 
     now = utc_now_naive()
     time_since_last = now - settings_obj.last_post_at
-    required_interval = timedelta(minutes=_get_interval_minutes(settings_obj))
+    required_interval = timedelta(minutes=get_interval_minutes(settings_obj))
 
     return time_since_last >= required_interval
 
