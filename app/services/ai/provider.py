@@ -65,7 +65,7 @@ async def call_ai(
                     if attempt == max_retries:
                         return AIResponse(success=False, error_message=last_error_msg)
                     
-                    await asyncio.sleep(2) # وقفه ۲ ثانیه‌ای قبل از تلاش مجدد
+                    await asyncio.sleep(6) # وقفه ۲ ثانیه‌ای قبل از تلاش مجدد
                     continue
 
                 data = response.json()
@@ -77,7 +77,7 @@ async def call_ai(
                     last_error_msg = "پاسخ خالی از سرور هوش مصنوعی"
                     if attempt == max_retries:
                         return AIResponse(success=False, error_message=last_error_msg)
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(6)
                     continue
 
                 tokens_used = data.get("usage", {}).get("total_tokens", 0)
@@ -90,7 +90,7 @@ async def call_ai(
             log.warning(f"⚠️ [AI Attempt {attempt}] Network/Timeout Error: {e}")
             if attempt == max_retries:
                 return AIResponse(success=False, error_message="هوش مصنوعی در حال حاضر پاسخگو نیست. لطفاً بعداً تلاش کنید.")
-            await asyncio.sleep(2)
+            await asyncio.sleep(6)
             
         except Exception as e:
             log.error(f"خطای غیرمنتظره در AI: {e}", exc_info=True)

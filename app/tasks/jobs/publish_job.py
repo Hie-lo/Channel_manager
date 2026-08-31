@@ -301,57 +301,6 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                         f"دلیل: {ai_result.error_message}\n"
                         f"توکن به حساب شما بازگشت."
                     )
-
-            # مصرف توکن
-            async with AsyncSessionLocal() as session:
-                consumed = await consume_tokens(session, customer.id, 1)
-
-            if consumed:
-                # فراخوانی AI
-                ai_result = await generate_product_description(
-                    product=product,
-                    business_config=business_config,
-                    mode="new",
-                )
-
-                if ai_result.success:
-                    # ذخیره در محصول
-                    async with AsyncSessionLocal() as session:
-                        result_prod = await session.execute(
-                            select(Product).where(Product.id == product.id)
-                        )
-                        p = result_prod.scalar_one_or_none()
-                        if p:
-                            p.description_manual = ai_result.formatted_text
-                            await session.commit()
-                            product.description_manual = ai_result.formatted_text
-
-                        # لاگ
-                        await log_ai_usage(
-                            session=session,
-                            customer_id=customer.id,
-                            product_id=product.id,
-                            usage_type="auto_generate",
-                            tokens_used=1,
-                            model_used=settings.AI_MODEL,
-                            accepted=True,
-                            raw_response=ai_result.raw_response,
-                        )
-                    log.info(f"✅ [Customer {customer_id}] AI موفق برای {product.sku}")
-                else:
-                    # AI خطا داد، توکن رو برگردون
-                    async with AsyncSessionLocal() as session:
-                        await refund_tokens(session, customer.id, 1)
-                    log.warning(
-                        f"⚠️ [Customer {customer_id}] AI ناموفق: "
-                        f"{ai_result.error_message}"
-                    )
-                    ai_notification = (
-                        f"⚠️ برای محصول <b>{product.product_name}</b> AI اجرا نشد!\n"
-                        f"دلیل: {ai_result.error_message}\n"
-                        f"توکن به حساب شما برگشت.\n"
-                        f"محصول بدون توضیحات AI پست شد."
-                    )
     else:
         log.info(
             f"⚠️ [Customer {customer_id}] AI خودکار فعال ولی "
@@ -367,6 +316,7 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
 
     # ارسال به هر کانال
     any_success = False
+    failed_channels: list[str] = []
     # ارسال به همه کانال‌های ACTIVE (تلگرام + ایتا)
     from app.services.publisher.publisher_manager import publish_to_channel
     from app.services.publisher.posted_message_service import create_posted_message
@@ -413,6 +363,9 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
             any_success = True
             log.info(f"✅ [Customer {customer_id}] پست شد در {channel.platform.value}: {channel.channel_identifier}")
         else:
+            failed_channels.append(
+                f"{channel.platform.value} ({channel.channel_identifier}): {result.error_message}"
+            )
             log.error(
                 f"❌ [Customer {customer_id}] ارسال به "
                 f"{channel.platform.value}: {channel.channel_identifier} "
@@ -438,6 +391,14 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
             if ai_notification:
                 notification_text += f"\n\n{ai_notification}"
 
+            # 🆕 اگه بعضی کانال‌ها fail شدن، در کنار موفقیت کلی گزارش بده
+            if failed_channels:
+                notification_text += (
+                    f"\n\n⚠️ <b>پست در {len(failed_channels)} کانال ارسال نشد:</b>\n"
+                )
+                for f in failed_channels[:10]:
+                    notification_text += f"• {f}\n"
+
             try:
                 await bot.send_message(
                     chat_id=customer.telegram_user_id,
@@ -452,20 +413,26 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
             await mark_product_as_failed(session, product.id)
 
             # حتی اگه پست fail شد، هشدار AI رو بفرست
-            if ai_notification:
-                try:
-                    await bot.send_message(
-                        chat_id=customer.telegram_user_id,
-                        text=(
-                            f"❌ ارسال پست ناموفق\n"
-                            f"━━━━━━━━━━━━━━━\n"
-                            f"محصول: {product.product_name}\n"
-                            f"کد: {product.sku}\n\n"
-                            f"{ai_notification}"
-                        ),
-                        parse_mode="HTML",
-                    )
-                except Exception as e:
-                    log.warning(f"خطا در اطلاع به مشتری: {e}")
+            try:
+                fail_text = (
+                    f"❌ ارسال پست ناموفق (در همه‌ی کانال‌ها)\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                    f"محصول: {product.product_name}\n"
+                    f"کد: {product.sku}\n"
+                )
+                if failed_channels:
+                    fail_text += "\n<b>جزئیات خطا:</b>\n"
+                    for f in failed_channels[:10]:
+                        fail_text += f"• {f}\n"
+                if ai_notification:
+                    fail_text += f"\n{ai_notification}"
+
+                await bot.send_message(
+                    chat_id=customer.telegram_user_id,
+                    text=fail_text,
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                log.warning(f"خطا در اطلاع به مشتری: {e}")
 
             return "failed"
