@@ -48,7 +48,7 @@ async def call_ai(
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
-
+    log.info(f"🤖 استفاده از مدل: {settings.AI_MODEL}")
     max_retries = 3
     last_error_msg = ""
 
