@@ -97,7 +97,10 @@ class Customer(Base):
         SAEnum(CustomerStatus),
         default=CustomerStatus.PENDING
     )
-
+    # ─── preset پست انتخابی مشتری ───
+    selected_post_preset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("post_template_presets.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -526,6 +529,32 @@ class PostTemplate(Base):
     # ─── چیدمان ───
     # text_only | text_with_image
     layout: Mapped[str] = mapped_column(String(30), default="text_with_image")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now_naive, onupdate=utc_now_naive
+    )
+
+class PostTemplatePreset(Base):
+    """
+    نمونه‌ی آماده‌ی پست که خود ادمین طراحی می‌کنه.
+    هر preset مخصوص یک نوع کسب‌وکار (و اختیاری: یک زیردسته) است؛
+    مشتری‌ها فقط از بین این‌ها انتخاب می‌کنن، ویرایش آزاد ندارن.
+    """
+    __tablename__ = "post_template_presets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    business_type_key: Mapped[str] = mapped_column(String(100), index=True)
+    # None یعنی این preset برای کل کسب‌وکار عمومیه (مخصوص یک زیردسته نیست)
+    subcategory_key: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+
+    name_fa: Mapped[str] = mapped_column(String(200))
+    # متن خام قالب، دقیقاً مثل فایل‌های .txt فعلی با {placeholder}
+    template_text: Mapped[str] = mapped_column(Text)
+
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    display_order: Mapped[int] = mapped_column(Integer, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
     updated_at: Mapped[datetime] = mapped_column(
