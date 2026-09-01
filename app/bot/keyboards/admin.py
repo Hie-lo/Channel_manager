@@ -15,7 +15,7 @@ def get_admin_main_menu() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("👥 مدیریت مشتریان"), KeyboardButton("💳 مدیریت اشتراک‌ها")],
         [KeyboardButton("📊 آمار کلی"), KeyboardButton("🤖 آمار AI")],
-        [KeyboardButton("🔔 ارسال اعلان")],KeyboardButton("🎨 قالب‌های پست"),
+        [KeyboardButton("🔔 ارسال اعلان"), KeyboardButton("🎨 قالب‌های پست")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
