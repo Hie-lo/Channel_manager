@@ -30,7 +30,7 @@ class Settings:
 
     # AI
     AI_API_KEY: str = os.getenv("AI_API_KEY", "")
-    AI_MODEL: str = os.getenv("AI_MODEL", "deepseek/deepseek-v4-flash-0731")
+    AI_MODEL: str = os.getenv("AI_MODEL", "")
 
     # Encryption
     ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "")

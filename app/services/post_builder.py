@@ -270,3 +270,25 @@ def render_posts_batch(
 
     log.info(f"[PostBuilder] رندر: {len(rendered)} پست، {len(skipped)} رد شد")
     return rendered, skipped
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# رندر مستقیم از متن خام preset (سیستم جدید — بدون PostTemplate)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_post_from_text(product: Any, template_text: str) -> str:
+    """
+    رندر یک متن قالب خام (raw، با {placeholder}) مثل preset های ادمین یا فایل‌های .txt قدیمی.
+    برخلاف render_post که ساختار PostTemplate دیتابیسی رو می‌خونه، این تابع
+    مستقیم روی رشته کار می‌کنه و از همون _get_field_value برای دسترسی به
+    کلیدهای تودرتو (specs.color) استفاده می‌کنه.
+    """
+    placeholders = set(re.findall(r"\{(\w+(?:\.\w+)?)\}", template_text))
+
+    result = template_text
+    for ph in placeholders:
+        val = _get_field_value(product, ph)
+        replacement = "" if val is None else str(val)
+        result = result.replace(f"{{{ph}}}", replacement)
+
+    return result.strip()

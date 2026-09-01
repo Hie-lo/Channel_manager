@@ -14,11 +14,14 @@ async def get_posting_settings(
     session: AsyncSession,
     customer_id: int,
 ) -> PostingSettings | None:
-    """گرفتن تنظیمات ارسال مشتری"""
+    """گرفتن تنظیمات ارسال مشتری (نسخه ایمن در برابر رکورد تکراری)"""
     result = await session.execute(
-        select(PostingSettings).where(PostingSettings.customer_id == customer_id)
+        select(PostingSettings)
+        .where(PostingSettings.customer_id == customer_id)
+        .order_by(PostingSettings.id.desc())
+        .limit(1)
     )
-    return result.scalar_one_or_none()
+    return result.scalars().first()
 
 
 async def get_or_create_posting_settings(

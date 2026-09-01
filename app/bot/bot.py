@@ -30,18 +30,24 @@ from app.bot.handlers.smart_mapping_wizard import (
 from app.bot.handlers.post_template_editor import (
     post_template_menu_handler,
     post_template_main_callback,
-    tpl_edit_title_callback,
-    tpl_title_received_handler,
-    tpl_edit_fields_callback,
-    tpl_toggle_field_callback,
-    tpl_edit_hashtags_callback,
-    tpl_hashtags_received_handler,
-    tpl_edit_contact_callback,
-    tpl_contact_received_handler,
-    tpl_clear_contact_callback,
-    tpl_preview_callback,
-    tpl_reset_callback,
-    tpl_reset_confirm_callback,
+    tpl_preset_view_callback,
+    tpl_preset_preview_callback,
+    tpl_preset_select_callback,
+)
+from app.bot.handlers.post_preset_admin import (
+    admin_presets_menu_handler,
+    admin_presets_root_callback,
+    admin_presets_biz_selected_callback,
+    admin_preset_view_callback,
+    admin_preset_toggle_callback,
+    admin_preset_delete_callback,
+    admin_preset_new_callback,
+    admin_preset_name_received_handler,
+    admin_preset_text_received_handler,
+    admin_preset_edit_name_callback,
+    admin_preset_rename_received_handler,
+    admin_preset_edit_text_callback,
+    admin_preset_edit_text_received_handler,
 )
 from app.bot.handlers.custom_post import (
     custom_post_start_handler,
@@ -289,15 +295,14 @@ async def text_router(update, context):
     elif state == UserState.WAITING_CUSTOM_POST_PHOTOS:
         from app.bot.handlers.custom_post import custom_post_photo_received_handler
         await custom_post_photo_received_handler(update, context)
-    elif state == UserState.TPL_WAITING_TITLE:
-        from app.bot.handlers.post_template_editor import tpl_title_received_handler
-        await tpl_title_received_handler(update, context)
-    elif state == UserState.TPL_WAITING_HASHTAGS:
-        from app.bot.handlers.post_template_editor import tpl_hashtags_received_handler
-        await tpl_hashtags_received_handler(update, context)
-    elif state == UserState.TPL_WAITING_CONTACT:
-        from app.bot.handlers.post_template_editor import tpl_contact_received_handler
-        await tpl_contact_received_handler(update, context)
+    elif state == UserState.PADM_WAITING_NAME:
+        await admin_preset_name_received_handler(update, context)
+    elif state == UserState.PADM_WAITING_TEXT:
+        await admin_preset_text_received_handler(update, context)
+    elif state == UserState.PADM_WAITING_RENAME:
+        await admin_preset_rename_received_handler(update, context)
+    elif state == UserState.PADM_WAITING_EDIT_TEXT:
+        await admin_preset_edit_text_received_handler(update, context)
 
 async def _smwiz_col_router(update, context):
     """مسیریاب کالبک انتخاب ستون در ویزارد هوشمند — بر اساس مرحله جاری"""
@@ -530,17 +535,21 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(wizard_restart_callback,          pattern="^smwiz_restart$"))
     app.add_handler(CallbackQueryHandler(wizard_cancel_callback,           pattern="^smwiz_cancel$"))
 
-    # ─── کالبک‌های ویرایشگر قالب پست (tpl_) ───
-    app.add_handler(CallbackQueryHandler(tpl_reset_confirm_callback,   pattern="^tpl_reset_confirm$"))
-    app.add_handler(CallbackQueryHandler(tpl_reset_callback,           pattern="^tpl_reset$"))
-    app.add_handler(CallbackQueryHandler(tpl_toggle_field_callback,    pattern="^tpl_toggle_"))
-    app.add_handler(CallbackQueryHandler(tpl_edit_title_callback,      pattern="^tpl_edit_title$"))
-    app.add_handler(CallbackQueryHandler(tpl_edit_fields_callback,     pattern="^tpl_edit_fields$"))
-    app.add_handler(CallbackQueryHandler(tpl_edit_hashtags_callback,   pattern="^tpl_edit_hashtags$"))
-    app.add_handler(CallbackQueryHandler(tpl_edit_contact_callback,    pattern="^tpl_edit_contact$"))
-    app.add_handler(CallbackQueryHandler(tpl_clear_contact_callback,   pattern="^tpl_clear_contact$"))
-    app.add_handler(CallbackQueryHandler(tpl_preview_callback,         pattern="^tpl_preview$"))
+    # ─── کالبک‌های انتخاب preset پست توسط مشتری (tpl_) ───
     app.add_handler(CallbackQueryHandler(post_template_main_callback,  pattern="^tpl_menu$"))
+    app.add_handler(CallbackQueryHandler(tpl_preset_view_callback,     pattern="^tpl_preset_view_"))
+    app.add_handler(CallbackQueryHandler(tpl_preset_preview_callback,  pattern="^tpl_preset_preview_"))
+    app.add_handler(CallbackQueryHandler(tpl_preset_select_callback,   pattern="^tpl_preset_select_"))
+
+    # ─── کالبک‌های پنل مدیریت preset پست توسط ادمین (padm_) ───
+    app.add_handler(CallbackQueryHandler(admin_presets_root_callback,        pattern="^padm_root$"))
+    app.add_handler(CallbackQueryHandler(admin_presets_biz_selected_callback, pattern="^padm_biz_"))
+    app.add_handler(CallbackQueryHandler(admin_preset_new_callback,          pattern="^padm_new_"))
+    app.add_handler(CallbackQueryHandler(admin_preset_toggle_callback,       pattern="^padm_toggle_"))
+    app.add_handler(CallbackQueryHandler(admin_preset_delete_callback,       pattern="^padm_delete_"))
+    app.add_handler(CallbackQueryHandler(admin_preset_edit_name_callback,    pattern="^padm_edit_name_"))
+    app.add_handler(CallbackQueryHandler(admin_preset_edit_text_callback,    pattern="^padm_edit_text_"))
+    app.add_handler(CallbackQueryHandler(admin_preset_view_callback,         pattern="^padm_view_"))
         
     # ─── کالبک‌های لینک اکانت ───
     app.add_handler(CallbackQueryHandler(link_account_start_callback, pattern="^link_account_start$"))
@@ -691,6 +700,10 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(MessageHandler(
         filters.TEXT & filters.Regex("^🔔 ارسال اعلان$"),
         admin_broadcast_handler
+    ))
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^🎨 قالب‌های پست$"),
+        admin_presets_menu_handler
     ))
 
     # ═══════════════════════════════════════════════════════════
