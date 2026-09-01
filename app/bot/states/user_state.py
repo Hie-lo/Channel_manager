@@ -41,6 +41,10 @@ class UserState(Enum):
     TPL_WAITING_TITLE      = "tpl_waiting_title"
     TPL_WAITING_HASHTAGS   = "tpl_waiting_hashtags"
     TPL_WAITING_CONTACT    = "tpl_waiting_contact"
+    PADM_WAITING_NAME = "PADM_WAITING_NAME"
+    PADM_WAITING_TEXT = "PADM_WAITING_TEXT"
+    PADM_WAITING_RENAME = "PADM_WAITING_RENAME"
+    PADM_WAITING_EDIT_TEXT = "PADM_WAITING_EDIT_TEXT"
     
 @dataclass
 class UserContext:
