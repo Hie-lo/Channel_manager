@@ -34,6 +34,50 @@ def generate_deterministic_sku(product_name: str, subcategory_key: str, extra_se
     return f"AUTO-{digest[:10].upper()}"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# فیلدهای Yes/No (ویژگی‌های حضور/عدم‌حضور یک قابلیت — Touch, Pen, LTE, ...)
+# یک نقطه‌ی مرکزی برای همه‌ی فیلدهای بولی، تا هر کسب‌وکاری بخواد از این‌ها
+# استفاده کنه فقط کافیه field.key رو به همین مجموعه اضافه کنه.
+# ─────────────────────────────────────────────────────────────────────────────
+
+YES_NO_FIELD_KEYS = {
+    "touch_screen", "pen_support", "x360", "lte",
+    "dvd_rw", "backlit_keyboard", "fingerprint", "facial_recognition",
+    "hdmi", "dp", "vga_port", "lan", "thunderbolt",
+}
+
+_YES_PATTERNS = {"yes", "y", "بله", "دارد", "true", "1", "✓", "✔"}
+_NO_PATTERNS = {"no", "n", "خیر", "ندارد", "false", "0", "✗", "✘", "-"}
+
+
+def _parse_yes_no(value) -> str:
+    """
+    نرمال‌سازی مقدار به 'دارد' / 'ندارد' تا مستقیم به‌عنوان {placeholder}
+    توی قالب پست قابل استفاده باشه، بدون نیاز به تبدیل جداگانه در جای دیگه.
+    مقدار ناشناخته (نه yes نه no) عیناً پاس داده می‌شه — فیلد اختیاریه،
+    نباید کل محصول رو به‌خاطر یه مقدار غیرمنتظره رد کنیم.
+    """
+    normalized = str(value).strip().lower()
+    if normalized in _YES_PATTERNS:
+        return "دارد"
+    if normalized in _NO_PATTERNS:
+        return "ندارد"
+    return str(value).strip()
+
+
+def _parse_optional_int(value) -> int | None:
+    """
+    پارس یک عدد صحیح اختیاری (مثل تعداد پورت USB یا ساعت باتری).
+    اعشار به پایین رند می‌شه. مقدار نامعتبر → None (فیلد اختیاریه، خطا نمی‌دیم).
+    """
+    try:
+        if isinstance(value, str):
+            value = value.strip().replace(",", "").replace("،", "")
+        return int(float(value))
+    except (ValueError, TypeError):
+        return None
+
+
 @dataclass
 class RowError:
     row_number: int
@@ -356,7 +400,10 @@ def _parse_row(
         if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
             product_data[field.key] = parsed_value
         else:
-            product_data["specs"][field.key] = parsed_value
+            # 🆕 مقدار خالی/None اصلاً در specs ذخیره نمی‌شه — یعنی این ویژگی
+            # برای این محصول اصلاً وجود نداره و بعداً در قالب پست ذکر نمی‌شه
+            if parsed_value not in (None, ""):
+                product_data["specs"][field.key] = parsed_value
 
     # مرحله ۲: تولید مقدار خودکار برای فیلدهای ignored
     # (product_name اول ساخته می‌شه چون sku خودکار به اون وابسته‌ست)
@@ -383,7 +430,8 @@ def _parse_row(
         if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
             product_data[field.key] = parsed_value
         else:
-            product_data["specs"][field.key] = parsed_value
+            if parsed_value not in (None, ""):
+                product_data["specs"][field.key] = parsed_value
 
     return product_data, errors
 
@@ -439,4 +487,17 @@ def _parse_field_value(field_key: str, value, column_name: str) -> tuple:
             return None, "نام محصول نباید بیش از ۲۵۰ کاراکتر باشد"
         return name, None
 
+    # 🆕 فیلدهای Yes/No (Touch, Pen, LTE, HDMI, DP, VP, LAN, ...)
+    if field_key in YES_NO_FIELD_KEYS:
+        return _parse_yes_no(value), None
+
+    # 🆕 تعداد پورت USB
+    if field_key == "usb_ports":
+        return _parse_optional_int(value), None
+
+    # 🆕 عمر باتری (ساعت) — اعشار به پایین رند می‌شه
+    if field_key == "battery_life":
+        return _parse_optional_int(value), None
+
+    # Grade و Weight و بقیه‌ی فیلدهای متنی: عیناً پاس داده می‌شن (بدون تغییر)
     return str(value).strip(), None

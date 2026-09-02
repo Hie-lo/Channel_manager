@@ -56,6 +56,26 @@ COLOR_ALIASES = ["رنگ", "رنگ‌بندی", "color", "colour"]
 SIZE_ALIASES = ["سایزبندی", "سایز", "size"]
 MATERIAL_ALIASES = ["جنس پارچه", "جنس", "material", "fabric"]
 
+# مترادف‌های ویژگی‌های Yes/No و مشخصات اختیاری سخت‌افزاری
+# (قابل استفاده مجدد برای هر کسب‌وکاری — لپتاپ، موبایل، مانیتور و ...)
+TOUCH_ALIASES = ["صفحه لمسی", "لمسی", "touch", "touch screen", "touchscreen"]
+PEN_ALIASES = ["قلم", "پن", "pen", "stylus"]
+X360_ALIASES = ["تاشو", "۳۶۰ درجه", "x360", "360", "convertible", "flip"]
+LTE_ALIASES = ["سیم کارت", "سیمکارت", "lte", "4g", "5g", "sim"]
+DVD_RW_ALIASES = ["دی وی دی", "دی وی دی رایتر", "dvd", "dvd rw", "dvdrw", "cd drive"]
+BACKLIT_ALIASES = ["بک لایت", "نور کیبورد", "backlit", "bl", "backlight"]
+FINGERPRINT_ALIASES = ["اثر انگشت", "سنسور اثر انگشت", "fingerprint", "finger p", "touch id"]
+FACIAL_ALIASES = ["تشخیص چهره", "فیس آی دی", "facial recognition", "facial r", "face id"]
+HDMI_ALIASES = ["hdmi"]
+DP_ALIASES = ["دیسپلی پورت", "displayport", "display port", "dp"]
+VGA_PORT_ALIASES = ["پورت وی جی ای", "vp", "vga port", "vga out"]  # ⚠️ عمداً alias «vga» خام نداره؛ اون برای gpu رزرو شده
+LAN_ALIASES = ["لن", "شبکه", "lan", "ethernet"]
+THUNDERBOLT_ALIASES = ["تایپ سی", "تاندربولت", "tb", "type-c", "type c", "thunderbolt", "usb-c", "usb c"]
+USB_PORTS_ALIASES = ["پورت یو اس بی", "تعداد usb", "usb", "usb ports"]
+BATTERY_LIFE_ALIASES = ["عمر باتری", "battery life", "battery"]
+GRADE_ALIASES = ["گرید", "درجه", "grade"]
+WEIGHT_ALIASES = ["وزن", "weight"]
+
 @dataclass
 class SubCategory:
     """
@@ -125,6 +145,24 @@ LAPTOP_SUBCATEGORY = SubCategory(
         BusinessField(key="storage", label_fa="حافظه", emoji="💾", excel_column="حافظه", required=True, aliases=STORAGE_ALIASES),
         BusinessField(key="gpu", label_fa="گرافیک", emoji="🎮", excel_column="گرافیک", required=False, aliases=GPU_ALIASES),
         BusinessField(key="screen", label_fa="صفحه نمایش", emoji="📐", excel_column="صفحه نمایش", required=False, aliases=SCREEN_ALIASES),
+        # 🆕 ویژگی‌های اختیاری — همه می‌تونن خالی باشن، در اون صورت اصلاً در specs ذخیره نمی‌شن
+        BusinessField(key="touch_screen", label_fa="صفحه لمسی", emoji="👆", excel_column="Touch", required=False, aliases=TOUCH_ALIASES),
+        BusinessField(key="pen_support", label_fa="قلم", emoji="✏️", excel_column="Pen", required=False, aliases=PEN_ALIASES),
+        BusinessField(key="x360", label_fa="تاشو ۳۶۰ درجه", emoji="🔄", excel_column="X360", required=False, aliases=X360_ALIASES),
+        BusinessField(key="lte", label_fa="سیم‌کارت‌خور", emoji="📶", excel_column="LTE", required=False, aliases=LTE_ALIASES),
+        BusinessField(key="dvd_rw", label_fa="درایو DVD", emoji="💿", excel_column="DVD RW", required=False, aliases=DVD_RW_ALIASES),
+        BusinessField(key="backlit_keyboard", label_fa="کیبورد بک‌لایت", emoji="⌨️", excel_column="BL", required=False, aliases=BACKLIT_ALIASES),
+        BusinessField(key="fingerprint", label_fa="سنسور اثر انگشت", emoji="🔒", excel_column="Finger P", required=False, aliases=FINGERPRINT_ALIASES),
+        BusinessField(key="facial_recognition", label_fa="تشخیص چهره", emoji="🙂", excel_column="Facial R", required=False, aliases=FACIAL_ALIASES),
+        BusinessField(key="hdmi", label_fa="HDMI", emoji="🔌", excel_column="HDMI", required=False, aliases=HDMI_ALIASES),
+        BusinessField(key="dp", label_fa="DisplayPort", emoji="🔌", excel_column="DP", required=False, aliases=DP_ALIASES),
+        BusinessField(key="vga_port", label_fa="پورت VGA", emoji="🔌", excel_column="VP", required=False, aliases=VGA_PORT_ALIASES),
+        BusinessField(key="lan", label_fa="پورت شبکه", emoji="🔌", excel_column="LAN", required=False, aliases=LAN_ALIASES),
+        BusinessField(key="thunderbolt", label_fa="Type-C/Thunderbolt", emoji="🔌", excel_column="TB", required=False, aliases=THUNDERBOLT_ALIASES),
+        BusinessField(key="usb_ports", label_fa="تعداد پورت USB", emoji="🔌", excel_column="USB", required=False, aliases=USB_PORTS_ALIASES),
+        BusinessField(key="battery_life", label_fa="عمر باتری", emoji="🔋", excel_column="Battery life", required=False, aliases=BATTERY_LIFE_ALIASES),
+        BusinessField(key="grade", label_fa="گرید", emoji="⭐", excel_column="Grade", required=False, aliases=GRADE_ALIASES),
+        BusinessField(key="weight", label_fa="وزن", emoji="⚖️", excel_column="Weight", required=False, aliases=WEIGHT_ALIASES),
     ] + COMMON_FIELDS_END,
     post_template_file="post_templates/computer_shop/laptop.txt",
     static_hashtags=["#لپتاپ", "#کامپیوتر"],

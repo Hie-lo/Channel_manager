@@ -315,7 +315,10 @@ def _parse_sheet_row(row, field_map, subcategory, row_number, worksheet_name, ig
         if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
             product_data[field.key] = parsed_value
         else:
-            product_data["specs"][field.key] = parsed_value
+            # 🆕 مقدار خالی/None اصلاً در specs ذخیره نمی‌شه — یعنی این ویژگی
+            # برای این محصول اصلاً وجود نداره و بعداً در قالب پست ذکر نمی‌شه
+            if parsed_value not in (None, ""):
+                product_data["specs"][field.key] = parsed_value
 
     # مرحله ۲: تولید مقدار خودکار برای فیلدهای ignored
     # (product_name اول ساخته می‌شه چون sku خودکار به اون وابسته‌ست)
@@ -342,6 +345,7 @@ def _parse_sheet_row(row, field_map, subcategory, row_number, worksheet_name, ig
         if field.key in ("sku", "product_name", "price", "stock", "description", "image_url"):
             product_data[field.key] = parsed_value
         else:
-            product_data["specs"][field.key] = parsed_value
+            if parsed_value not in (None, ""):
+                product_data["specs"][field.key] = parsed_value
 
     return product_data, errors
