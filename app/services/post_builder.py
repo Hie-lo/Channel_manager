@@ -294,7 +294,7 @@ def render_post_from_text(product: Any, template_text: str) -> str:
         price_raw = flat.get("price")
         stock_qty = flat.get("stock_qty", 0)
         is_available = flat.get("is_available", (stock_qty or 0) > 0)
-        description_manual = flat.get("description_manual", "")
+        description_custom = flat.get("description_custom", "")
     else:
         flat = {
             "product_name": getattr(product, "product_name", "") or "",
@@ -306,7 +306,7 @@ def render_post_from_text(product: Any, template_text: str) -> str:
         price_raw = getattr(product, "price", 0)
         stock_qty = flat["stock_qty"]
         is_available = getattr(product, "is_available", stock_qty > 0)
-        description_manual = getattr(product, "description_manual", "") or ""
+        description_custom = getattr(product, "description_custom", "") or ""
 
     # مسطح‌سازی specs روی سطح بالا (دقیقاً مثل سیستم قدیمی .txt)
     flat.update(specs)
@@ -322,11 +322,11 @@ def render_post_from_text(product: Any, template_text: str) -> str:
     flat["stock_status"] = "❌ ناموجود" if (not is_available or (stock_qty or 0) <= 0) else "موجود ✅"
 
     # بلوک توضیحات (با 📝، بدون تکرار اگه از قبل داشته باشه)
-    desc_text = str(description_manual).strip() if description_manual else ""
+    desc_text = str(description_custom).strip() if description_custom else ""
     if desc_text and not desc_text.startswith("📝"):
         desc_text = f"📝 {desc_text}"
     flat["description_block"] = desc_text
-    flat.setdefault("description_manual", description_manual or "")
+    flat.setdefault("description_custom", description_custom or "")
 
     placeholders = set(re.findall(r"\{(\w+)\}", template_text))
     result = template_text

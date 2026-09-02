@@ -43,7 +43,7 @@ def get_default_body_fields(business_type_key: str, subcategory_key: str = "") -
     # ─── فیلدهای مشترک همه کسب‌وکارها ───
     common_price = {"key": "price",       "label": "💰 قیمت",    "format": "{value:,} تومان", "enabled": True}
     common_stock = {"key": "stock_qty",   "label": "📦 موجودی",  "format": "{value} عدد",     "enabled": True}
-    common_desc  = {"key": "description_manual", "label": "📝 توضیحات", "format": "{value}", "enabled": False}
+    common_desc  = {"key": "description_custom", "label": "📝 توضیحات", "format": "{value}", "enabled": False}
 
     if business_type_key == "clothing_shop":
         return [

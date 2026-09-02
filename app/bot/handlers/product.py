@@ -270,8 +270,8 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
         for key, value in product.specs.items():
             text += f"├── {key}: {value}\n"
 
-    if product.description_manual:
-        text += f"\n📝 توضیحات:\n{product.description_manual}\n"
+    if product.description_custom:
+        text += f"\n📝 توضیحات:\n{product.description_custom}\n"
 
     keyboard = [
         [InlineKeyboardButton("👁 پیش‌نمایش پست", callback_data=f"prod_preview_{product.id}")],

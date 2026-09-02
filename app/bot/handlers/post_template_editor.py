@@ -27,7 +27,7 @@ _SAMPLE_PRODUCT = {
     "sku": "SAMPLE-001",
     "price": 350000,
     "stock_qty": 5,
-    "description_manual": "توضیحات نمونه برای این محصول",
+    "description_custom": "توضیحات نمونه برای این محصول",
     "image_url": None,
     "specs": {
         "color": "مشکی",
@@ -188,7 +188,7 @@ async def tpl_preset_preview_callback(
                     "sku": p.sku,
                     "price": int(p.price),
                     "stock_qty": p.stock_qty,
-                    "description_manual": p.description_manual or _SAMPLE_PRODUCT["description_manual"],
+                    "description_custom": p.description_custom or _SAMPLE_PRODUCT["description_custom"],
                     "image_url": p.image_url,
                     "specs": p.specs or _SAMPLE_PRODUCT["specs"],
                 }

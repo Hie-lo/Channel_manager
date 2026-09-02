@@ -227,7 +227,7 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
         clean_text = text.replace("📝", "").strip()
         return len(clean_text.split())
 
-    current_word_count = _count_words(product.description_manual)
+    current_word_count = _count_words(product.description_custom)
     MIN_WORD_THRESHOLD = 10  # حداقل کلمات مقبول برای عدم استفاده از AI
 
     # شرط اجرا: اگر کلاً متن ندارد، یا اگر متن کمتر از ۱۰ کلمه است
@@ -275,9 +275,9 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                         )
                         p = result_prod.scalar_one_or_none()
                         if p:
-                            p.description_manual = ai_result.formatted_text
+                            p.description_custom = ai_result.formatted_text
                             await session.commit()
-                            product.description_manual = ai_result.formatted_text
+                            product.description_custom = ai_result.formatted_text
 
                         # لاگ
                         await log_ai_usage(

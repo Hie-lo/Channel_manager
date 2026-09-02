@@ -164,7 +164,7 @@ async def admin_force_ai_test_handler(update: Update, context: ContextTypes.DEFA
         result = await session.execute(
             select(Product).where(
                 Product.publish_status == ProductPublishStatus.PENDING,
-                Product.description_manual.is_(None),
+                Product.description_custom.is_(None),
                 Product.is_available == True,
             ).limit(1)
         )

@@ -153,10 +153,10 @@ def _build_description_block(product: Product) -> str:
     - اگه متن با ایموجی 📝 شروع میشه (از AI)، همون رو برگردون
     - وگرنه (از اکسل/شیت)، 📝 اضافه کن
     """
-    if not product.description_manual:
+    if not product.description_custom:
         return ""
 
-    text = product.description_manual.strip()
+    text = product.description_custom.strip()
     if not text:
         return ""
 
