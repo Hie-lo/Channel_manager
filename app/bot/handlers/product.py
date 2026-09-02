@@ -272,6 +272,10 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
 
     if product.description_custom:
         text += f"\n📝 توضیحات:\n{product.description_custom}\n"
+    
+    # نمایش توضیحات AI اگر وجود داشته باشد
+    if product.ai_description or product.ai_pros or product.ai_cons:
+        text += f"\n🤖 توضیحات AI ذخیره شده ✅\n"
 
     keyboard = [
         [InlineKeyboardButton("👁 پیش‌نمایش پست", callback_data=f"prod_preview_{product.id}")],
@@ -281,6 +285,12 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
     if can_use_ai:
         keyboard.append([
             InlineKeyboardButton("🤖 تولید توضیحات با AI", callback_data=f"ai_start_{product.id}")
+        ])
+    
+    # دکمه ویرایش توضیحات AI (اگر قبلاً ذخیره شده باشد)
+    if product.ai_description or product.ai_pros or product.ai_cons:
+        keyboard.append([
+            InlineKeyboardButton("✏️ ویرایش توضیحات AI", callback_data=f"ai_edit_saved_{product.id}")
         ])
 
     # دکمه‌های عکس

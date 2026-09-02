@@ -70,6 +70,12 @@ def _get_ai_result_keyboard(product_id: int, log_id: int) -> InlineKeyboardMarku
         ],
         [
             InlineKeyboardButton(
+                "✏️ ویرایش توضیحات",
+                callback_data=f"ai_edit_{product_id}_{log_id}"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
                 "🔄 دوباره بساز (۱ توکن)",
                 callback_data=f"ai_regen_{product_id}"
             ),
@@ -405,3 +411,400 @@ async def ai_accept_result_callback(update: Update, context: ContextTypes.DEFAUL
             [InlineKeyboardButton("🔙 بازگشت به محصول", callback_data=f"prod_view_{product_id}")],
         ]),
     )
+
+
+
+async def ai_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ویرایش توضیحات AI قبل از ذخیره (از صفحه نتیجه AI)"""
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.replace("ai_edit_", "").split("_")
+    product_id = int(parts[0])
+    log_id = int(parts[1])
+
+    user = query.from_user
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await query.edit_message_text("❌ خطا!")
+            return
+
+        # گرفتن نتیجه AI از log
+        result = await session.execute(
+            select(AIUsageLog).where(AIUsageLog.id == log_id)
+        )
+        ai_log = result.scalar_one_or_none()
+
+        if not ai_log or not ai_log.result_data:
+            await query.edit_message_text("❌ نتیجه AI پیدا نشد!")
+            return
+
+        ai_data = ai_log.result_data
+
+    description = ai_data.get("description", "")
+    pros_or_features = ai_data.get("pros", []) or ai_data.get("features", [])
+    cons = ai_data.get("cons", [])
+
+    text = (
+        f"✏️ ویرایش توضیحات AI\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"📝 **توضیح اصلی:**\n{description}\n\n"
+    )
+
+    if pros_or_features:
+        text += f"✅ **مزایا/ویژگی‌ها:**\n"
+        for item in pros_or_features:
+            text += f"• {item}\n"
+        text += "\n"
+
+    if cons:
+        text += f"❌ **معایب:**\n"
+        for item in cons:
+            text += f"• {item}\n"
+        text += "\n"
+
+    text += f"کدام بخش را می‌خواهید ویرایش کنید؟"
+
+    keyboard = [
+        [InlineKeyboardButton("📝 توضیح اصلی", callback_data=f"ai_edit_desc_{product_id}_{log_id}")],
+        [InlineKeyboardButton("✅ مزایا/ویژگی‌ها", callback_data=f"ai_edit_pros_{product_id}_{log_id}")],
+    ]
+
+    if cons:
+        keyboard.append([InlineKeyboardButton("❌ معایب", callback_data=f"ai_edit_cons_{product_id}_{log_id}")])
+
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data=f"ai_view_result_{product_id}_{log_id}")])
+
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def ai_edit_saved_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ویرایش توضیحات AI ذخیره شده (از صفحه جزئیات محصول)"""
+    query = update.callback_query
+    await query.answer()
+
+    product_id = int(query.data.replace("ai_edit_saved_", ""))
+    user = query.from_user
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await query.edit_message_text("❌ خطا!")
+            return
+
+        result = await session.execute(
+            select(Product).where(
+                Product.id == product_id,
+                Product.customer_id == customer.id,
+            )
+        )
+        product = result.scalar_one_or_none()
+
+        if not product:
+            await query.edit_message_text("❌ محصول پیدا نشد!")
+            return
+
+    description = product.ai_description or ""
+    pros = product.ai_pros or []
+    cons = product.ai_cons or []
+
+    text = (
+        f"✏️ ویرایش توضیحات AI ذخیره شده\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"📝 **توضیح اصلی:**\n{description}\n\n"
+    )
+
+    if pros:
+        text += f"✅ **مزایا/ویژگی‌ها:**\n"
+        for item in pros:
+            text += f"• {item}\n"
+        text += "\n"
+
+    if cons:
+        text += f"❌ **معایب:**\n"
+        for item in cons:
+            text += f"• {item}\n"
+        text += "\n"
+
+    text += f"کدام بخش را می‌خواهید ویرایش کنید؟"
+
+    keyboard = [
+        [InlineKeyboardButton("📝 توضیح اصلی", callback_data=f"ai_edit_saved_desc_{product_id}")],
+        [InlineKeyboardButton("✅ مزایا/ویژگی‌ها", callback_data=f"ai_edit_saved_pros_{product_id}")],
+    ]
+
+    if cons:
+        keyboard.append([InlineKeyboardButton("❌ معایب", callback_data=f"ai_edit_saved_cons_{product_id}")])
+
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت به محصول", callback_data=f"prod_view_{product_id}")])
+
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """شروع ویرایش یک فیلد خاص (description/pros/cons)"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    user = query.from_user
+
+    # Parse callback data
+    if data.startswith("ai_edit_desc_"):
+        parts = data.replace("ai_edit_desc_", "").split("_")
+        product_id = int(parts[0])
+        log_id = int(parts[1])
+        field_type = "description"
+        from_saved = False
+    elif data.startswith("ai_edit_pros_"):
+        parts = data.replace("ai_edit_pros_", "").split("_")
+        product_id = int(parts[0])
+        log_id = int(parts[1])
+        field_type = "pros"
+        from_saved = False
+    elif data.startswith("ai_edit_cons_"):
+        parts = data.replace("ai_edit_cons_", "").split("_")
+        product_id = int(parts[0])
+        log_id = int(parts[1])
+        field_type = "cons"
+        from_saved = False
+    elif data.startswith("ai_edit_saved_desc_"):
+        product_id = int(data.replace("ai_edit_saved_desc_", ""))
+        log_id = None
+        field_type = "description"
+        from_saved = True
+    elif data.startswith("ai_edit_saved_pros_"):
+        product_id = int(data.replace("ai_edit_saved_pros_", ""))
+        log_id = None
+        field_type = "pros"
+        from_saved = True
+    elif data.startswith("ai_edit_saved_cons_"):
+        product_id = int(data.replace("ai_edit_saved_cons_", ""))
+        log_id = None
+        field_type = "cons"
+        from_saved = True
+    else:
+        await query.edit_message_text("❌ خطا در پردازش!")
+        return
+
+    # گرفتن محتوای فعلی
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await query.edit_message_text("❌ خطا!")
+            return
+
+        if from_saved:
+            # از product
+            result = await session.execute(
+                select(Product).where(
+                    Product.id == product_id,
+                    Product.customer_id == customer.id,
+                )
+            )
+            product = result.scalar_one_or_none()
+            if not product:
+                await query.edit_message_text("❌ محصول پیدا نشد!")
+                return
+
+            if field_type == "description":
+                current_value = product.ai_description or ""
+            elif field_type == "pros":
+                current_value = "\n".join(product.ai_pros or [])
+            else:  # cons
+                current_value = "\n".join(product.ai_cons or [])
+        else:
+            # از AI log
+            result = await session.execute(
+                select(AIUsageLog).where(AIUsageLog.id == log_id)
+            )
+            ai_log = result.scalar_one_or_none()
+            if not ai_log or not ai_log.result_data:
+                await query.edit_message_text("❌ نتیجه AI پیدا نشد!")
+                return
+
+            ai_data = ai_log.result_data
+            if field_type == "description":
+                current_value = ai_data.get("description", "")
+            elif field_type == "pros":
+                items = ai_data.get("pros", []) or ai_data.get("features", [])
+                current_value = "\n".join(items)
+            else:  # cons
+                items = ai_data.get("cons", [])
+                current_value = "\n".join(items)
+
+    field_name = {
+        "description": "توضیح اصلی",
+        "pros": "مزایا/ویژگی‌ها",
+        "cons": "معایب"
+    }[field_type]
+
+    text = (
+        f"✏️ ویرایش {field_name}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"📝 محتوای فعلی:\n{current_value}\n\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+    )
+
+    if field_type in ["pros", "cons"]:
+        text += f"لطفاً موارد جدید را هر کدام در یک خط جداگانه ارسال کنید:\n\n"
+        text += f"مثال:\nمورد اول\nمورد دوم\nمورد سوم"
+    else:
+        text += f"لطفاً متن جدید را ارسال کنید:"
+
+    # Set state
+    from app.bot.states.user_state import set_user_state, UserState
+    if field_type == "description":
+        set_user_state(user.id, UserState.EDITING_AI_DESCRIPTION, {
+            "product_id": product_id,
+            "log_id": log_id,
+            "from_saved": from_saved
+        })
+    elif field_type == "pros":
+        set_user_state(user.id, UserState.EDITING_AI_PROS, {
+            "product_id": product_id,
+            "log_id": log_id,
+            "from_saved": from_saved
+        })
+    else:  # cons
+        set_user_state(user.id, UserState.EDITING_AI_CONS, {
+            "product_id": product_id,
+            "log_id": log_id,
+            "from_saved": from_saved
+        })
+
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("❌ لغو", callback_data=f"prod_view_{product_id}")
+        ]])
+    )
+
+
+async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """دریافت متن ویرایش شده"""
+    user = update.effective_user
+    from app.bot.states.user_state import get_user_state, get_user_data, clear_user_state, UserState
+
+    state = get_user_state(user.id)
+    if state not in [UserState.EDITING_AI_DESCRIPTION, UserState.EDITING_AI_PROS, UserState.EDITING_AI_CONS]:
+        return
+
+    state_data = get_user_data(user.id)
+    product_id = state_data.get("product_id")
+    log_id = state_data.get("log_id")
+    from_saved = state_data.get("from_saved", False)
+
+    if not product_id:
+        await update.message.reply_text("❌ خطا! لطفاً دوباره تلاش کنید.")
+        clear_user_state(user.id)
+        return
+
+    new_text = update.message.text.strip()
+
+    # تشخیص نوع فیلد
+    if state == UserState.EDITING_AI_DESCRIPTION:
+        field_type = "description"
+        new_value = new_text
+    elif state == UserState.EDITING_AI_PROS:
+        field_type = "pros"
+        # Split by newlines
+        new_value = [line.strip() for line in new_text.split('\n') if line.strip()]
+    else:  # EDITING_AI_CONS
+        field_type = "cons"
+        new_value = [line.strip() for line in new_text.split('\n') if line.strip()]
+
+    # ذخیره تغییرات
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        if not customer:
+            await update.message.reply_text("❌ خطا!")
+            clear_user_state(user.id)
+            return
+
+        if from_saved:
+            # ذخیره در product
+            result = await session.execute(
+                select(Product).where(
+                    Product.id == product_id,
+                    Product.customer_id == customer.id,
+                )
+            )
+            product = result.scalar_one_or_none()
+            if not product:
+                await update.message.reply_text("❌ محصول پیدا نشد!")
+                clear_user_state(user.id)
+                return
+
+            if field_type == "description":
+                product.ai_description = new_value
+            elif field_type == "pros":
+                product.ai_pros = new_value
+            else:  # cons
+                product.ai_cons = new_value
+
+            await session.commit()
+        else:
+            # ذخیره در AI log
+            result = await session.execute(
+                select(AIUsageLog).where(AIUsageLog.id == log_id)
+            )
+            ai_log = result.scalar_one_or_none()
+            if not ai_log:
+                await update.message.reply_text("❌ نتیجه AI پیدا نشد!")
+                clear_user_state(user.id)
+                return
+
+            ai_data = ai_log.result_data or {}
+            if field_type == "description":
+                ai_data["description"] = new_value
+            elif field_type == "pros":
+                # Check if using "features" or "pros"
+                if "features" in ai_data:
+                    ai_data["features"] = new_value
+                else:
+                    ai_data["pros"] = new_value
+            else:  # cons
+                ai_data["cons"] = new_value
+
+            ai_log.result_data = ai_data
+            await session.commit()
+
+    clear_user_state(user.id)
+
+    field_name = {
+        "description": "توضیح اصلی",
+        "pros": "مزایا/ویژگی‌ها",
+        "cons": "معایب"
+    }[field_type]
+
+    if from_saved:
+        await update.message.reply_text(
+            f"✅ {field_name} با موفقیت ویرایش و ذخیره شد!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔙 بازگشت به محصول", callback_data=f"prod_view_{product_id}")
+            ]])
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ {field_name} با موفقیت ویرایش شد!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("👀 مشاهده نتیجه", callback_data=f"ai_view_result_{product_id}_{log_id}")
+            ]])
+        )
+
+
+
+async def ai_view_result_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """نمایش دوباره نتیجه AI (بعد از ویرایش)"""
+    query = update.callback_query
+    await query.answer()
+
+    parts = query.data.replace("ai_view_result_", "").split("_")
+    product_id = int(parts[0])
+    log_id = int(parts[1])
+
+    # استفاده از همان لاجیک نمایش نتیجه
+    await _show_ai_generation_result(query, product_id, log_id)
