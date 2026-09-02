@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 
 from app.config import settings
 from app.database.connection import AsyncSessionLocal
-from app.database.models import CustomerStatus, Product
+from app.database.models import CustomerStatus, Product, AIUsageLog
 from app.services.customer_service import get_customer_by_telegram_id
 from app.services.subscription.service import get_active_subscription
 from app.services.subscription.plans import get_plan
@@ -644,13 +644,14 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
     text = (
         f"✏️ ویرایش {field_name}\n"
         f"━━━━━━━━━━━━━━━\n\n"
-        f"📝 محتوای فعلی:\n{current_value}\n\n"
+        f"📝 محتوای فعلی (برای کپی کلیک کنید):\n\n"
+        f"```\n{current_value}\n```\n\n"
         f"━━━━━━━━━━━━━━━\n\n"
     )
 
     if field_type in ["pros", "cons"]:
         text += f"لطفاً موارد جدید را هر کدام در یک خط جداگانه ارسال کنید:\n\n"
-        text += f"مثال:\nمورد اول\nمورد دوم\nمورد سوم"
+        text += f"مثال:\n```\nمورد اول\nمورد دوم\nمورد سوم\n```"
     else:
         text += f"لطفاً متن جدید را ارسال کنید:"
 
@@ -677,8 +678,12 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     await query.edit_message_text(
         text,
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("❌ لغو", callback_data=f"prod_view_{product_id}")
+            InlineKeyboardButton(
+                "🔙 بازگشت", 
+                callback_data=f"ai_edit_saved_{product_id}" if from_saved else f"ai_edit_{product_id}_{log_id}"
+            )
         ]])
     )
 
