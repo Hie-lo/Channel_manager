@@ -29,19 +29,24 @@ def build_post_caption(
     product: Product,
     business_config: BusinessConfig,
     business: Business | None = None,
-    include_ai_description: bool = False,
+    preset_template_text: str | None = None,
 ) -> str:
-    """ساخت متن کامل کپشن پست"""
+    """
+    ساخت متن کامل کپشن پست.
+    اگه preset_template_text داده بشه (preset انتخابی مشتری)، همون استفاده
+    می‌شه؛ وگرنه fallback به فایل .txt استاتیک قدیمی (رفتار قبلی، بدون تغییر).
+    """
+    if preset_template_text:
+        from app.services.post_builder import render_post_from_text
+        return render_post_from_text(product, preset_template_text)
 
-    # بارگذاری قالب بر اساس sub_category
+    # ─── مسیر قدیمی: فایل .txt ثابت ───
     template = _load_template(product, business_config)
     if not template:
         return _fallback_post(product, business_config)
 
-    # آماده‌سازی مقادیر
     values = _prepare_template_values(product, business_config, business)
 
-    # جایگذاری
     try:
         post_text = template.format(**values)
     except KeyError as e:
@@ -107,6 +112,11 @@ def _prepare_template_values(
                 values[field.key] = "-"
 
     values["description_block"] = _build_description_block(product)
+
+    # 🆕 خروجی AI (ai_description, ai_pros→ai_features, ai_cons) — برای قالب‌های قدیمی که این‌ها رو دارن
+    values["ai_description"] = product.ai_description or ""
+    values["ai_features"] = "\n".join(f"🔹 {f}" for f in (product.ai_pros or []))
+    values["ai_cons"] = "\n".join(f"⚠️ {c}" for c in (product.ai_cons or []))
 
     # هشتگ‌ها
     hashtags = generate_hashtags(product, business_config)

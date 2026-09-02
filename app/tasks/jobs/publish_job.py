@@ -227,7 +227,7 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
         clean_text = text.replace("📝", "").strip()
         return len(clean_text.split())
 
-    current_word_count = _count_words(product.description_custom)
+    current_word_count = _count_words(product.description_manual)
     MIN_WORD_THRESHOLD = 10  # حداقل کلمات مقبول برای عدم استفاده از AI
 
     # شرط اجرا: اگر کلاً متن ندارد، یا اگر متن کمتر از ۱۰ کلمه است
@@ -275,9 +275,16 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                         )
                         p = result_prod.scalar_one_or_none()
                         if p:
-                            p.description_custom = ai_result.formatted_text
+                            # 🆕 فقط جمله‌ی توضیح اصلی در description_manual می‌مونه؛
+                            # ویژگی‌ها/محدودیت‌ها جدا ذخیره می‌شن تا preset ها آزادانه
+                            # چیدمانشون کنن (نه یک بلوک متنی ثابت‌فرمت)
+                            p.description_manual = ai_result.description.description
+                            p.ai_features = ai_result.description.features
+                            p.ai_cons = ai_result.description.cons
                             await session.commit()
-                            product.description_custom = ai_result.formatted_text
+                            product.description_manual = p.description_manual
+                            product.ai_features = p.ai_features
+                            product.ai_cons = p.ai_cons
 
                         # لاگ
                         await log_ai_usage(
@@ -307,7 +314,12 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
             f"توکن کافی نیست، ارسال بدون AI"
         )
     # ساخت کپشن
-    caption = build_post_caption(product, business_config, business)
+    from app.services.post_preset_service import get_selected_preset
+    async with AsyncSessionLocal() as session:
+        selected_preset = await get_selected_preset(session, customer_id)
+    preset_text = selected_preset.template_text if selected_preset else None
+
+    caption = build_post_caption(product, business_config, business, preset_template_text=preset_text)
 
     log.info(
         f"📤 [Customer {customer_id}] ارسال محصول {product.sku} "
