@@ -1,30 +1,32 @@
-🖥 {brand} {product_name}
+{product_name}        
+{sku}               
+{price}                 
+{stock_status}     
+{description_block}    
+{image_url}         
+{contact}            
+{hashtags}           
 
-⚡️ پردازنده: {cpu}
-🧠 رم: {ram}
-💾 حافظه: {storage}
-🎮 گرافیک: {gpu}
-📐 صفحه: {screen}
-
-⭐️ 
-
-{ai_description}
-
-{ai_features}
-
-🎯 مناسب برای
-{hashtags}
-
-─────────────────
-💰 قیمت: {price} تومان
-📦 {stock_status}
-─────────────────
-
-🛡 یکماه گارانتی سخت افزاری مکتوب به همراه فاکتور معتبر
-
-➕ امکان گارانتی بیشتر:
-🔸 ۶ ماهه با ۷٪ افزایش قیمت
-🔸 ۱ ساله با ۱۰٪ افزایش قیمت
-
-📞 {contact}
-🔄 {update_date}
+{brand} 
+ {cpu}
+  {ram}
+  {storage}
+  {gpu}
+  {screen}
+{touch_screen}
+  {pen_support}
+  {x360}
+  {lte}
+  {dvd_rw}
+{backlit_keyboard}
+  {fingerprint}
+  {facial_recognition}
+{hdmi}
+  {dp}
+  {vga_port}
+  {lan}
+  {thunderbolt}
+{usb_ports}
+  {battery_life}
+  {grade}
+  {weight}
