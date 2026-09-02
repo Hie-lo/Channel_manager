@@ -425,27 +425,23 @@ async def ai_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     user = query.from_user
 
-    async with AsyncSessionLocal() as session:
-        customer = await get_customer_by_telegram_id(session, user.id)
-        if not customer:
-            await query.edit_message_text("❌ خطا!")
-            return
+    # گرفتن نتیجه AI از user_data
+    user_data = get_user_data(user.id)
+    ai_description_obj = user_data.get("ai_description_obj")
 
-        # گرفتن نتیجه AI از log
-        result = await session.execute(
-            select(AIUsageLog).where(AIUsageLog.id == log_id)
-        )
-        ai_log = result.scalar_one_or_none()
+    if not ai_description_obj:
+        await query.edit_message_text("❌ نتیجه AI پیدا نشد!")
+        return
 
-        if not ai_log or not ai_log.result_data:
-            await query.edit_message_text("❌ نتیجه AI پیدا نشد!")
-            return
-
-        ai_data = ai_log.result_data
-
-    description = ai_data.get("description", "")
-    pros_or_features = ai_data.get("pros", []) or ai_data.get("features", [])
-    cons = ai_data.get("cons", [])
+    description = ai_description_obj.description or ""
+    
+    # بررسی features یا pros
+    if hasattr(ai_description_obj, 'features') and ai_description_obj.features:
+        pros_or_features = ai_description_obj.features
+    else:
+        pros_or_features = ai_description_obj.pros or []
+    
+    cons = ai_description_obj.cons or []
 
     text = (
         f"✏️ ویرایش توضیحات AI\n"
@@ -616,23 +612,25 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
             else:  # cons
                 current_value = "\n".join(product.ai_cons or [])
         else:
-            # از AI log
-            result = await session.execute(
-                select(AIUsageLog).where(AIUsageLog.id == log_id)
-            )
-            ai_log = result.scalar_one_or_none()
-            if not ai_log or not ai_log.result_data:
+            # از user_data (نتیجه AI که هنوز ذخیره نشده)
+            user_data = get_user_data(user.id)
+            ai_description_obj = user_data.get("ai_description_obj")
+            
+            if not ai_description_obj:
                 await query.edit_message_text("❌ نتیجه AI پیدا نشد!")
                 return
-
-            ai_data = ai_log.result_data
+            
             if field_type == "description":
-                current_value = ai_data.get("description", "")
+                current_value = ai_description_obj.description or ""
             elif field_type == "pros":
-                items = ai_data.get("pros", []) or ai_data.get("features", [])
+                # بررسی features یا pros
+                if hasattr(ai_description_obj, 'features') and ai_description_obj.features:
+                    items = ai_description_obj.features
+                else:
+                    items = ai_description_obj.pros or []
                 current_value = "\n".join(items)
             else:  # cons
-                items = ai_data.get("cons", [])
+                items = ai_description_obj.cons or []
                 current_value = "\n".join(items)
 
     field_name = {
@@ -752,30 +750,33 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
             await session.commit()
         else:
-            # ذخیره در AI log
-            result = await session.execute(
-                select(AIUsageLog).where(AIUsageLog.id == log_id)
-            )
-            ai_log = result.scalar_one_or_none()
-            if not ai_log:
+            # ذخیره در user_data (نتیجه AI که هنوز ذخیره نشده)
+            user_data = get_user_data(user.id)
+            ai_description_obj = user_data.get("ai_description_obj")
+            
+            if not ai_description_obj:
                 await update.message.reply_text("❌ نتیجه AI پیدا نشد!")
                 clear_user_state(user.id)
                 return
-
-            ai_data = ai_log.result_data or {}
+            
+            # ویرایش object
             if field_type == "description":
-                ai_data["description"] = new_value
+                ai_description_obj.description = new_value
             elif field_type == "pros":
-                # Check if using "features" or "pros"
-                if "features" in ai_data:
-                    ai_data["features"] = new_value
+                # بررسی features یا pros
+                if hasattr(ai_description_obj, 'features'):
+                    ai_description_obj.features = new_value
                 else:
-                    ai_data["pros"] = new_value
+                    ai_description_obj.pros = new_value
             else:  # cons
-                ai_data["cons"] = new_value
-
-            ai_log.result_data = ai_data
-            await session.commit()
+                ai_description_obj.cons = new_value
+            
+            # آپدیت user_data
+            set_user_state(user.id, UserState.VIEWING_AI_RESULT, {
+                "log_id": log_id,
+                "formatted_text": user_data.get("formatted_text", ""),
+                "ai_description_obj": ai_description_obj,
+            })
 
     clear_user_state(user.id)
 
@@ -811,5 +812,55 @@ async def ai_view_result_callback(update: Update, context: ContextTypes.DEFAULT_
     product_id = int(parts[0])
     log_id = int(parts[1])
 
-    # استفاده از همان لاجیک نمایش نتیجه
-    await _show_ai_generation_result(query, product_id, log_id)
+    user = query.from_user
+    user_data = get_user_data(user.id)
+    ai_description_obj = user_data.get("ai_description_obj")
+
+    if not ai_description_obj:
+        await query.edit_message_text("❌ نتیجه AI پیدا نشد!")
+        return
+
+    # ساخت متن فرمت شده از object
+    formatted_lines = []
+    
+    if ai_description_obj.description:
+        formatted_lines.append(f"📝 {ai_description_obj.description}")
+        formatted_lines.append("")
+    
+    # Features or Pros
+    if hasattr(ai_description_obj, 'features') and ai_description_obj.features:
+        formatted_lines.append("✨ ویژگی‌ها:")
+        for item in ai_description_obj.features:
+            formatted_lines.append(f"🔹 {item}")
+        formatted_lines.append("")
+    elif ai_description_obj.pros:
+        formatted_lines.append("✅ مزایا:")
+        for item in ai_description_obj.pros:
+            formatted_lines.append(f"• {item}")
+        formatted_lines.append("")
+    
+    # Cons
+    if ai_description_obj.cons:
+        formatted_lines.append("❌ معایب:")
+        for item in ai_description_obj.cons:
+            formatted_lines.append(f"• {item}")
+    
+    formatted_text = "\n".join(formatted_lines)
+
+    async with AsyncSessionLocal() as session:
+        customer = await get_customer_by_telegram_id(session, user.id)
+        available = await get_total_available_tokens(session, customer.id)
+
+    text = (
+        f"🤖 نتیجه AI\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"{formatted_text}\n\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"💳 موجودی باقیمانده: {available} توکن\n\n"
+        f"می‌خوای این متن رو ذخیره کنی؟"
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=_get_ai_result_keyboard(product_id, log_id),
+    )
