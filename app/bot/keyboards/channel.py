@@ -28,7 +28,7 @@ def get_platform_selection_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_channel_list_keyboard(channels: list[Channel]) -> InlineKeyboardMarkup:
-    """لیست کانال‌ها با دکمه حذف"""
+    """لیست کانال‌ها با دکمه حذف و جزئیات"""
     keyboard = []
 
     for channel in channels:
@@ -50,12 +50,8 @@ def get_channel_list_keyboard(channels: list[Channel]) -> InlineKeyboardMarkup:
         keyboard.append([
             InlineKeyboardButton(
                 display_name[:60],
-                callback_data=f"channel_info_{channel.id}"
-            ),
-            InlineKeyboardButton(
-                "❌ حذف",
-                callback_data=f"channel_delete_{channel.id}"
-            ),
+                callback_data=f"channel_detail_{channel.id}"
+            )
         ])
 
     keyboard.append([
@@ -90,5 +86,16 @@ def get_cancel_channel_add_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("❓ راهنمای اتصال کانال", callback_data="tut_inline_connect_channel")],
         [InlineKeyboardButton("❌ لغو", callback_data="channel_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+
+def get_channel_detail_keyboard(channel_id: int) -> InlineKeyboardMarkup:
+    """کیبورد جزئیات کانال"""
+    keyboard = [
+        [InlineKeyboardButton("✏️ تنظیم آیدی تماس", callback_data=f"channel_set_contact_{channel_id}")],
+        [InlineKeyboardButton("❌ حذف کانال", callback_data=f"channel_delete_{channel_id}")],
+        [InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="channel_list")],
     ]
     return InlineKeyboardMarkup(keyboard)

@@ -45,6 +45,7 @@ class UserState(Enum):
     PADM_WAITING_TEXT = "PADM_WAITING_TEXT"
     PADM_WAITING_RENAME = "PADM_WAITING_RENAME"
     PADM_WAITING_EDIT_TEXT = "PADM_WAITING_EDIT_TEXT"
+    SETTING_CHANNEL_CONTACT = "setting_channel_contact"
     
 @dataclass
 class UserContext:

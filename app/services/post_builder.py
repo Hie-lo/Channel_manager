@@ -327,6 +327,38 @@ def render_post_from_text(product: Any, template_text: str) -> str:
         desc_text = f"📝 {desc_text}"
     flat["description_block"] = desc_text
     flat.setdefault("description_custom", description_custom or "")
+    
+    # ─── Placeholder های جدید AI ───
+    if isinstance(product, dict):
+        ai_description = product.get("ai_description", "")
+        ai_pros = product.get("ai_pros", [])
+        ai_cons = product.get("ai_cons", [])
+    else:
+        ai_description = getattr(product, "ai_description", "") or ""
+        ai_pros = getattr(product, "ai_pros", []) or []
+        ai_cons = getattr(product, "ai_cons", []) or []
+    
+    flat["ai_description"] = ai_description
+    
+    # فرمت ویژگی‌ها/مزایا (با ایموجی پیش‌فرض)
+    if ai_pros:
+        pros_lines = [f"🔹 {item}" for item in ai_pros]
+        flat["ai_features"] = "\n".join(pros_lines)  # برای کامپیوتری
+        flat["ai_pros"] = "\n".join(pros_lines)      # برای عمومی
+    else:
+        flat["ai_features"] = ""
+        flat["ai_pros"] = ""
+    
+    # فرمت معایب
+    if ai_cons:
+        cons_lines = [f"• {item}" for item in ai_cons]
+        flat["ai_cons"] = "\n".join(cons_lines)
+    else:
+        flat["ai_cons"] = ""
+    
+    # ─── Placeholder برای contact_id (باید از channel گرفته بشه) ───
+    # این placeholder در زمان ارسال به کانال پر می‌شود
+    flat.setdefault("contact_id", "")
 
     placeholders = set(re.findall(r"\{(\w+)\}", template_text))
     result = template_text
@@ -334,5 +366,10 @@ def render_post_from_text(product: Any, template_text: str) -> str:
         val = flat.get(ph)
         replacement = "" if val is None else str(val)
         result = result.replace(f"{{{ph}}}", replacement)
+    
+    # حذف خطوط خالی اضافی که از placeholder های خالی ایجاد شده
+    lines = result.split('\n')
+    cleaned_lines = [line for line in lines if line.strip()]
+    result = '\n'.join(cleaned_lines)
 
     return result.strip()

@@ -24,6 +24,31 @@ class UnifiedPublishResult:
     used_fallback: bool = False
 
 
+def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
+    """
+    پر کردن placeholder {contact_id} با آیدی تماس کانال بر اساس پلتفرم
+    """
+    if "{contact_id}" not in caption:
+        return caption
+    
+    contact_id = ""
+    if channel.platform == Platform.TELEGRAM:
+        contact_id = channel.contact_id_telegram or ""
+    elif channel.platform == Platform.BALE:
+        contact_id = channel.contact_id_bale or ""
+    elif channel.platform == Platform.EITAA:
+        contact_id = channel.contact_id_eitaa or ""
+    
+    # جایگزینی placeholder
+    result = caption.replace("{contact_id}", contact_id)
+    
+    # حذف خطوط خالی اضافی که ممکن است از placeholder خالی ایجاد شده باشد
+    lines = result.split('\n')
+    cleaned_lines = [line for line in lines if line.strip()]
+    
+    return '\n'.join(cleaned_lines)
+
+
 async def publish_to_channel(
     bot,
     channel: Channel,
@@ -44,8 +69,11 @@ async def publish_to_channel(
     Returns:
         UnifiedPublishResult
     """
+    # پر کردن {contact_id} برای این کانال
+    caption_with_contact = _fill_contact_id_placeholder(caption, channel)
+    
     if channel.platform == Platform.TELEGRAM:
-        return await _publish_to_telegram_channel(bot, channel, product, caption)
+        return await _publish_to_telegram_channel(bot, channel, product, caption_with_contact)
 
     elif channel.platform == Platform.EITAA:
         if not eitaa_token:
@@ -54,10 +82,10 @@ async def publish_to_channel(
                 platform=Platform.EITAA,
                 error_message="توکن ایتا موجود نیست",
             )
-        return await _publish_to_eitaa_channel(bot, channel, product, caption, eitaa_token)
+        return await _publish_to_eitaa_channel(bot, channel, product, caption_with_contact, eitaa_token)
 
     elif channel.platform == Platform.BALE:
-        return await _publish_to_bale_channel(bot, channel, product, caption)
+        return await _publish_to_bale_channel(bot, channel, product, caption_with_contact)
 
     else:
         return UnifiedPublishResult(
@@ -79,9 +107,12 @@ async def edit_channel_post(
     ویرایش پست موجود (تشخیص خودکار پلتفرم)
     برای ایتا: delete + repost
     """
+    # پر کردن {contact_id} برای این کانال
+    caption_with_contact = _fill_contact_id_placeholder(new_caption, channel)
+    
     if channel.platform == Platform.TELEGRAM:
         return await _edit_telegram_post(
-            bot, channel, product, new_caption, old_message_id
+            bot, channel, product, caption_with_contact, old_message_id
         )
 
     elif channel.platform == Platform.EITAA:
@@ -92,12 +123,12 @@ async def edit_channel_post(
                 error_message="توکن ایتا موجود نیست",
             )
         return await _edit_eitaa_post(
-            bot, channel, product, new_caption, old_message_id, eitaa_token
+            bot, channel, product, caption_with_contact, old_message_id, eitaa_token
         )
     
     elif channel.platform == Platform.BALE:
         return await _edit_bale_post(
-            bot, channel, product, new_caption, old_message_id
+            bot, channel, product, caption_with_contact, old_message_id
         )
     
     else:
@@ -946,12 +977,15 @@ async def publish_to_channels_parallel(
     # 1. آماده‌سازی لیست تسک‌ها (Tasks)
     tasks = []
     for channel in channels:
+        # پر کردن {contact_id} برای هر کانال
+        channel_caption = _fill_contact_id_placeholder(caption, channel)
+        
         # برای هر کانال یک تسک مستقل (Coroutine) ایجاد می‌کنیم
         task = publish_to_channel(
             bot=bot,
             channel=channel,
             product=product,
-            caption=caption,
+            caption=channel_caption,
             eitaa_token=eitaa_token,
         )
         tasks.append(task)

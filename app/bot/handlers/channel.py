@@ -881,3 +881,162 @@ async def channel_delete_confirm_callback(update: Update, context: ContextTypes.
         "می‌تونید از منو کانال جدید اضافه کنید.",
         reply_markup=get_channel_management_keyboard(),
     )
+
+
+
+async def channel_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """نمایش جزئیات یک کانال"""
+    query = update.callback_query
+    await query.answer()
+
+    channel_id = int(query.data.replace("channel_detail_", ""))
+
+    async with AsyncSessionLocal() as session:
+        channel = await get_channel_by_id(session, channel_id)
+
+        if not channel:
+            await query.edit_message_text("❌ کانال پیدا نشد!")
+            return
+
+    # آیکون پلتفرم
+    platform_icon = {
+        Platform.TELEGRAM: "📱",
+        Platform.EITAA: "📢",
+        Platform.BALE: "🔵",
+    }.get(channel.platform, "📌")
+    
+    platform_name = {
+        Platform.TELEGRAM: "تلگرام",
+        Platform.EITAA: "ایتا",
+        Platform.BALE: "بله",
+    }.get(channel.platform, "نامشخص")
+
+    # وضعیت
+    status_text = "✅ فعال" if channel.activation_status == "ACTIVE" else "⏳ در انتظار فعال‌سازی"
+
+    # آیدی تماس
+    contact_id = ""
+    if channel.platform == Platform.TELEGRAM:
+        contact_id = channel.contact_id_telegram or "-"
+    elif channel.platform == Platform.BALE:
+        contact_id = channel.contact_id_bale or "-"
+    elif channel.platform == Platform.EITAA:
+        contact_id = channel.contact_id_eitaa or "-"
+
+    text = (
+        f"{platform_icon} جزئیات کانال\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🌐 پلتفرم: {platform_name}\n"
+        f"📢 شناسه: {channel.channel_identifier}\n"
+        f"🎯 وضعیت: {status_text}\n"
+        f"👤 آیدی تماس: {contact_id}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"💡 آیدی تماس در placeholder {{contact_id}} پست‌ها استفاده می‌شود."
+    )
+
+    from app.bot.keyboards.channel import get_channel_detail_keyboard
+    await query.edit_message_text(
+        text,
+        reply_markup=get_channel_detail_keyboard(channel_id),
+    )
+
+
+async def channel_set_contact_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """درخواست آیدی تماس برای کانال"""
+    query = update.callback_query
+    await query.answer()
+
+    channel_id = int(query.data.replace("channel_set_contact_", ""))
+
+    async with AsyncSessionLocal() as session:
+        channel = await get_channel_by_id(session, channel_id)
+
+        if not channel:
+            await query.edit_message_text("❌ کانال پیدا نشد!")
+            return
+
+    platform_name = {
+        Platform.TELEGRAM: "تلگرام",
+        Platform.EITAA: "ایتا",
+        Platform.BALE: "بله",
+    }.get(channel.platform, "نامشخص")
+
+    current_contact = ""
+    if channel.platform == Platform.TELEGRAM:
+        current_contact = channel.contact_id_telegram or "تنظیم نشده"
+    elif channel.platform == Platform.BALE:
+        current_contact = channel.contact_id_bale or "تنظیم نشده"
+    elif channel.platform == Platform.EITAA:
+        current_contact = channel.contact_id_eitaa or "تنظیم نشده"
+
+    text = (
+        f"✏️ تنظیم آیدی تماس\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📢 کانال: {channel.channel_identifier}\n"
+        f"🌐 پلتفرم: {platform_name}\n"
+        f"👤 آیدی فعلی: {current_contact}\n"
+        f"━━━━━━━━━━━━━━━\n\n"
+        f"لطفاً آیدی تماس خود را برای این پلتفرم ارسال کنید:\n\n"
+        f"📝 مثال: @username یا 09123456789\n\n"
+        f"💡 این آیدی در پست‌هایی که به این کانال ارسال می‌شود استفاده خواهد شد."
+    )
+
+    set_user_state(
+        query.from_user.id,
+        UserState.SETTING_CHANNEL_CONTACT,
+        data={"channel_id": channel_id, "platform": channel.platform.value},
+    )
+
+    from app.bot.keyboards.channel import get_cancel_channel_add_keyboard
+    await query.edit_message_text(
+        text,
+        reply_markup=get_cancel_channel_add_keyboard(),
+    )
+
+
+async def channel_contact_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """دریافت متن آیدی تماس"""
+    user = update.effective_user
+    user_state = get_user_state(user.id)
+
+    if user_state != UserState.SETTING_CHANNEL_CONTACT:
+        return
+
+    from app.bot.states.user_state import get_user_data
+    state_data = get_user_data(user.id)
+    channel_id = state_data.get("channel_id")
+    platform_str = state_data.get("platform")
+
+    if not channel_id:
+        await update.message.reply_text("❌ خطا! لطفاً دوباره تلاش کنید.")
+        clear_user_state(user.id)
+        return
+
+    contact_id = update.message.text.strip()
+
+    async with AsyncSessionLocal() as session:
+        channel = await get_channel_by_id(session, channel_id)
+
+        if not channel:
+            await update.message.reply_text("❌ کانال پیدا نشد!")
+            clear_user_state(user.id)
+            return
+
+        # ذخیره بر اساس پلتفرم
+        if channel.platform == Platform.TELEGRAM:
+            channel.contact_id_telegram = contact_id
+        elif channel.platform == Platform.BALE:
+            channel.contact_id_bale = contact_id
+        elif channel.platform == Platform.EITAA:
+            channel.contact_id_eitaa = contact_id
+
+        await session.commit()
+
+    clear_user_state(user.id)
+
+    await update.message.reply_text(
+        f"✅ آیدی تماس ذخیره شد!\n\n"
+        f"👤 آیدی: {contact_id}\n\n"
+        f"💡 از این به بعد در پست‌های این کانال، placeholder {{contact_id}} با این مقدار جایگزین می‌شود.",
+        reply_markup=get_channel_management_keyboard(),
+    )
