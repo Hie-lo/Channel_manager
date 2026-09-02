@@ -8,7 +8,7 @@ from app.database.models import Product
 from app.business.config import BusinessConfig
 from app.services.ai.provider import call_ai
 from app.services.ai.prompt_builder import (
-    SYSTEM_PROMPT,
+    get_system_prompt,
     build_generation_prompt,
     build_improve_prompt,
 )
@@ -45,7 +45,7 @@ async def generate_product_description(
         improve: بهبود متن موجود
     """
     # تعیین mode
-    existing_desc = product.description_manual or ""
+    existing_desc = product.description_custom or ""
 
     if mode == "auto":
         if existing_desc.strip():
@@ -54,6 +54,9 @@ async def generate_product_description(
             actual_mode = "new"
     else:
         actual_mode = mode
+
+    # انتخاب system prompt بر اساس نوع کسب‌وکار
+    system_prompt = get_system_prompt(business_config.key)
 
     # ساخت پرامپت
     if actual_mode == "improve" and existing_desc.strip():
@@ -65,7 +68,7 @@ async def generate_product_description(
 
     # فراخوانی AI
     ai_response = await call_ai(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         user_prompt=user_prompt,
         max_tokens=500,
         temperature=0.6,
@@ -97,8 +100,8 @@ async def generate_product_description(
             error_message=ai_response.error_message,
         )
 
-    # پارس خروجی
-    description = parse_ai_response(ai_response.content)
+    # پارس خروجی با توجه به نوع کسب‌وکار
+    description = parse_ai_response(ai_response.content, business_config.key)
 
     if not description.is_valid:
         log.warning(
@@ -110,6 +113,7 @@ async def generate_product_description(
             raw_response=ai_response.content,
         )
 
+    # متن فرمت‌شده برای نمایش (deprecated - فقط برای سازگاری)
     formatted = description.format_for_post()
 
     return AIGenerationResult(

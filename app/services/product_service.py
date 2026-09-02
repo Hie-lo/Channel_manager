@@ -142,7 +142,7 @@ def _create_product(
         price=data.get("price", 0),
         stock_qty=data.get("stock", 0),
         is_available=(data.get("stock", 0) > 0),
-        description_manual=data.get("description"),
+        description_custom=data.get("description"),
         image_url=data.get("image_url"),
         specs=data.get("specs", {}),
         created_at=now,
@@ -202,7 +202,7 @@ def detect_product_changes(product: Product, data: dict) -> ProductChangeDetecti
         detection.new_stock = new_stock
 
     new_desc = data.get("description")
-    if new_desc and product.description_manual != new_desc:
+    if new_desc and product.description_custom != new_desc:
         detection.description_changed = True
 
     new_image = data.get("image_url")
@@ -238,7 +238,7 @@ def _update_product(product: Product, data: dict) -> bool:
         product.is_available = (detection.new_stock > 0)
 
     if detection.description_changed:
-        product.description_manual = data.get("description")
+        product.description_custom = data.get("description")
 
     if detection.image_changed:
         product.image_url = data.get("image_url")

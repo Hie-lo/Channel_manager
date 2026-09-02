@@ -139,7 +139,7 @@ async def ai_start_generation_callback(update: Update, context: ContextTypes.DEF
         return
 
     # نمایش تایید
-    has_existing = bool(product.description_manual and product.description_manual.strip())
+    has_existing = bool(product.description_custom and product.description_custom.strip())
     mode_text = "بهبود متن موجود" if has_existing else "تولید متن جدید"
     mode_emoji = "🔄" if has_existing else "✨"
 
@@ -158,7 +158,7 @@ async def ai_start_generation_callback(update: Update, context: ContextTypes.DEF
     if has_existing:
         text += (
             f"📝 متن فعلی:\n"
-            f"{product.description_manual[:200]}\n\n"
+            f"{product.description_custom[:200]}\n\n"
             f"AI این متن رو بهبود می‌ده و مزایا/نکات اضافه می‌کنه."
         )
     else:
@@ -328,7 +328,11 @@ async def _show_ai_result(query, product_id: int, ai_result, log_id: int):
     set_user_state(
         query.from_user.id,
         UserState.VIEWING_AI_RESULT,
-        data={"log_id": log_id, "formatted_text": ai_result.formatted_text},
+        data={
+            "log_id": log_id,
+            "formatted_text": ai_result.formatted_text,
+            "ai_description_obj": ai_result.description,  # ذخیره شیء ساختاریافته
+        },
     )
 
     await query.edit_message_text(
@@ -355,9 +359,11 @@ async def ai_accept_result_callback(update: Update, context: ContextTypes.DEFAUL
 
     user = query.from_user
     user_data = get_user_data(user.id)
-    formatted_text = user_data.get("formatted_text", "")
-
-    if not formatted_text:
+    
+    # دریافت نتیجه AI ساختاریافته
+    ai_description_obj = user_data.get("ai_description_obj")
+    
+    if not ai_description_obj:
         await query.edit_message_text("❌ خطا! لطفاً دوباره تلاش کنید.")
         clear_user_state(user.id)
         return
@@ -373,8 +379,15 @@ async def ai_accept_result_callback(update: Update, context: ContextTypes.DEFAUL
             await query.edit_message_text("❌ محصول پیدا نشد!")
             return
 
-        # ذخیره متن AI به عنوان description
-        product.description_manual = formatted_text
+        # ذخیره ساختاریافته داده‌های AI
+        product.ai_description = ai_description_obj.description
+        product.ai_pros = ai_description_obj.pros if ai_description_obj.pros else []
+        product.ai_cons = ai_description_obj.cons if ai_description_obj.cons else []
+        
+        # اگر features وجود داشت (کسب‌وکارهای کامپیوتری)، در pros ذخیره می‌کنیم
+        if ai_description_obj.features:
+            product.ai_pros = ai_description_obj.features
+        
         await session.commit()
 
         # علامت‌گذاری لاگ به عنوان قبول شده

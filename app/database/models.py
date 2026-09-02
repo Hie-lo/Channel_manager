@@ -152,6 +152,12 @@ class Channel(Base):
         default=Platform.TELEGRAM
     )
     channel_identifier: Mapped[str] = mapped_column(String(200))
+    
+    # ─── آیدی تماس (username/id) برای هر پلتفرم ───
+    contact_id_telegram: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    contact_id_bale: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    contact_id_eitaa: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    
     # وضعیت فعال‌سازی برای پلتفرم‌های غیر تلگرام
     activation_status: Mapped[str] = mapped_column(
         String(30),
@@ -196,7 +202,14 @@ class Product(Base):
     stock_qty: Mapped[int] = mapped_column(Integer, default=0)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    description_manual: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ─── توضیحات (دستی یا سفارشی‌شده) ───
+    description_custom: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # ─── توضیحات تولید شده توسط AI (ساختاریافته) ───
+    ai_description: Mapped[str | None] = mapped_column(Text, nullable=True)  # توضیح اصلی
+    ai_pros: Mapped[list] = mapped_column(JSONB, default=list)  # لیست مزایا ["مزیت 1", "مزیت 2", ...]
+    ai_cons: Mapped[list] = mapped_column(JSONB, default=list)  # لیست معایب ["معایب 1", "معایب 2", ...]
+    
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     specs: Mapped[dict] = mapped_column(JSONB, default=dict)
