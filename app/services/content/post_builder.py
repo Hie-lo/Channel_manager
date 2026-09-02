@@ -1,338 +1,205 @@
 """
-موتور رندر پست
-
-ورودی:
-  - product: dict یا ORM Product
-  - template: PostTemplate (از دیتابیس)
-
-خروجی:
-  - PostRenderResult با متن نهایی، image_url، و وضعیت فیلتر
-
-گسترش‌پذیری:
-  قالب به‌صورت JSONB در دیتابیس ذخیره است.
-  فیلدهای جدید هر کسب‌وکار را می‌توان در body_fields اضافه کرد
-  بدون نیاز به تغییر این فایل.
+ساخت پست نهایی از قالب و داده محصول
 """
 
-from __future__ import annotations
+from pathlib import Path
+from datetime import datetime
 
-import re
-from dataclasses import dataclass
-from typing import Any
-
-from app.database.models import PostTemplate
+from app.database.models import Product, Business
+from app.business.config import (
+    BusinessConfig,
+    get_subcategory,
+    get_subcategory_template_path,
+    BUSINESS_DIR,
+)
+from app.services.content.hashtag_generator import (
+    generate_hashtags,
+    format_hashtags_for_post,
+)
 from app.utils.logger import log
 
+try:
+    import jdatetime
+    HAS_JDATETIME = True
+except ImportError:
+    HAS_JDATETIME = False
 
-# ─────────────────────────────────────────────────────────────────────────────
 
-@dataclass
-class PostRenderResult:
-    text: str           = ""
-    image_url: str | None = None
-    # آیا این محصول باید رد شود (طبق فیلترهای قالب)؟
-    should_skip: bool   = False
-    skip_reason: str    = ""
-    # متن عنوان جداگانه (برای استفاده در caption پیشرفته)
-    title: str          = ""
-    # بدنه بدون پاورقی
-    body: str           = ""
+def build_post_caption(
+    product: Product,
+    business_config: BusinessConfig,
+    business: Business | None = None,
+    include_ai_description: bool = False,
+) -> str:
+    """ساخت متن کامل کپشن پست"""
+
+    # بارگذاری قالب بر اساس sub_category
+    template = _load_template(product, business_config)
+    if not template:
+        return _fallback_post(product, business_config)
+
+    # آماده‌سازی مقادیر
+    values = _prepare_template_values(product, business_config, business)
+
+    # جایگذاری
+    try:
+        post_text = template.format(**values)
+    except KeyError as e:
+        log.error(f"کلید ناشناخته در قالب: {e}, sub_category: {product.sub_category_key}")
+        return _fallback_post(product, business_config)
+
+    return _clean_empty_lines(post_text)
+
+
+def _load_template(product: Product, business_config: BusinessConfig) -> str | None:
+    """خواندن قالب بر اساس sub_category محصول"""
+
+    if not product.sub_category_key:
+        log.warning(f"محصول {product.sku} sub_category ندارد")
+        return None
+
+    template_path = get_subcategory_template_path(
+        business_config.key,
+        product.sub_category_key,
+    )
+
+    if not template_path or not template_path.exists():
+        log.error(
+            f"قالب پیدا نشد: business={business_config.key}, "
+            f"subcategory={product.sub_category_key}"
+        )
+        return None
+
+    try:
+        return template_path.read_text(encoding="utf-8")
+    except Exception as e:
+        log.error(f"خطا در خواندن قالب: {e}")
+        return None
+
+
+def _prepare_template_values(
+    product: Product,
+    business_config: BusinessConfig,
+    business: Business | None,
+) -> dict:
+    """آماده‌سازی مقادیر برای قالب"""
+
+    values = {
+        "product_name": product.product_name,
+        "sku": product.sku,
+        "price": _format_price(int(product.price)),
+        "stock_status": _get_stock_status(product),
+        "update_date": _format_date(product.updated_at),
+    }
+
+    # مقادیر از specs
+    if product.specs:
+        for key, value in product.specs.items():
+            values[key] = str(value) if value else "-"
+
+    # پیدا کردن subcategory برای فیلدهای اختیاری خالی
+    subcategory = get_subcategory(business_config.key, product.sub_category_key)
+    if subcategory:
+        for field in subcategory.fields:
+            if field.key not in values and field.key not in [
+                "sku", "product_name", "price", "stock", "description", "image_url"
+            ]:
+                values[field.key] = "-"
+
+    values["description_block"] = _build_description_block(product)
+
     # هشتگ‌ها
-    hashtags: str       = ""
+    hashtags = generate_hashtags(product, business_config)
+    values["hashtags"] = format_hashtags_for_post(hashtags)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ابزارهای کمکی
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _get_field_value(product: Any, field_key: str) -> Any:
-    """
-    دریافت مقدار فیلد از محصول.
-    از نقطه برای دسترسی به کلیدهای تودرتو (مثل specs.color) پشتیبانی می‌کند.
-    product می‌تواند ORM object یا dict باشد.
-    """
-    parts = field_key.split(".", 1)
-    if isinstance(product, dict):
-        val = product.get(parts[0])
+    # اطلاعات تماس
+    if business and business.contact_text:
+        values["contact"] = f"سفارش: {business.contact_text}"
     else:
-        val = getattr(product, parts[0], None)
+        values["contact"] = "برای سفارش پیام دهید"
 
-    if len(parts) == 2 and isinstance(val, dict):
-        val = val.get(parts[1])
-
-    return val
+    return values
 
 
-def _format_value(raw_value: Any, fmt: str) -> str:
-    """اعمال format string روی مقدار"""
-    if raw_value is None or str(raw_value).strip() == "":
+def _format_price(price: int) -> str:
+    if price <= 0:
+        return "-"
+    return f"{price:,}"
+
+
+def _get_stock_status(product: Product) -> str:
+    if not product.is_available or product.stock_qty <= 0:
+        return "❌ ناموجود"
+    return "موجود ✅"
+
+
+def _format_date(dt: datetime) -> str:
+    if not dt:
         return ""
-    try:
-        if isinstance(raw_value, (int, float)) and ":," in fmt:
-            return fmt.replace("{value:,}", f"{int(raw_value):,}").replace("{value}", str(raw_value))
-        return fmt.replace("{value}", str(raw_value))
-    except Exception:
-        return str(raw_value)
 
-
-def _normalize_hashtag(text: str) -> str:
-    """تبدیل متن به هشتگ مناسب"""
-    text = str(text).strip()
-    # حذف کاراکترهای غیرمجاز
-    text = re.sub(r"[\s\-/\\،,\.]+", "_", text)
-    text = re.sub(r"[^\w\u0600-\u06FF_]", "", text)
-    return text.strip("_")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# رندر عنوان
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _render_title(product: Any, template: PostTemplate) -> str:
-    """رندر عنوان با placeholder ها"""
-    pattern = template.title_pattern or "{product_name}"
-
-    # پیدا کردن تمام placeholder ها
-    placeholders = re.findall(r"\{(\w+(?:\.\w+)?)\}", pattern)
-
-    result = pattern
-    for ph in placeholders:
-        val = _get_field_value(product, ph)
-        result = result.replace(f"{{{ph}}}", str(val) if val else "")
-
-    result = result.strip()
-    if template.title_bold:
-        result = f"<b>{result}</b>"
-    return result
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# رندر بدنه
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _render_body(product: Any, template: PostTemplate) -> str:
-    """رندر بدنه پست از لیست فیلدها"""
-    separator = template.field_separator or "\n"
-    lines: list[str] = []
-
-    for field_def in (template.body_fields or []):
-        if not field_def.get("enabled", True):
-            continue
-
-        key   = field_def.get("key", "")
-        label = field_def.get("label", "")
-        fmt   = field_def.get("format", "{value}")
-
-        raw_value = _get_field_value(product, key)
-
-        # صفر برای موجودی اگر تنظیم شده باشد
-        if key in ("stock_qty", "stock") and isinstance(raw_value, int) and raw_value == 0:
-            if field_def.get("hide_if_zero", False):
-                continue
-
-        if raw_value is None or str(raw_value).strip() == "":
-            continue
-
-        formatted = _format_value(raw_value, fmt)
-        if formatted:
-            lines.append(f"{label}: {formatted}" if label else formatted)
-
-    return separator.join(lines)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# رندر هشتگ‌ها
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _render_hashtags(product: Any, template: PostTemplate) -> str:
-    tags: list[str] = []
-
-    # هشتگ‌های ثابت
-    for tag in (template.static_hashtags or []):
-        tags.append(tag.strip())
-
-    # هشتگ‌های پویا
-    for dyn in (template.dynamic_hashtags or []):
-        field_key = dyn.get("field", "")
-        prefix    = dyn.get("prefix", "#")
-        val       = _get_field_value(product, field_key)
-        if val:
-            normalized = _normalize_hashtag(str(val))
-            if normalized:
-                tags.append(f"{prefix}{normalized}")
-
-    return " ".join(tags)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# فیلترها
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _should_skip(product: Any, template: PostTemplate) -> tuple[bool, str]:
-    """بررسی فیلترها — (should_skip, reason)"""
-    stock = _get_field_value(product, "stock_qty")
-    price = _get_field_value(product, "price")
-
-    if template.skip_if_out_of_stock:
+    if HAS_JDATETIME:
         try:
-            if stock is not None and int(stock) < template.min_stock:
-                return True, f"موجودی {stock} کمتر از حداقل {template.min_stock}"
-        except (TypeError, ValueError):
+            jdate = jdatetime.datetime.fromgregorian(datetime=dt)
+            return jdate.strftime("%Y/%m/%d")
+        except Exception:
             pass
 
-    if template.skip_if_price_zero:
-        try:
-            if price is not None and float(price) <= 0:
-                return True, "قیمت صفر یا منفی"
-        except (TypeError, ValueError):
-            pass
-
-    return False, ""
+    return dt.strftime("%Y/%m/%d")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ورودی اصلی
-# ─────────────────────────────────────────────────────────────────────────────
-
-def render_post(product: Any, template: PostTemplate) -> PostRenderResult:
+def _build_description_block(product: Product) -> str:
     """
-    رندر کامل یک پست برای یک محصول.
-
-    Args:
-        product: ORM Product یا dict با کلیدهای استاندارد
-        template: PostTemplate از دیتابیس
-
-    Returns:
-        PostRenderResult
+    ساخت بلوک توضیحات
+    - اگه متن با ایموجی 📝 شروع میشه (از AI)، همون رو برگردون
+    - وگرنه (از اکسل/شیت)، 📝 اضافه کن
     """
-    result = PostRenderResult()
+    if not product.description_manual:
+        return ""
 
-    # ─── فیلتر ───
-    skip, reason = _should_skip(product, template)
-    if skip:
-        result.should_skip = True
-        result.skip_reason = reason
-        return result
+    text = product.description_manual.strip()
+    if not text:
+        return ""
 
-    # ─── عنوان ───
-    result.title = _render_title(product, template)
+    # اگه متن با 📝 شروع میشه، خودش داره - دست نزن
+    if text.startswith("📝"):
+        return text
 
-    # ─── بدنه ───
-    result.body = _render_body(product, template)
-
-    # ─── هشتگ‌ها ───
-    result.hashtags = _render_hashtags(product, template)
-
-    # ─── پاورقی ───
-    footer_parts: list[str] = []
-    if template.contact_text:
-        footer_parts.append(template.contact_text)
-    if result.hashtags:
-        footer_parts.append(result.hashtags)
-    footer = "\n".join(footer_parts)
-
-    # ─── متن نهایی ───
-    parts = [result.title]
-    if result.body:
-        parts.append(result.body)
-    if footer:
-        parts.append(footer)
-
-    result.text = "\n\n".join(p for p in parts if p)
-
-    # ─── تصویر ───
-    image_url = _get_field_value(product, "image_url")
-    if image_url and template.use_image:
-        result.image_url = str(image_url).strip() or None
-    elif template.fallback_image_url and template.use_image:
-        result.image_url = template.fallback_image_url
-
-    return result
+    # وگرنه 📝 اضافه کن
+    return f"📝 {text}"
 
 
-def render_posts_batch(
-    products: list[Any],
-    template: PostTemplate,
-) -> tuple[list[PostRenderResult], list[PostRenderResult]]:
-    """
-    رندر دسته‌ای محصولات.
-    Returns: (rendered_list, skipped_list)
-    """
-    rendered: list[PostRenderResult] = []
-    skipped:  list[PostRenderResult] = []
+def _clean_empty_lines(text: str) -> str:
+    """حذف خطوط خالی اضافی"""
+    lines = text.split("\n")
+    result_lines = []
 
-    for product in products:
-        r = render_post(product, template)
-        if r.should_skip:
-            skipped.append(r)
+    prev_empty = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "":
+            if not prev_empty:
+                result_lines.append("")
+                prev_empty = True
         else:
-            rendered.append(r)
+            result_lines.append(line)
+            prev_empty = False
 
-    log.info(f"[PostBuilder] رندر: {len(rendered)} پست، {len(skipped)} رد شد")
-    return rendered, skipped
+    while result_lines and result_lines[0].strip() == "":
+        result_lines.pop(0)
+    while result_lines and result_lines[-1].strip() == "":
+        result_lines.pop()
+
+    return "\n".join(result_lines)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# رندر مستقیم از متن خام preset (سیستم جدید — بدون PostTemplate)
-# ─────────────────────────────────────────────────────────────────────────────
+def _fallback_post(product: Product, business_config: BusinessConfig) -> str:
+    """پست ساده در صورت مشکل"""
+    price = _format_price(int(product.price))
+    stock = _get_stock_status(product)
 
-def render_post_from_text(product: Any, template_text: str) -> str:
-    """
-    رندر یک متن قالب خام (raw، با {placeholder}) — مثل preset های ادمین یا
-    فایل‌های .txt قدیمی.
-
-    برای سازگاری کامل با قالب‌های فعلی، همون رفتار سیستم قدیمی رو داره:
-    محتوای specs مستقیم روی سطح بالا مسطح می‌شه (بدون نیاز به {specs.cpu}؛
-    فقط {cpu} کافیه)، و چند placeholder محاسبه‌شده (قیمت فرمت‌شده،
-    وضعیت موجودی، بلوک توضیحات) هم اضافه می‌شه.
-
-    product می‌تونه ORM Product یا dict باشه.
-    """
-    if isinstance(product, dict):
-        flat: dict[str, Any] = dict(product)
-        specs = flat.pop("specs", None) or {}
-        price_raw = flat.get("price")
-        stock_qty = flat.get("stock_qty", 0)
-        is_available = flat.get("is_available", (stock_qty or 0) > 0)
-        description_manual = flat.get("description_manual", "")
-    else:
-        flat = {
-            "product_name": getattr(product, "product_name", "") or "",
-            "sku": getattr(product, "sku", "") or "",
-            "stock_qty": getattr(product, "stock_qty", 0) or 0,
-            "image_url": getattr(product, "image_url", "") or "",
-        }
-        specs = getattr(product, "specs", None) or {}
-        price_raw = getattr(product, "price", 0)
-        stock_qty = flat["stock_qty"]
-        is_available = getattr(product, "is_available", stock_qty > 0)
-        description_manual = getattr(product, "description_manual", "") or ""
-
-    # مسطح‌سازی specs روی سطح بالا (دقیقاً مثل سیستم قدیمی .txt)
-    flat.update(specs)
-
-    # قیمت فرمت‌شده با کاما
-    try:
-        price_int = int(float(price_raw)) if price_raw not in (None, "") else 0
-    except (TypeError, ValueError):
-        price_int = 0
-    flat["price"] = f"{price_int:,}" if price_int > 0 else "-"
-
-    # وضعیت موجودی
-    flat["stock_status"] = "❌ ناموجود" if (not is_available or (stock_qty or 0) <= 0) else "موجود ✅"
-
-    # بلوک توضیحات (با 📝، بدون تکرار اگه از قبل داشته باشه)
-    desc_text = str(description_manual).strip() if description_manual else ""
-    if desc_text and not desc_text.startswith("📝"):
-        desc_text = f"📝 {desc_text}"
-    flat["description_block"] = desc_text
-    flat.setdefault("description_manual", description_manual or "")
-
-    placeholders = set(re.findall(r"\{(\w+)\}", template_text))
-    result = template_text
-    for ph in placeholders:
-        val = flat.get(ph)
-        replacement = "" if val is None else str(val)
-        result = result.replace(f"{{{ph}}}", replacement)
-
-    return result.strip()
+    return (
+        f"{business_config.emoji} {product.product_name}\n\n"
+        f"💰 قیمت: {price} تومان\n"
+        f"📦 {stock}\n\n"
+        f"🔖 کد: {product.sku}"
+    )

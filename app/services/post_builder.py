@@ -278,16 +278,60 @@ def render_posts_batch(
 
 def render_post_from_text(product: Any, template_text: str) -> str:
     """
-    رندر یک متن قالب خام (raw، با {placeholder}) مثل preset های ادمین یا فایل‌های .txt قدیمی.
-    برخلاف render_post که ساختار PostTemplate دیتابیسی رو می‌خونه، این تابع
-    مستقیم روی رشته کار می‌کنه و از همون _get_field_value برای دسترسی به
-    کلیدهای تودرتو (specs.color) استفاده می‌کنه.
-    """
-    placeholders = set(re.findall(r"\{(\w+(?:\.\w+)?)\}", template_text))
+    رندر یک متن قالب خام (raw، با {placeholder}) — مثل preset های ادمین یا
+    فایل‌های .txt قدیمی.
 
+    برای سازگاری کامل با قالب‌های فعلی، همون رفتار سیستم قدیمی رو داره:
+    محتوای specs مستقیم روی سطح بالا مسطح می‌شه (بدون نیاز به {specs.cpu}؛
+    فقط {cpu} کافیه)، و چند placeholder محاسبه‌شده (قیمت فرمت‌شده،
+    وضعیت موجودی، بلوک توضیحات) هم اضافه می‌شه.
+
+    product می‌تونه ORM Product یا dict باشه.
+    """
+    if isinstance(product, dict):
+        flat: dict[str, Any] = dict(product)
+        specs = flat.pop("specs", None) or {}
+        price_raw = flat.get("price")
+        stock_qty = flat.get("stock_qty", 0)
+        is_available = flat.get("is_available", (stock_qty or 0) > 0)
+        description_manual = flat.get("description_manual", "")
+    else:
+        flat = {
+            "product_name": getattr(product, "product_name", "") or "",
+            "sku": getattr(product, "sku", "") or "",
+            "stock_qty": getattr(product, "stock_qty", 0) or 0,
+            "image_url": getattr(product, "image_url", "") or "",
+        }
+        specs = getattr(product, "specs", None) or {}
+        price_raw = getattr(product, "price", 0)
+        stock_qty = flat["stock_qty"]
+        is_available = getattr(product, "is_available", stock_qty > 0)
+        description_manual = getattr(product, "description_manual", "") or ""
+
+    # مسطح‌سازی specs روی سطح بالا (دقیقاً مثل سیستم قدیمی .txt)
+    flat.update(specs)
+
+    # قیمت فرمت‌شده با کاما
+    try:
+        price_int = int(float(price_raw)) if price_raw not in (None, "") else 0
+    except (TypeError, ValueError):
+        price_int = 0
+    flat["price"] = f"{price_int:,}" if price_int > 0 else "-"
+
+    # وضعیت موجودی
+    flat["stock_status"] = "❌ ناموجود" if (not is_available or (stock_qty or 0) <= 0) else "موجود ✅"
+
+    # بلوک توضیحات (با 📝، بدون تکرار اگه از قبل داشته باشه)
+    desc_text = str(description_manual).strip() if description_manual else ""
+    if desc_text and not desc_text.startswith("📝"):
+        desc_text = f"📝 {desc_text}"
+    flat["description_block"] = desc_text
+    flat.setdefault("description_manual", description_manual or "")
+
+    placeholders = set(re.findall(r"\{(\w+)\}", template_text))
     result = template_text
     for ph in placeholders:
-        val = _get_field_value(product, ph)
+        val = flat.get(ph)
         replacement = "" if val is None else str(val)
         result = result.replace(f"{{{ph}}}", replacement)
 
