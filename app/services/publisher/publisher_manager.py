@@ -26,9 +26,10 @@ class UnifiedPublishResult:
 
 def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
     """
-    پر کردن placeholder {contact_id} با آیدی تماس کانال بر اساس پلتفرم
+    پر کردن placeholder {contact_id} و {contact} با آیدی تماس کانال بر اساس پلتفرم
     """
-    if "{contact_id}" not in caption:
+    # Check if any contact placeholder exists
+    if "{contact_id}" not in caption and "{contact}" not in caption:
         return caption
     
     contact_id = ""
@@ -39,12 +40,26 @@ def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
     elif channel.platform == Platform.EITAA:
         contact_id = channel.contact_id_eitaa or ""
     
-    # جایگزینی placeholder
+    # جایگزینی placeholder ها
     result = caption.replace("{contact_id}", contact_id)
+    result = result.replace("{contact}", contact_id)
     
-    # حذف خطوط خالی اضافی که ممکن است از placeholder خالی ایجاد شده باشد
+    # حذف خطوط که فقط شامل ایموجی/نماد + فاصله هستند (placeholder خالی شده)
     lines = result.split('\n')
-    cleaned_lines = [line for line in lines if line.strip()]
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        # حذف خطوط خالی
+        if not stripped:
+            continue
+        # حذف خطوط که فقط شامل emoji/symbols + کولون هستند (بدون محتوا)
+        if ':' in stripped:
+            after_colon = stripped.split(':')[-1].strip()
+            if not after_colon:
+                continue
+        
+        cleaned_lines.append(line)
     
     return '\n'.join(cleaned_lines)
 

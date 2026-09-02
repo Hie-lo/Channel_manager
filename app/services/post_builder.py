@@ -359,6 +359,14 @@ def render_post_from_text(product: Any, template_text: str) -> str:
     # ─── Placeholder برای contact_id (باید از channel گرفته بشه) ───
     # این placeholder در زمان ارسال به کانال پر می‌شود
     flat.setdefault("contact_id", "")
+    flat.setdefault("contact", "")  # alias for contact_id
+    
+    # ─── Placeholder های اضافی ───
+    flat.setdefault("brand", "")
+    flat.setdefault("hashtags", "")
+    flat.setdefault("update_date", "")
+    flat.setdefault("grade", "")
+    flat.setdefault("screen", "")  # alias for display
 
     placeholders = set(re.findall(r"\{(\w+)\}", template_text))
     result = template_text
@@ -367,9 +375,26 @@ def render_post_from_text(product: Any, template_text: str) -> str:
         replacement = "" if val is None else str(val)
         result = result.replace(f"{{{ph}}}", replacement)
     
-    # حذف خطوط خالی اضافی که از placeholder های خالی ایجاد شده
+    # حذف خطوط که فقط شامل ایموجی/نماد + فاصله هستند (placeholder خالی شده)
     lines = result.split('\n')
-    cleaned_lines = [line for line in lines if line.strip()]
+    cleaned_lines = []
+    
+    for line in lines:
+        stripped = line.strip()
+        # حذف خطوط خالی
+        if not stripped:
+            continue
+        # حذف خطوط که فقط شامل emoji/symbols + کولون هستند (بدون محتوا)
+        # مثال: "⚡ پردازنده: " → حذف
+        # مثال: "⚡ پردازنده: Intel i5" → نگه دار
+        if ':' in stripped:
+            # بررسی قسمت بعد از آخرین کولون
+            after_colon = stripped.split(':')[-1].strip()
+            if not after_colon:
+                continue
+        
+        cleaned_lines.append(line)
+    
     result = '\n'.join(cleaned_lines)
 
     return result.strip()
