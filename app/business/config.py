@@ -145,6 +145,7 @@ LAPTOP_SUBCATEGORY = SubCategory(
         BusinessField(key="storage", label_fa="حافظه", emoji="💾", excel_column="حافظه", required=True, aliases=STORAGE_ALIASES),
         BusinessField(key="gpu", label_fa="گرافیک", emoji="🎮", excel_column="گرافیک", required=False, aliases=GPU_ALIASES),
         BusinessField(key="screen", label_fa="صفحه نمایش", emoji="📐", excel_column="صفحه نمایش", required=False, aliases=SCREEN_ALIASES),
+        BusinessField(key="resolution", label_fa="رزولوشن", emoji="🔍", excel_column="Resolution", required=False, aliases=RESOLUTION_ALIASES),
         # 🆕 ویژگی‌های اختیاری — همه می‌تونن خالی باشن، در اون صورت اصلاً در specs ذخیره نمی‌شن
         BusinessField(key="touch_screen", label_fa="صفحه لمسی", emoji="👆", excel_column="Touch", required=False, aliases=TOUCH_ALIASES),
         BusinessField(key="pen_support", label_fa="قلم", emoji="✏️", excel_column="Pen", required=False, aliases=PEN_ALIASES),
