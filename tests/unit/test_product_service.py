@@ -54,7 +54,7 @@ def test_update_product_price_change():
     product.price = 40000000
     product.stock_qty = 5
     product.is_available = True
-    product.description_manual = "قدیم"
+    product.description_custom = "قدیم"
     product.image_url = None
     product.specs = {"brand": "Lenovo"}
 
@@ -78,7 +78,7 @@ def test_update_product_no_change():
     product.price = 40000000
     product.stock_qty = 5
     product.is_available = True
-    product.description_manual = "test"
+    product.description_custom = "test"
     product.image_url = None
     product.specs = {}
 
@@ -100,7 +100,7 @@ def test_update_product_stock_change():
     product.price = 1000
     product.stock_qty = 5
     product.is_available = True
-    product.description_manual = None
+    product.description_custom = None
     product.image_url = None
     product.specs = {}
 

@@ -20,7 +20,7 @@ def make_test_product(**kwargs) -> Product:
     product.price = kwargs.get("price", 42500000)
     product.stock_qty = kwargs.get("stock", 5)
     product.is_available = kwargs.get("stock", 5) > 0
-    product.description_manual = kwargs.get("description")
+    product.description_custom = kwargs.get("description")
     product.image_url = kwargs.get("image_url")
     product.specs = kwargs.get("specs", {
         "brand": "Lenovo",

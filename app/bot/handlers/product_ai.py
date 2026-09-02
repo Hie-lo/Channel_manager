@@ -290,7 +290,7 @@ async def _do_ai_generation(bot, telegram_user_id: int, product_id: int, query):
             select(Product).where(Product.id == product_id)
         )
         p = result_prod.scalar_one_or_none()
-        had_existing = bool(p.description_manual and p.description_manual.strip()) if p else False
+        had_existing = bool(p.description_custom and p.description_custom.strip()) if p else False
 
         usage_log = await log_ai_usage(
             session=session,
