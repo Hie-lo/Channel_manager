@@ -353,7 +353,11 @@ async def prod_preview_callback(update: Update, context: ContextTypes.DEFAULT_TY
         medias = await get_product_medias(session, product.id, media_platform)
         photo_sources = get_photo_sources_for_platform(product, medias)
 
-    caption = build_post_caption(product, business_config, business)
+        from app.services.post_preset_service import get_selected_preset
+        selected_preset = await get_selected_preset(session, customer.id)
+
+    preset_text = selected_preset.template_text if selected_preset else None
+    caption = build_post_caption(product, business_config, business, preset_template_text=preset_text)
 
     # کوتاه کردن کپشن برای پیش‌نمایش اگر خیلی طولانی بود
     max_cap_len = 1024 if photo_sources else 4000
@@ -461,11 +465,15 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
         business_config = get_business_config_for_customer(customer)
         business = await get_business_for_customer(session, customer.id)
 
+        from app.services.post_preset_service import get_selected_preset
+        selected_preset = await get_selected_preset(session, customer.id)
+
     # نمایش پیام "در حال ارسال"
     await query.edit_message_text("⏳ در حال ارسال به کانال‌ها...")
 
     # ساخت کپشن
-    caption = build_post_caption(product, business_config, business)
+    preset_text = selected_preset.template_text if selected_preset else None
+    caption = build_post_caption(product, business_config, business, preset_template_text=preset_text)
 
     # 🚀 ارسال موازی به تمامی کانال‌ها
     import asyncio
