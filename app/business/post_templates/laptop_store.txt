@@ -6,10 +6,11 @@
 🎮 گرافیک: {gpu}
 📐 صفحه: {screen}
 
-⭐️ Grade
+⭐️ {grade}
 
-{description_block}
+{ai_description}
 
+{ai_features}
 
 🎯 مناسب برای
 {hashtags}
