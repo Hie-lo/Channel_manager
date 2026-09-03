@@ -630,6 +630,42 @@ async def _publish_or_edit(bot, product, channel, caption):
                         new_stock_qty=product.stock_qty,
                     )
 
+        # پیام قبلی ممکن است دستی از کانال حذف شده باشد؛ در این حالت ارسال جدید انجام بده.
+        error_text = (result.error_message or "").lower()
+        deleted_message = any(
+            marker in error_text
+            for marker in (
+                "message_id_invalid",
+                "message id invalid",
+                "message to edit not found",
+                "پست قابل ویرایش پیدا نشد",
+            )
+        )
+        if not result.success and deleted_message:
+            log.info(
+                f"پیام قبلی پیدا نشد؛ ارسال مجدد محصول {product.id} به کانال {channel.id}"
+            )
+            repost_result = await publish_to_channel(
+                bot=bot,
+                channel=channel,
+                product=product,
+                caption=caption,
+                eitaa_token=eitaa_token,
+            )
+            if repost_result.success and repost_result.message_id:
+                async with AsyncSessionLocal() as session:
+                    posted_fresh = await get_posted_message(session, product.id, channel.id)
+                    if posted_fresh:
+                        posted_fresh.telegram_message_id = repost_result.message_id
+                        await update_posted_message(
+                            session=session,
+                            posted_message=posted_fresh,
+                            new_caption=caption,
+                            new_price=int(product.price),
+                            new_stock_qty=product.stock_qty,
+                        )
+                result = repost_result
+
         # تبدیل UnifiedPublishResult به فرمت سازگار
         from app.services.publisher.telegram_publisher import PublishResult
         return PublishResult(
