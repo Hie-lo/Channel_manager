@@ -11,8 +11,8 @@ _user_spam_data = defaultdict(lambda: {"history": [], "blocked_until": 0.0})
 # ۲. حافظه موقت اکشن‌های خاص: { user_id: { action: [timestamps] } }
 _action_rate_limits = defaultdict(lambda: defaultdict(list))
 
-MAX_REQUESTS_PER_WINDOW = 10   # حداکثر ۱۰ درخواست
-WINDOW_SECONDS = 18            # در بازه ۱۸ ثانیه‌ای
+MAX_REQUESTS_PER_WINDOW = 15   # حداکثر ۱۰ درخواست
+WINDOW_SECONDS = 30            # در بازه ۱۸ ثانیه‌ای
 PENALTY_SECONDS = 10          # جریمه فریز ۱۰ ثانیه‌ای در صورت تخلف
 
 

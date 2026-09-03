@@ -633,6 +633,7 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(ai_regenerate_callback, pattern="^ai_regen_"))
     app.add_handler(CallbackQueryHandler(ai_start_generation_callback, pattern="^ai_start_"))
     app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_(desc|pros|cons)_"))
+    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_saved_(desc|pros|cons)_"))
     app.add_handler(CallbackQueryHandler(ai_edit_saved_callback, pattern="^ai_edit_saved_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(ai_edit_callback, pattern="^ai_edit_[0-9]+_[0-9]+$"))
     app.add_handler(CallbackQueryHandler(ai_view_result_callback, pattern="^ai_view_result_"))

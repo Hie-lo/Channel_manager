@@ -778,7 +778,8 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 "ai_description_obj": ai_description_obj,
             })
 
-    clear_user_state(user.id)
+    if from_saved:
+        clear_user_state(user.id)
 
     field_name = {
         "description": "توضیح اصلی",
