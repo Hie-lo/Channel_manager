@@ -52,19 +52,8 @@ def _fill_contact_id_placeholder(caption: str, channel: Channel, fallback_contac
             line for line in caption.split("\n")
             if "{contact_id}" not in line and "{contact}" not in line
         )
-    
-    # حذف خطوط که فقط شامل ایموجی/نماد + فاصله هستند (placeholder خالی شده)
-    lines = result.split('\n')
-    cleaned_lines = []
-    
-    for line in lines:
-        stripped = line.strip()
-        # حذف خطوط خالی
-        if not stripped:
-            continue
-        cleaned_lines.append(line)
-    
-    return '\n'.join(cleaned_lines)
+
+    return result
 
 
 def _fill_phone_placeholder(caption: str, channel: Channel) -> str:
@@ -75,7 +64,10 @@ def _fill_phone_placeholder(caption: str, channel: Channel) -> str:
     }.get(channel.platform) or ""
     if phone:
         return caption.replace("{phone}", phone)
-    return "\n".join(line for line in caption.split("\n") if "{phone}" not in line)
+    return "\n".join(
+        line for line in caption.split("\n")
+        if "{phone}" not in line
+    )
 
 
 async def _get_business_contact(channel: Channel) -> str:
