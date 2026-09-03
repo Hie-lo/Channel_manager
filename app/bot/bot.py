@@ -70,6 +70,7 @@ from app.bot.handlers.channel import (
     channel_menu_callback,
     channel_add_callback,
     channel_list_callback,
+    channel_detail_callback,
     channel_delete_callback,
     channel_delete_confirm_callback,
     channel_id_received_handler,
@@ -535,6 +536,7 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(channel_menu_callback, pattern="^channel_menu$"))
     app.add_handler(CallbackQueryHandler(channel_add_callback, pattern="^channel_add$"))
     app.add_handler(CallbackQueryHandler(channel_list_callback, pattern="^channel_list$"))
+    app.add_handler(CallbackQueryHandler(channel_detail_callback, pattern="^channel_detail_"))
     app.add_handler(CallbackQueryHandler(custom_post_preview_callback, pattern="^custom_post_preview$"))
     app.add_handler(CallbackQueryHandler(custom_post_send_confirm_callback, pattern="^custom_post_send_confirm$"))
     app.add_handler(CallbackQueryHandler(custom_post_cancel_callback, pattern="^custom_post_cancel$"))
