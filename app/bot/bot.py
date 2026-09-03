@@ -75,6 +75,7 @@ from app.bot.handlers.channel import (
     channel_delete_confirm_callback,
     channel_id_received_handler,
     channel_platform_selected_callback,
+    channel_set_contact_callback,
     channel_delete_contact_callback,
     channel_set_phone_callback,
     channel_phone_text_handler,
@@ -267,13 +268,6 @@ async def text_router(update, context):
         UserState.WAITING_EITAA_CHAT_ID,     # ← جدید
     ):
         await channel_id_received_handler(update, context)
-        await channel_id_received_handler(update, context)
-    elif state == UserState.WAITING_CHANNEL_ID_EITAA:
-        await channel_id_received_handler(update, context)
-    elif state == UserState.WAITING_CHANNEL_ID_BALE:
-        await channel_id_received_handler(update, context)
-    elif state == UserState.WAITING_CHANNEL_ID:
-        await channel_id_received_handler(update, context)
     elif state == UserState.WAITING_PAYMENT_RECEIPT:
         await payment_receipt_handler(update, context)
     elif state == UserState.WAITING_SHEET_URL:
@@ -311,6 +305,9 @@ async def text_router(update, context):
         await ai_edit_text_handler(update, context)
     elif state == UserState.SETTING_CHANNEL_PHONE:
         await channel_phone_text_handler(update, context)
+    elif state == UserState.SETTING_CHANNEL_CONTACT:
+        from app.bot.handlers.channel import channel_contact_text_handler
+        await channel_contact_text_handler(update, context)
     elif state == UserState.PADM_WAITING_NAME:
         await admin_preset_name_received_handler(update, context)
     elif state == UserState.PADM_WAITING_TEXT:
@@ -532,6 +529,7 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(channel_platform_selected_callback, pattern="^channel_platform_"))
     app.add_handler(CallbackQueryHandler(channel_delete_contact_callback, pattern="^channel_delete_contact_"))
     app.add_handler(CallbackQueryHandler(channel_set_phone_callback, pattern="^channel_set_phone_"))
+    app.add_handler(CallbackQueryHandler(channel_set_contact_callback, pattern="^channel_set_contact_"))
     app.add_handler(CallbackQueryHandler(channel_delete_callback, pattern="^channel_delete_"))
     app.add_handler(CallbackQueryHandler(channel_menu_callback, pattern="^channel_menu$"))
     app.add_handler(CallbackQueryHandler(channel_add_callback, pattern="^channel_add$"))
