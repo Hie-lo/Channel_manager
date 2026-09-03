@@ -22,7 +22,10 @@ from typing import Any
 
 from app.database.models import PostTemplate
 from app.business.config import get_business
-from app.services.content.hashtag_generator import generate_hashtags, format_hashtags_for_post
+from app.services.content.hashtag_generator import (
+    generate_hashtags,
+    format_hashtags_for_post,
+)
 from app.utils.logger import log
 
 
