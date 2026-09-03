@@ -8,7 +8,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from app.config import settings
 from sqlalchemy import select
-from app.database.models import Platform, Channel, Product, PostedMessage
+from app.database.models import Platform, Channel, Product, PostedMessage, Business
 from app.utils.logger import log
 
 
@@ -24,7 +24,7 @@ class UnifiedPublishResult:
     used_fallback: bool = False
 
 
-def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
+def _fill_contact_id_placeholder(caption: str, channel: Channel, fallback_contact: str = "") -> str:
     """
     پر کردن placeholder {contact_id} و {contact} با آیدی تماس کانال بر اساس پلتفرم
     """
@@ -39,6 +39,9 @@ def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
         contact_id = channel.contact_id_bale or ""
     elif channel.platform == Platform.EITAA:
         contact_id = channel.contact_id_eitaa or ""
+
+    if not contact_id:
+        contact_id = fallback_contact
     
     # جایگزینی placeholder ها
     result = caption.replace("{contact_id}", contact_id)
@@ -64,6 +67,26 @@ def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
     return '\n'.join(cleaned_lines)
 
 
+def _fill_phone_placeholder(caption: str, channel: Channel) -> str:
+    phone = {
+        Platform.TELEGRAM: channel.phone_telegram,
+        Platform.BALE: channel.phone_bale,
+        Platform.EITAA: channel.phone_eitaa,
+    }.get(channel.platform) or ""
+    if phone:
+        return caption.replace("{phone}", phone)
+    return "\n".join(line for line in caption.split("\n") if "{phone}" not in line)
+
+
+async def _get_business_contact(channel: Channel) -> str:
+    from app.database.connection import AsyncSessionLocal
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(Business.contact_text).where(Business.customer_id == channel.customer_id).limit(1)
+        )
+        return result.scalar_one_or_none() or ""
+
+
 async def publish_to_channel(
     bot,
     channel: Channel,
@@ -85,7 +108,9 @@ async def publish_to_channel(
         UnifiedPublishResult
     """
     # پر کردن {contact_id} برای این کانال
-    caption_with_contact = _fill_contact_id_placeholder(caption, channel)
+    fallback_contact = await _get_business_contact(channel)
+    caption_with_contact = _fill_contact_id_placeholder(caption, channel, fallback_contact)
+    caption_with_contact = _fill_phone_placeholder(caption_with_contact, channel)
     
     if channel.platform == Platform.TELEGRAM:
         return await _publish_to_telegram_channel(bot, channel, product, caption_with_contact)
@@ -123,7 +148,9 @@ async def edit_channel_post(
     برای ایتا: delete + repost
     """
     # پر کردن {contact_id} برای این کانال
-    caption_with_contact = _fill_contact_id_placeholder(new_caption, channel)
+    fallback_contact = await _get_business_contact(channel)
+    caption_with_contact = _fill_contact_id_placeholder(new_caption, channel, fallback_contact)
+    caption_with_contact = _fill_phone_placeholder(caption_with_contact, channel)
     
     if channel.platform == Platform.TELEGRAM:
         return await _edit_telegram_post(
@@ -993,7 +1020,9 @@ async def publish_to_channels_parallel(
     tasks = []
     for channel in channels:
         # پر کردن {contact_id} برای هر کانال
-        channel_caption = _fill_contact_id_placeholder(caption, channel)
+        channel_caption = _fill_phone_placeholder(
+            _fill_contact_id_placeholder(caption, channel), channel
+        )
         
         # برای هر کانال یک تسک مستقل (Coroutine) ایجاد می‌کنیم
         task = publish_to_channel(

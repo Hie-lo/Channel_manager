@@ -157,6 +157,9 @@ class Channel(Base):
     contact_id_telegram: Mapped[str | None] = mapped_column(String(200), nullable=True)
     contact_id_bale: Mapped[str | None] = mapped_column(String(200), nullable=True)
     contact_id_eitaa: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    phone_telegram: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    phone_bale: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    phone_eitaa: Mapped[str | None] = mapped_column(String(30), nullable=True)
     
     # وضعیت فعال‌سازی برای پلتفرم‌های غیر تلگرام
     activation_status: Mapped[str] = mapped_column(

@@ -95,6 +95,8 @@ def get_channel_detail_keyboard(channel_id: int) -> InlineKeyboardMarkup:
     """کیبورد جزئیات کانال"""
     keyboard = [
         [InlineKeyboardButton("✏️ تنظیم آیدی تماس", callback_data=f"channel_set_contact_{channel_id}")],
+        [InlineKeyboardButton("🗑 حذف آیدی تماس", callback_data=f"channel_delete_contact_{channel_id}")],
+        [InlineKeyboardButton("📞 تنظیم شماره تلفن", callback_data=f"channel_set_phone_{channel_id}")],
         [InlineKeyboardButton("❌ حذف کانال", callback_data=f"channel_delete_{channel_id}")],
         [InlineKeyboardButton("🔙 بازگشت به لیست", callback_data="channel_list")],
     ]

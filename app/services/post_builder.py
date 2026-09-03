@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.database.models import PostTemplate
+from app.business.config import get_business
+from app.services.content.hashtag_generator import generate_hashtags, format_hashtags_for_post
 from app.utils.logger import log
 
 
@@ -342,6 +344,14 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
     flat["ai_description"] = ai_description or ""
     flat["ai_features"] = "\n".join(f"🔹 {f}" for f in ai_pros) if ai_pros else ""
     flat["ai_cons"] = "\n".join(f"⚠️ {c}" for c in ai_cons) if ai_cons else ""
+
+    business_key = getattr(business, "business_type_key", None) if business else None
+    business_config = get_business(business_key) if business_key else None
+    flat["hashtags"] = (
+        format_hashtags_for_post(generate_hashtags(product, business_config))
+        if business_config and not isinstance(product, dict)
+        else ""
+    )
 
     flat["contact_id"] = "{contact_id}"
     flat["contact"] = "{contact}"

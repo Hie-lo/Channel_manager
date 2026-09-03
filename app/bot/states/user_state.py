@@ -46,6 +46,7 @@ class UserState(Enum):
     PADM_WAITING_RENAME = "PADM_WAITING_RENAME"
     PADM_WAITING_EDIT_TEXT = "PADM_WAITING_EDIT_TEXT"
     SETTING_CHANNEL_CONTACT = "setting_channel_contact"
+    SETTING_CHANNEL_PHONE = "setting_channel_phone"
     EDITING_AI_DESCRIPTION = "editing_ai_description"
     EDITING_AI_PROS = "editing_ai_pros"
     EDITING_AI_CONS = "editing_ai_cons"

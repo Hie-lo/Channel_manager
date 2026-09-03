@@ -74,6 +74,9 @@ from app.bot.handlers.channel import (
     channel_delete_confirm_callback,
     channel_id_received_handler,
     channel_platform_selected_callback,
+    channel_delete_contact_callback,
+    channel_set_phone_callback,
+    channel_phone_text_handler,
 )
 from app.bot.handlers.subscription import (
     subscription_menu_handler,
@@ -305,6 +308,8 @@ async def text_router(update, context):
         UserState.EDITING_AI_CONS,
     ):
         await ai_edit_text_handler(update, context)
+    elif state == UserState.SETTING_CHANNEL_PHONE:
+        await channel_phone_text_handler(update, context)
     elif state == UserState.PADM_WAITING_NAME:
         await admin_preset_name_received_handler(update, context)
     elif state == UserState.PADM_WAITING_TEXT:
@@ -524,6 +529,8 @@ def _register_all_handlers(app: Application) -> None:
     # ⚠️ ترتیب مهم!
     app.add_handler(CallbackQueryHandler(channel_delete_confirm_callback, pattern="^channel_delete_confirm_"))
     app.add_handler(CallbackQueryHandler(channel_platform_selected_callback, pattern="^channel_platform_"))
+    app.add_handler(CallbackQueryHandler(channel_delete_contact_callback, pattern="^channel_delete_contact_"))
+    app.add_handler(CallbackQueryHandler(channel_set_phone_callback, pattern="^channel_set_phone_"))
     app.add_handler(CallbackQueryHandler(channel_delete_callback, pattern="^channel_delete_"))
     app.add_handler(CallbackQueryHandler(channel_menu_callback, pattern="^channel_menu$"))
     app.add_handler(CallbackQueryHandler(channel_add_callback, pattern="^channel_add$"))

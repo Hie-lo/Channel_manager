@@ -27,6 +27,7 @@ from app.bot.keyboards.channel import (
 from app.bot.states.user_state import (
     UserState,
     set_user_state,
+    get_user_data,
     get_user_state,
     clear_user_state,
 )
@@ -923,6 +924,12 @@ async def channel_detail_callback(update: Update, context: ContextTypes.DEFAULT_
     elif channel.platform == Platform.EITAA:
         contact_id = channel.contact_id_eitaa or "-"
 
+    phone = {
+        Platform.TELEGRAM: channel.phone_telegram,
+        Platform.BALE: channel.phone_bale,
+        Platform.EITAA: channel.phone_eitaa,
+    }.get(channel.platform) or "تنظیم نشده"
+
     text = (
         f"{platform_icon} جزئیات کانال\n"
         f"━━━━━━━━━━━━━━━\n"
@@ -930,6 +937,7 @@ async def channel_detail_callback(update: Update, context: ContextTypes.DEFAULT_
         f"📢 شناسه: {channel.channel_identifier}\n"
         f"🎯 وضعیت: {status_text}\n"
         f"👤 آیدی تماس: {contact_id}\n"
+        f"📞 شماره تلفن: {phone}\n"
         f"━━━━━━━━━━━━━━━\n\n"
         f"💡 آیدی تماس در placeholder {{contact_id}} پست‌ها استفاده می‌شود."
     )
@@ -992,6 +1000,65 @@ async def channel_set_contact_callback(update: Update, context: ContextTypes.DEF
         text,
         reply_markup=get_cancel_channel_add_keyboard(),
     )
+
+
+async def channel_delete_contact_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """حذف آیدی تماس اختصاصی تا مقدار اصلی کسب‌وکار استفاده شود."""
+    query = update.callback_query
+    await query.answer()
+    channel_id = int(query.data.replace("channel_delete_contact_", ""))
+    async with AsyncSessionLocal() as session:
+        channel = await get_channel_by_id(session, channel_id)
+        if not channel:
+            await query.edit_message_text("❌ کانال پیدا نشد!")
+            return
+        if channel.platform == Platform.TELEGRAM:
+            channel.contact_id_telegram = None
+        elif channel.platform == Platform.BALE:
+            channel.contact_id_bale = None
+        elif channel.platform == Platform.EITAA:
+            channel.contact_id_eitaa = None
+        await session.commit()
+    await query.edit_message_text(
+        "✅ آیدی اختصاصی حذف شد. از این پس آیدی اصلی کسب‌وکار استفاده می‌شود.",
+        reply_markup=get_channel_management_keyboard(),
+    )
+
+
+async def channel_set_phone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """درخواست شماره تلفن برای کانال."""
+    query = update.callback_query
+    await query.answer()
+    channel_id = int(query.data.replace("channel_set_phone_", ""))
+    set_user_state(query.from_user.id, UserState.SETTING_CHANNEL_PHONE, {"channel_id": channel_id})
+    await query.edit_message_text(
+        "📞 شماره تلفن تماس را ارسال کنید:\n\nمثال: 09121234567",
+        reply_markup=get_cancel_channel_add_keyboard(),
+    )
+
+
+async def channel_phone_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ذخیره شماره تلفن تماس کانال."""
+    user = update.effective_user
+    if get_user_state(user.id) != UserState.SETTING_CHANNEL_PHONE:
+        return
+    channel_id = get_user_data(user.id).get("channel_id")
+    phone = update.message.text.strip()
+    async with AsyncSessionLocal() as session:
+        channel = await get_channel_by_id(session, channel_id)
+        if not channel:
+            await update.message.reply_text("❌ کانال پیدا نشد!")
+            clear_user_state(user.id)
+            return
+        if channel.platform == Platform.TELEGRAM:
+            channel.phone_telegram = phone
+        elif channel.platform == Platform.BALE:
+            channel.phone_bale = phone
+        elif channel.platform == Platform.EITAA:
+            channel.phone_eitaa = phone
+        await session.commit()
+    clear_user_state(user.id)
+    await update.message.reply_text("✅ شماره تلفن ذخیره شد.", reply_markup=get_channel_management_keyboard())
 
 
 async def channel_contact_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
