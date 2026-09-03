@@ -150,6 +150,11 @@ from app.bot.handlers.product_ai import (
     ai_confirm_generation_callback,
     ai_regenerate_callback,
     ai_accept_result_callback,
+    ai_edit_callback,
+    ai_edit_saved_callback,
+    ai_edit_field_callback,
+    ai_edit_text_handler,
+    ai_view_result_callback,
 )
 from app.bot.handlers.admin_panel import (
     admin_customers_menu_handler,
@@ -294,6 +299,12 @@ async def text_router(update, context):
     elif state == UserState.WAITING_CUSTOM_POST_PHOTOS:
         from app.bot.handlers.custom_post import custom_post_photo_received_handler
         await custom_post_photo_received_handler(update, context)
+    elif state in (
+        UserState.EDITING_AI_DESCRIPTION,
+        UserState.EDITING_AI_PROS,
+        UserState.EDITING_AI_CONS,
+    ):
+        await ai_edit_text_handler(update, context)
     elif state == UserState.PADM_WAITING_NAME:
         await admin_preset_name_received_handler(update, context)
     elif state == UserState.PADM_WAITING_TEXT:
@@ -621,6 +632,10 @@ def _register_all_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(ai_accept_result_callback, pattern="^ai_accept_"))
     app.add_handler(CallbackQueryHandler(ai_regenerate_callback, pattern="^ai_regen_"))
     app.add_handler(CallbackQueryHandler(ai_start_generation_callback, pattern="^ai_start_"))
+    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_(desc|pros|cons)_"))
+    app.add_handler(CallbackQueryHandler(ai_edit_saved_callback, pattern="^ai_edit_saved_[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(ai_edit_callback, pattern="^ai_edit_[0-9]+_[0-9]+$"))
+    app.add_handler(CallbackQueryHandler(ai_view_result_callback, pattern="^ai_view_result_"))
 
     # ─── کالبک‌های آموزش ───
     # ⚠️ tut_inline_ باید قبل از tut_ عمومی باشه

@@ -343,9 +343,12 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
     flat["ai_features"] = "\n".join(f"🔹 {f}" for f in ai_pros) if ai_pros else ""
     flat["ai_cons"] = "\n".join(f"⚠️ {c}" for c in ai_cons) if ai_cons else ""
 
-    # تماس
+    flat["contact_id"] = "{contact_id}"
+    flat["contact"] = "{contact}"
+
+    # مقدار تماس عمومی برای قالب‌هایی که صریحاً business_contact را می‌خواهند
     contact_text = getattr(business, "contact_text", None) if business else None
-    flat["contact"] = f"سفارش: {contact_text}" if contact_text else "برای سفارش پیام دهید"
+    flat["business_contact"] = f"سفارش: {contact_text}" if contact_text else "برای سفارش پیام دهید"
 
     # تاریخ آپدیت (شمسی در صورت وجود jdatetime)
     flat["update_date"] = _format_update_date(updated_at)

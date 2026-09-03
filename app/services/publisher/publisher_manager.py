@@ -43,6 +43,12 @@ def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
     # جایگزینی placeholder ها
     result = caption.replace("{contact_id}", contact_id)
     result = result.replace("{contact}", contact_id)
+
+    if not contact_id:
+        return "\n".join(
+            line for line in caption.split("\n")
+            if "{contact_id}" not in line and "{contact}" not in line
+        )
     
     # حذف خطوط که فقط شامل ایموجی/نماد + فاصله هستند (placeholder خالی شده)
     lines = result.split('\n')
@@ -53,12 +59,6 @@ def _fill_contact_id_placeholder(caption: str, channel: Channel) -> str:
         # حذف خطوط خالی
         if not stripped:
             continue
-        # حذف خطوط که فقط شامل emoji/symbols + کولون هستند (بدون محتوا)
-        if ':' in stripped:
-            after_colon = stripped.split(':')[-1].strip()
-            if not after_colon:
-                continue
-        
         cleaned_lines.append(line)
     
     return '\n'.join(cleaned_lines)
