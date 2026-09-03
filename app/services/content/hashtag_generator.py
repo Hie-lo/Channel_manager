@@ -43,7 +43,7 @@ def _has_any(text: str, values: tuple[str, ...]) -> bool:
 def generate_hashtags(
     product: Product,
     business_config: BusinessConfig | None = None,
-    max_hashtags: int = 30,
+    max_hashtags: int = 9,
 ) -> list[str]:
     """تولید هشتگ‌های واقعی و مرتبط از اطلاعات محصول."""
     tags: list[str] = []
@@ -93,10 +93,12 @@ def generate_hashtags(
     all_text = f"{_text(getattr(product, 'product_name', ''))} {all_specs}"
     gpu = _text(specs.get("gpu") or specs.get("graphics"))
     cpu = _text(specs.get("cpu") or specs.get("processor"))
+    is_laptop = subcategory_key == "laptop"
+    is_gaming = _has_any(all_text, ("gaming", "گیم", "گیمنگ"))
 
     if gpu and not _has_any(gpu, ("integrated", "onboard", "آن برد", "ندارد", "without")):
         add("#گرافیک_دار")
-    if _has_any(all_text, ("gaming", "گیم", "گیمنگ")):
+    if is_gaming:
         add("#گیمینگ")
     if _has_any(all_text, ("accounting", "حسابداری")):
         add("#نام_لاک")
@@ -118,6 +120,17 @@ def generate_hashtags(
         add("#Brand_New")
     if "vaio" in all_text:
         add("#VAIO")
+
+    # برچسب‌های کاربردی فقط با نشانه‌های واقعی محصول اضافه می‌شوند.
+    if is_laptop and not is_gaming:
+        if _has_any(all_text, ("student", "دانشجو", "دانشجویی")) or "i3" in cpu or "i5" in cpu:
+            add("#لپتاپ_دانشجویی")
+        if _has_any(all_text, ("office", "اداری", "حسابداری", "business")) or "i3" in cpu or "i5" in cpu:
+            add("#لپتاپ_اداری")
+        if _has_any(all_text, ("home", "خانگی", "منزل")) or (price > 0 and price <= 30_000_000 and not gpu):
+            add("#لپتاپ_خانگی")
+    if _has_any(all_text, ("programming", "programmer", "برنامه نویسی", "برنامه‌نویسی", "کدنویسی", "developer")):
+        add("#لپتاپ_برنامه_نویسی" if is_laptop else "#برنامه_نویسی")
 
     for generation in range(1, 15):
         if f"نسل{generation}" in all_text or re.search(rf"\b{generation}(?:th|st|nd|rd)\b", all_text):
