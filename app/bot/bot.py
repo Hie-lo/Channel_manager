@@ -3,8 +3,7 @@
 """
 #sd
 
-from celery import app
-from sqlalchemy import Update
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -75,9 +74,6 @@ from app.bot.handlers.channel import (
     channel_delete_confirm_callback,
     channel_id_received_handler,
     channel_platform_selected_callback,
-    channel_detail_callback,
-    channel_set_contact_callback,
-    channel_contact_text_handler,
 )
 from app.bot.handlers.subscription import (
     subscription_menu_handler,
@@ -154,11 +150,6 @@ from app.bot.handlers.product_ai import (
     ai_confirm_generation_callback,
     ai_regenerate_callback,
     ai_accept_result_callback,
-    ai_edit_callback,
-    ai_edit_saved_callback,
-    ai_edit_field_callback,
-    ai_edit_text_handler,
-    ai_view_result_callback,
 )
 from app.bot.handlers.admin_panel import (
     admin_customers_menu_handler,
@@ -311,10 +302,6 @@ async def text_router(update, context):
         await admin_preset_rename_received_handler(update, context)
     elif state == UserState.PADM_WAITING_EDIT_TEXT:
         await admin_preset_edit_text_received_handler(update, context)
-    elif state == UserState.SETTING_CHANNEL_CONTACT:
-        await channel_contact_text_handler(update, context)
-    elif state in [UserState.EDITING_AI_DESCRIPTION, UserState.EDITING_AI_PROS, UserState.EDITING_AI_CONS]:
-        await ai_edit_text_handler(update, context)
 
 async def _smwiz_col_router(update, context):
     """مسیریاب کالبک انتخاب ستون در ویزارد هوشمند — بر اساس مرحله جاری"""
@@ -526,8 +513,6 @@ def _register_all_handlers(app: Application) -> None:
     # ⚠️ ترتیب مهم!
     app.add_handler(CallbackQueryHandler(channel_delete_confirm_callback, pattern="^channel_delete_confirm_"))
     app.add_handler(CallbackQueryHandler(channel_platform_selected_callback, pattern="^channel_platform_"))
-    app.add_handler(CallbackQueryHandler(channel_set_contact_callback, pattern="^channel_set_contact_"))
-    app.add_handler(CallbackQueryHandler(channel_detail_callback, pattern="^channel_detail_"))
     app.add_handler(CallbackQueryHandler(channel_delete_callback, pattern="^channel_delete_"))
     app.add_handler(CallbackQueryHandler(channel_menu_callback, pattern="^channel_menu$"))
     app.add_handler(CallbackQueryHandler(channel_add_callback, pattern="^channel_add$"))
@@ -632,16 +617,6 @@ def _register_all_handlers(app: Application) -> None:
 
     # ─── کالبک‌های AI Generation ───
     # ⚠️ ai_confirm_gen_ قبل از ai_start_ (چون هر دو با ai_ شروع میشن)
-    # ⚠️ ai_edit_saved_ باید قبل از ai_edit_ باشد
-    app.add_handler(CallbackQueryHandler(ai_view_result_callback, pattern="^ai_view_result_"))
-    app.add_handler(CallbackQueryHandler(ai_edit_saved_callback, pattern="^ai_edit_saved_(?!desc_|pros_|cons_)"))
-    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_saved_desc_"))
-    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_saved_pros_"))
-    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_saved_cons_"))
-    app.add_handler(CallbackQueryHandler(ai_edit_callback, pattern="^ai_edit_"))
-    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_desc_"))
-    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_pros_"))
-    app.add_handler(CallbackQueryHandler(ai_edit_field_callback, pattern="^ai_edit_cons_"))
     app.add_handler(CallbackQueryHandler(ai_confirm_generation_callback, pattern="^ai_confirm_gen_"))
     app.add_handler(CallbackQueryHandler(ai_accept_result_callback, pattern="^ai_accept_"))
     app.add_handler(CallbackQueryHandler(ai_regenerate_callback, pattern="^ai_regen_"))

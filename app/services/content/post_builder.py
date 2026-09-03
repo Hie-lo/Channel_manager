@@ -38,7 +38,7 @@ def build_post_caption(
     """
     if preset_template_text:
         from app.services.post_builder import render_post_from_text
-        return render_post_from_text(product, preset_template_text)
+        return render_post_from_text(product, preset_template_text, business=business)
 
     # ─── مسیر قدیمی: فایل .txt ثابت ───
     template = _load_template(product, business_config)

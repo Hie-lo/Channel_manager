@@ -276,17 +276,19 @@ def render_posts_batch(
 # رندر مستقیم از متن خام preset (سیستم جدید — بدون PostTemplate)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def render_post_from_text(product: Any, template_text: str) -> str:
+def render_post_from_text(product: Any, template_text: str, business: Any = None) -> str:
     """
     رندر یک متن قالب خام (raw، با {placeholder}) — مثل preset های ادمین یا
     فایل‌های .txt قدیمی.
 
-    برای سازگاری کامل با قالب‌های فعلی، همون رفتار سیستم قدیمی رو داره:
-    محتوای specs مستقیم روی سطح بالا مسطح می‌شه (بدون نیاز به {specs.cpu}؛
-    فقط {cpu} کافیه)، و چند placeholder محاسبه‌شده (قیمت فرمت‌شده،
-    وضعیت موجودی، بلوک توضیحات) هم اضافه می‌شه.
+    محتوای specs مستقیم روی سطح بالا مسطح می‌شه (فقط {cpu} کافیه)،
+    و چند placeholder محاسبه‌شده (قیمت، وضعیت موجودی، توضیحات، AI، تماس،
+    تاریخ) هم اضافه می‌شه.
 
-    product می‌تونه ORM Product یا dict باشه.
+    🆕 اگه یک خط شامل placeholder ای باشه که مقدارش خالیه، کل اون خط حذف
+    می‌شه. خطوط خالیِ خودِ قالب (که کاربر عمداً گذاشته) دست‌نخورده می‌مونن.
+
+    product می‌تونه ORM Product یا dict باشه. business اختیاریه (برای {contact}).
     """
     if isinstance(product, dict):
         flat: dict[str, Any] = dict(product)
@@ -295,6 +297,10 @@ def render_post_from_text(product: Any, template_text: str) -> str:
         stock_qty = flat.get("stock_qty", 0)
         is_available = flat.get("is_available", (stock_qty or 0) > 0)
         description_custom = flat.get("description_custom", "")
+        ai_description = flat.get("ai_description", "")
+        ai_pros = flat.get("ai_pros") or []
+        ai_cons = flat.get("ai_cons") or []
+        updated_at = flat.get("updated_at")
     else:
         flat = {
             "product_name": getattr(product, "product_name", "") or "",
@@ -307,6 +313,10 @@ def render_post_from_text(product: Any, template_text: str) -> str:
         stock_qty = flat["stock_qty"]
         is_available = getattr(product, "is_available", stock_qty > 0)
         description_custom = getattr(product, "description_custom", "") or ""
+        ai_description = getattr(product, "ai_description", "") or ""
+        ai_pros = getattr(product, "ai_pros", None) or []
+        ai_cons = getattr(product, "ai_cons", None) or []
+        updated_at = getattr(product, "updated_at", None)
 
     # مسطح‌سازی specs روی سطح بالا (دقیقاً مثل سیستم قدیمی .txt)
     flat.update(specs)
@@ -321,80 +331,75 @@ def render_post_from_text(product: Any, template_text: str) -> str:
     # وضعیت موجودی
     flat["stock_status"] = "❌ ناموجود" if (not is_available or (stock_qty or 0) <= 0) else "موجود ✅"
 
-    # بلوک توضیحات (با 📝، بدون تکرار اگه از قبل داشته باشه)
+    # بلوک توضیحات دستی/اکسل (با 📝)
     desc_text = str(description_custom).strip() if description_custom else ""
     if desc_text and not desc_text.startswith("📝"):
         desc_text = f"📝 {desc_text}"
     flat["description_block"] = desc_text
-    flat.setdefault("description_custom", description_custom or "")
-    
-    # ─── Placeholder های جدید AI ───
-    if isinstance(product, dict):
-        ai_description = product.get("ai_description", "")
-        ai_pros = product.get("ai_pros", [])
-        ai_cons = product.get("ai_cons", [])
-    else:
-        ai_description = getattr(product, "ai_description", "") or ""
-        ai_pros = getattr(product, "ai_pros", []) or []
-        ai_cons = getattr(product, "ai_cons", []) or []
-    
-    flat["ai_description"] = ai_description
-    
-    # فرمت ویژگی‌ها/مزایا (با ایموجی پیش‌فرض)
-    if ai_pros:
-        pros_lines = [f"🔹 {item}" for item in ai_pros]
-        flat["ai_features"] = "\n".join(pros_lines)  # برای کامپیوتری
-        flat["ai_pros"] = "\n".join(pros_lines)      # برای عمومی
-    else:
-        flat["ai_features"] = ""
-        flat["ai_pros"] = ""
-    
-    # فرمت معایب
-    if ai_cons:
-        cons_lines = [f"• {item}" for item in ai_cons]
-        flat["ai_cons"] = "\n".join(cons_lines)
-    else:
-        flat["ai_cons"] = ""
-    
-    # ─── Placeholder برای contact_id (باید از channel گرفته بشه) ───
-    # این placeholder در زمان ارسال به کانال پر می‌شود
-    flat.setdefault("contact_id", "")
-    flat.setdefault("contact", "")  # alias for contact_id
-    
-    # ─── Placeholder های اضافی ───
-    flat.setdefault("brand", "")
-    flat.setdefault("hashtags", "")
-    flat.setdefault("update_date", "")
-    flat.setdefault("grade", "")
-    flat.setdefault("screen", "")  # alias for display
+    flat["description_custom"] = description_custom or ""
 
-    placeholders = set(re.findall(r"\{(\w+)\}", template_text))
-    result = template_text
-    for ph in placeholders:
-        val = flat.get(ph)
-        replacement = "" if val is None else str(val)
-        result = result.replace(f"{{{ph}}}", replacement)
-    
-    # حذف خطوط که فقط شامل ایموجی/نماد + فاصله هستند (placeholder خالی شده)
-    lines = result.split('\n')
-    cleaned_lines = []
-    
-    for line in lines:
-        stripped = line.strip()
-        # حذف خطوط خالی
-        if not stripped:
+    # 🆕 خروجی AI — جدا از description_custom
+    flat["ai_description"] = ai_description or ""
+    flat["ai_features"] = "\n".join(f"🔹 {f}" for f in ai_pros) if ai_pros else ""
+    flat["ai_cons"] = "\n".join(f"⚠️ {c}" for c in ai_cons) if ai_cons else ""
+
+    # تماس
+    contact_text = getattr(business, "contact_text", None) if business else None
+    flat["contact"] = f"سفارش: {contact_text}" if contact_text else "برای سفارش پیام دهید"
+
+    # تاریخ آپدیت (شمسی در صورت وجود jdatetime)
+    flat["update_date"] = _format_update_date(updated_at)
+
+    return _render_lines_with_omission(template_text, flat)
+
+
+def _format_update_date(dt) -> str:
+    if not dt:
+        return ""
+    try:
+        import jdatetime
+        return jdatetime.datetime.fromgregorian(datetime=dt).strftime("%Y/%m/%d")
+    except Exception:
+        try:
+            return dt.strftime("%Y/%m/%d")
+        except Exception:
+            return ""
+
+
+def _render_lines_with_omission(template_text: str, values: dict) -> str:
+    """
+    جایگزینی placeholder ها خط‌به‌خط. اگه خطی حداقل یک placeholder داشته باشه
+    و مقدار یکی از placeholder هاش خالی باشه، کل اون خط حذف می‌شه.
+    خطوطی که هیچ placeholder ندارن (چه متن، چه خالیِ عمدی) همیشه نگه داشته
+    می‌شن — فاصله‌های خالیِ خودِ قالب هرگز جمع/حذف نمی‌شن.
+    """
+    output_lines: list[str] = []
+
+    for line in template_text.split("\n"):
+        placeholders = re.findall(r"\{(\w+)\}", line)
+
+        if not placeholders:
+            output_lines.append(line)
             continue
-        # حذف خطوط که فقط شامل emoji/symbols + کولون هستند (بدون محتوا)
-        # مثال: "⚡ پردازنده: " → حذف
-        # مثال: "⚡ پردازنده: Intel i5" → نگه دار
-        if ':' in stripped:
-            # بررسی قسمت بعد از آخرین کولون
-            after_colon = stripped.split(':')[-1].strip()
-            if not after_colon:
-                continue
-        
-        cleaned_lines.append(line)
-    
-    result = '\n'.join(cleaned_lines)
 
-    return result.strip()
+        has_empty = False
+        rendered_line = line
+        for ph in placeholders:
+            val = values.get(ph)
+            if val is None or str(val).strip() == "":
+                has_empty = True
+                break
+            rendered_line = rendered_line.replace(f"{{{ph}}}", str(val))
+
+        if has_empty:
+            continue  # کل خط حذف می‌شه (نه جایگزین با خط خالی)
+
+        output_lines.append(rendered_line)
+
+    # فقط خطوط خالیِ ابتدا/انتهای کل متن پاک می‌شن؛ فضای خالی داخل قالب دست‌نخورده می‌مونه
+    while output_lines and output_lines[0].strip() == "":
+        output_lines.pop(0)
+    while output_lines and output_lines[-1].strip() == "":
+        output_lines.pop()
+
+    return "\n".join(output_lines)

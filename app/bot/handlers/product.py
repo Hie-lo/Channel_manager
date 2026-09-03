@@ -423,6 +423,18 @@ async def prod_preview_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
+async def _safe_edit(query, text: str, **kwargs) -> None:
+    """
+    edit_message_text روی پیام‌های عکس‌دار (caption) کار نمی‌کنه و
+    'There is no text in the message to edit' می‌ده. این تابع خودش
+    تشخیص می‌ده و متد درست رو صدا می‌زنه.
+    """
+    if query.message and query.message.photo:
+        await query.edit_message_caption(caption=text, **kwargs)
+    else:
+        await query.edit_message_text(text, **kwargs)
+
+
 async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """ارسال دستی پست به کانال"""
 
@@ -443,7 +455,8 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
         channels = await get_customer_channels(session, customer.id, only_active=True)
 
         if not channels:
-            await query.edit_message_text(
+            await _safe_edit(
+                query,
                 "❌ کانالی متصل نکرده‌اید!\n\n"
                 "از منوی '📢 مدیریت کانال' یک کانال اضافه کنید."
             )
@@ -459,7 +472,7 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
         product = result.scalar_one_or_none()
 
         if not product:
-            await query.edit_message_text("❌ محصول پیدا نشد!")
+            await _safe_edit(query, "❌ محصول پیدا نشد!")
             return
 
         business_config = get_business_config_for_customer(customer)
@@ -469,7 +482,7 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
         selected_preset = await get_selected_preset(session, customer.id)
 
     # نمایش پیام "در حال ارسال"
-    await query.edit_message_text("⏳ در حال ارسال به کانال‌ها...")
+    await _safe_edit(query, "⏳ در حال ارسال به کانال‌ها...")
 
     # ساخت کپشن
     preset_text = selected_preset.template_text if selected_preset else None
@@ -535,9 +548,7 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("🔙 بازگشت", callback_data=f"prod_view_{product.id}")],
     ]
 
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    # آپدیت وضعیت publish محصول اگه حداقل یک ارسال موفق بود
+    await _safe_edit(query, text, reply_markup=InlineKeyboardMarkup(keyboard))
     if success_count > 0:
         async with AsyncSessionLocal() as session:
             result = await session.execute(

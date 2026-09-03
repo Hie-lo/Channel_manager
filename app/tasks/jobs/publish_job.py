@@ -275,15 +275,14 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                         )
                         p = result_prod.scalar_one_or_none()
                         if p:
-                            # 🆕 فقط جمله‌ی توضیح اصلی در description_manual می‌مونه؛
-                            # ویژگی‌ها/محدودیت‌ها جدا ذخیره می‌شن تا preset ها آزادانه
-                            # چیدمانشون کنن (نه یک بلوک متنی ثابت‌فرمت)
-                            p.description_manual = ai_result.description.description
-                            p.ai_features = ai_result.description.features
+                            # 🆕 توضیح AI جدا از description_custom ذخیره می‌شه
+                            # (description_custom مخصوص متن دستی/اکسل می‌مونه)
+                            p.ai_description = ai_result.description.description
+                            p.ai_pros = ai_result.description.features or ai_result.description.pros
                             p.ai_cons = ai_result.description.cons
                             await session.commit()
-                            product.description_manual = p.description_manual
-                            product.ai_features = p.ai_features
+                            product.ai_description = p.ai_description
+                            product.ai_pros = p.ai_pros
                             product.ai_cons = p.ai_cons
 
                         # لاگ

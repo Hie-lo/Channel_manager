@@ -44,21 +44,13 @@ async def generate_product_description(
         new: تولید از صفر
         improve: بهبود متن موجود
     """
-    # تعیین mode
     existing_desc = product.description_custom or ""
 
     if mode == "auto":
-        if existing_desc.strip():
-            actual_mode = "improve"
-        else:
-            actual_mode = "new"
+        actual_mode = "improve" if existing_desc.strip() else "new"
     else:
         actual_mode = mode
 
-    # انتخاب system prompt بر اساس نوع کسب‌وکار
-    system_prompt = get_system_prompt(business_config.key)
-
-    # ساخت پرامپت
     if actual_mode == "improve" and existing_desc.strip():
         user_prompt = build_improve_prompt(product, business_config, existing_desc)
         log.info(f"🤖 [AI] بهبود توضیحات برای {product.sku}")
@@ -66,16 +58,14 @@ async def generate_product_description(
         user_prompt = build_generation_prompt(product, business_config)
         log.info(f"🤖 [AI] تولید توضیحات جدید برای {product.sku}")
 
-    # فراخوانی AI
     ai_response = await call_ai(
-        system_prompt=system_prompt,
+        system_prompt=get_system_prompt(business_config.key),
         user_prompt=user_prompt,
-        max_tokens=500,
+        max_tokens=700,
         temperature=0.6,
     )
 
     if not ai_response.success:
-        # ارسال هشدار به ادمین سیستم
         try:
             from app.config import settings
             from telegram import Bot
@@ -95,31 +85,23 @@ async def generate_product_description(
         except Exception as e:
             log.error(f"خطا در ارسال هشدار خرابی AI به ادمین: {e}")
 
-        return AIGenerationResult(
-            success=False,
-            error_message=ai_response.error_message,
-        )
+        return AIGenerationResult(success=False, error_message=ai_response.error_message)
 
-    # پارس خروجی با توجه به نوع کسب‌وکار
-    description = parse_ai_response(ai_response.content, business_config.key)
+    # پارس خروجی — با توجه به نوع کسب‌وکار (F1-F12 یا P1-P5)
+    description = parse_ai_response(ai_response.content, business_key=business_config.key)
 
     if not description.is_valid:
-        log.warning(
-            f"AI response قابل پارس نبود: {ai_response.content[:200]}"
-        )
+        log.warning(f"AI response قابل پارس نبود: {ai_response.content[:200]}")
         return AIGenerationResult(
             success=False,
             error_message="پاسخ AI قابل پردازش نیست",
             raw_response=ai_response.content,
         )
 
-    # متن فرمت‌شده برای نمایش (deprecated - فقط برای سازگاری)
-    formatted = description.format_for_post()
-
     return AIGenerationResult(
         success=True,
         description=description,
-        formatted_text=formatted,
+        formatted_text=description.format_for_post(),
         raw_response=ai_response.content,
         tokens_used=ai_response.tokens_used,
     )
