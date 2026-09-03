@@ -355,6 +355,7 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
 
     flat["contact_id"] = "{contact_id}"
     flat["contact"] = "{contact}"
+    flat["phone"] = "{phone}"
 
     # مقدار تماس عمومی برای قالب‌هایی که صریحاً business_contact را می‌خواهند
     contact_text = getattr(business, "contact_text", None) if business else None
