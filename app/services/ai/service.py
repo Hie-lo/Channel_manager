@@ -90,6 +90,12 @@ async def generate_product_description(
     # پارس خروجی — با توجه به نوع کسب‌وکار (F1-F12 یا P1-P5)
     description = parse_ai_response(ai_response.content, business_key=business_config.key)
 
+    # شروع توضیح با متن فارسی باعث می‌شود نمایش آن در پیام راست‌چین پایدار بماند.
+    if description.description:
+        description.description = description.description.strip()
+        if not description.description.startswith("لپتاپ"):
+            description.description = f"لپتاپ {description.description}"
+
     if not description.is_valid:
         log.warning(f"AI response قابل پارس نبود: {ai_response.content[:200]}")
         return AIGenerationResult(
