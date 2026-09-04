@@ -354,6 +354,18 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
     flat["ai_games"] = ai_details.get("games", "")
     flat["ai_software"] = ai_details.get("software", "")
 
+    port_names = {
+        "lan": "LAN",
+        "dp": "DisplayPort",
+        "vga_port": "VGA",
+        "hdmi": "HDMI",
+        "thunderbolt": "USB-C/Thunderbolt",
+    }
+    for port_key, port_name in port_names.items():
+        raw_value = flat.get(port_key)
+        enabled = str(raw_value or "").strip().lower() in {"yes", "true", "1", "بله", "دارد"}
+        flat[f"{port_key}_name"] = port_name if enabled else ""
+
     business_key = getattr(business, "business_type_key", None) if business else None
     business_config = get_business(business_key) if business_key else None
     flat["hashtags"] = (
@@ -391,8 +403,8 @@ def _format_update_date(dt) -> str:
 
 def _render_lines_with_omission(template_text: str, values: dict) -> str:
     """
-    جایگزینی placeholder ها خط‌به‌خط. اگه خطی حداقل یک placeholder داشته باشه
-    و مقدار یکی از placeholder هاش خالی باشه، کل اون خط حذف می‌شه.
+    جایگزینی placeholder ها خط‌به‌خط؛ placeholderهای خالی جداگانه حذف می‌شوند
+    تا خالی بودن یک پورت باعث حذف بقیه‌ی پورت‌های همان خط نشود.
     خطوطی که هیچ placeholder ندارن (چه متن، چه خالیِ عمدی) همیشه نگه داشته
     می‌شن — فاصله‌های خالیِ خودِ قالب هرگز جمع/حذف نمی‌شن.
     """
@@ -405,17 +417,29 @@ def _render_lines_with_omission(template_text: str, values: dict) -> str:
             output_lines.append(line)
             continue
 
-        has_empty = False
         rendered_line = line
+        rendered_values = []
         for ph in placeholders:
-            val = values.get(ph)
-            if val is None or str(val).strip() == "":
-                has_empty = True
-                break
-            rendered_line = rendered_line.replace(f"{{{ph}}}", str(val))
+            value = values.get(ph, "")
+            value_text = "" if value is None else str(value).strip()
+            rendered_values.append(value_text)
+            rendered_line = rendered_line.replace(f"{{{ph}}}", value_text)
 
-        if has_empty:
-            continue  # کل خط حذف می‌شه (نه جایگزین با خط خالی)
+        rendered_line = re.sub(r"\(\s*\)", "", rendered_line)
+        rendered_line = re.sub(r"\[\s*\]", "", rendered_line)
+        if placeholders and "|" in rendered_line:
+            rendered_line = " | ".join(
+                part.strip() for part in rendered_line.split("|") if part.strip()
+            )
+        if placeholders and "+" in rendered_line:
+            rendered_line = " + ".join(
+                part.strip() for part in rendered_line.split("+") if part.strip()
+            )
+
+        if not any(rendered_values) and re.match(
+            r"^\s*[^:{}]+[:：]\s*[|+()\-×]*\s*$", rendered_line
+        ):
+            continue
 
         output_lines.append(rendered_line)
 
