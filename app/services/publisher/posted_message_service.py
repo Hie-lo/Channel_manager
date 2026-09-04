@@ -35,6 +35,8 @@ async def create_posted_message(
     caption: str,
     price: int,
     stock_qty: int,
+    platform: Platform = Platform.TELEGRAM,
+    message_ids: list[int] | None = None,
 ) -> PostedMessage:
     """ایجاد رکورد پست ارسال شده"""
     now = utc_now_naive()
@@ -42,8 +44,9 @@ async def create_posted_message(
     posted = PostedMessage(
         product_id=product_id,
         channel_id=channel_id,
-        platform=Platform.TELEGRAM,
+        platform=platform,
         telegram_message_id=telegram_message_id,
+        telegram_message_ids=message_ids or [telegram_message_id],
         last_caption=caption,
         last_price=price,
         last_stock_qty=stock_qty,
