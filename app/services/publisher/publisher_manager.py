@@ -798,14 +798,12 @@ async def _edit_bale_post(
                     can_edit = getattr(bot_member, "can_edit_messages", None)
                     can_post = getattr(bot_member, "can_post_messages", None)
                     log.error(
-                        "[Bale Edit] permission diagnostic: chat=%s bot_id=%s "
-                        "status=%s can_edit=%s can_post=%s old_message_id=%s",
-                        channel.channel_identifier,
-                        actual_bot.id,
-                        bot_status,
-                        can_edit if can_edit is not None else "unknown",
-                        can_post if can_post is not None else "unknown",
-                        old_message_id,
+                        f"[Bale Edit] permission diagnostic: "
+                        f"chat={channel.channel_identifier} bot_id={actual_bot.id} "
+                        f"status={bot_status} "
+                        f"can_edit={can_edit if can_edit is not None else 'unknown'} "
+                        f"can_post={can_post if can_post is not None else 'unknown'} "
+                        f"old_message_id={old_message_id}"
                     )
 
                     if (
@@ -826,11 +824,9 @@ async def _edit_bale_post(
                         )
                 except Exception as diagnostic_error:
                     log.error(
-                        "[Bale Edit] permission diagnostic failed: chat=%s "
-                        "old_message_id=%s error=%s",
-                        channel.channel_identifier,
-                        old_message_id,
-                        diagnostic_error,
+                        f"[Bale Edit] permission diagnostic failed: "
+                        f"chat={channel.channel_identifier} "
+                        f"old_message_id={old_message_id} error={diagnostic_error}"
                     )
 
                 return UnifiedPublishResult(

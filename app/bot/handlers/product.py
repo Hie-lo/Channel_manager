@@ -639,6 +639,7 @@ async def _publish_or_edit(bot, product, channel, caption):
                 "message id invalid",
                 "message to edit not found",
                 "پست قابل ویرایش پیدا نشد",
+                "[bale_missing_message]",
             )
         )
         if not result.success and deleted_message:
@@ -664,7 +665,7 @@ async def _publish_or_edit(bot, product, channel, caption):
                             new_price=int(product.price),
                             new_stock_qty=product.stock_qty,
                         )
-                result = repost_result
+            result = repost_result
 
         # تبدیل UnifiedPublishResult به فرمت سازگار
         from app.services.publisher.telegram_publisher import PublishResult

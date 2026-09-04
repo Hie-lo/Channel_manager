@@ -635,12 +635,20 @@ async def _edit_single_post_with_fallback(
             )
             return True
         else:
-            if (
-                platform == Platform.BALE
-                and "[BALE_MISSING_MESSAGE]" in (edit_result.error_message or "")
-            ):
+            error_text = (edit_result.error_message or "").lower()
+            deleted_message = any(
+                marker in error_text
+                for marker in (
+                    "[bale_missing_message]",
+                    "message_id_invalid",
+                    "message id invalid",
+                    "message to edit not found",
+                    "پست قابل ویرایش پیدا نشد",
+                )
+            )
+            if platform in (Platform.TELEGRAM, Platform.BALE) and deleted_message:
                 log.warning(
-                    f"[Edit Posts] پیام Bale حذف شده؛ ارسال مجدد در "
+                    f"[Edit Posts] پیام {platform.value} حذف شده؛ ارسال مجدد در "
                     f"{channel.channel_identifier}"
                 )
                 repost_result = await publish_to_channel(
@@ -648,6 +656,7 @@ async def _edit_single_post_with_fallback(
                     channel=channel,
                     product=product,
                     caption=caption,
+                    eitaa_token=eitaa_token,
                 )
                 if repost_result.success and repost_result.message_id:
                     async with AsyncSessionLocal() as session:
@@ -659,7 +668,8 @@ async def _edit_single_post_with_fallback(
                         await session.commit()
 
                     log.info(
-                        f"✅ [Edit Posts] پست Bale دوباره ارسال و شناسه آن به‌روز شد: "
+                        f"✅ [Edit Posts] پست {platform.value} دوباره ارسال و "
+                        f"شناسه آن به‌روز شد: "
                         f"{channel.channel_identifier}"
                     )
                     return True
