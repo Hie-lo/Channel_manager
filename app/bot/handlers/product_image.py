@@ -576,22 +576,6 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             log.warning(f"⚠️ [Repost] خطا در ساخت Bot بله: {e}")
 
-    undeleted_channels = set()
-
-    if bale_bot is None and settings.BALE_BOT_TOKEN:
-        try:
-            from telegram import Bot
-            bot_base = str(getattr(context.bot, "base_url", "") or "")
-            if "bale" not in bot_base.lower():
-                bale_bot = Bot(
-                    token=settings.BALE_BOT_TOKEN,
-                    base_url=settings.BALE_API_BASE,
-                    base_file_url=settings.BALE_FILE_API_BASE,
-                )
-                await bale_bot.initialize()
-        except Exception as e:
-            log.warning(f"⚠️ [Repost] خطا در آماده‌سازی قطعی Bot بله: {e}")
-
     for pm in posted_messages:
         channel = next((c for c in channels if c.id == pm.channel_id), None)
         if not channel:
@@ -623,38 +607,8 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                             message_id=mid,
                         )
                         deleted_count += 1
-                        log.info(
-                            f"✅ [Repost] پست تلگرام حذف شد: "
-                            f"chat={channel.channel_identifier} message={mid}"
-                        )
                     except Exception as del_err:
-                        error_text = str(del_err).lower()
-                        if any(
-                            marker in error_text
-                            for marker in (
-                                "message to delete not found",
-                                "message_id_invalid",
-                                "message id invalid",
-                                "not found",
-                            )
-                        ):
-                            log.info(
-                                f"[Repost] پست تلگرام قبلاً حذف شده است: "
-                                f"chat={channel.channel_identifier} message={mid}"
-                            )
-                        else:
-                            delete_errors.append(
-                                f"TELEGRAM {channel.channel_identifier}: "
-                                f"حذف پیام {mid} ناموفق: {str(del_err)[:80]}"
-                            )
-                            log.error(
-                                f"❌ [Repost] حذف پست تلگرام ناموفق است؛ "
-                                f"بازارسال این محصول متوقف شد: chat="
-                                f"{channel.channel_identifier} message={mid} "
-                                f"error={del_err}"
-                            )
-                            undeleted_channels.add(channel.id)
-                            continue
+                        log.warning(f"⚠️ حذف msg {mid} fail: {del_err}")
 
                 log.info(f"✅ [Repost] پست‌های تلگرام حذف شد")
 
@@ -673,27 +627,6 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 if delete_result.ok:
                     deleted_count += 1
                     log.info(f"✅ [Repost] پست ایتا حذف شد")
-                elif delete_result.error_message:
-                    error_text = delete_result.error_message.lower()
-                    if not any(
-                        marker in error_text
-                        for marker in (
-                            "message to delete not found",
-                            "message_id_invalid",
-                            "message id invalid",
-                            "not found",
-                        )
-                    ):
-                        undeleted_channels.add(channel.id)
-                        delete_errors.append(
-                            f"EITAA {channel.channel_identifier}: "
-                            f"حذف پیام ناموفق: {delete_result.error_message[:80]}"
-                        )
-                        log.error(
-                            f"❌ [Repost] حذف پست ایتا ناموفق است؛ بازارسال متوقف شد: "
-                            f"chat={channel.channel_identifier} "
-                            f"error={delete_result.error_message}"
-                        )
 
             elif channel.platform == Platform.BALE:
                 # حذف پست بله
@@ -734,38 +667,8 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                             message_id=mid,
                         )
                         deleted_count += 1
-                        log.info(
-                            f"✅ [Repost] پست بله حذف شد: "
-                            f"chat={channel.channel_identifier} message={mid}"
-                        )
                     except Exception as del_err:
-                        error_text = str(del_err).lower()
-                        if any(
-                            marker in error_text
-                            for marker in (
-                                "message to delete not found",
-                                "message_id_invalid",
-                                "message id invalid",
-                                "not found",
-                            )
-                        ):
-                            log.info(
-                                f"[Repost] پست بله قبلاً حذف شده است: "
-                                f"chat={channel.channel_identifier} message={mid}"
-                            )
-                        else:
-                            delete_errors.append(
-                                f"BALE {channel.channel_identifier}: "
-                                f"حذف پیام {mid} ناموفق: {str(del_err)[:80]}"
-                            )
-                            log.error(
-                                f"❌ [Repost] حذف پست بله ناموفق است؛ "
-                                f"بازارسال این محصول متوقف شد: chat="
-                                f"{channel.channel_identifier} message={mid} "
-                                f"error={del_err}"
-                            )
-                            undeleted_channels.add(channel.id)
-                            break
+                        log.warning(f"⚠️ حذف msg بله {mid} fail: {del_err}")
 
                 log.info(f"✅ [Repost] پست‌های بله حذف شد")
 
@@ -798,11 +701,9 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         pms = list(result.scalars().all())
         for pm in pms:
-            if pm.channel_id not in undeleted_channels:
-                await session.delete(pm)
+            await session.delete(pm)
         await session.commit()
-        deleted_records = len(pms) - len(undeleted_channels)
-        log.info(f"🗑 [Repost] {deleted_records} رکورد PostedMessage پاک شد")
+        log.info(f"🗑 [Repost] {len(pms)} رکورد PostedMessage پاک شد")
 
     # ═══════════════════════════════════════════
     # مرحله ۴: کمی تاخیر (خصوصاً برای ایتا)
@@ -835,14 +736,6 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     for channel in channels:
         try:
-            if channel.id in undeleted_channels:
-                failed_count += 1
-                results_list.append(
-                    f"❌ {channel.platform.value}: {channel.channel_identifier}\n"
-                    "    دلیل: پست قبلی حذف نشد؛ برای جلوگیری از ارسال تکراری، بازارسال انجام نشد"
-                )
-                continue
-
             log.info(
                 f"[Repost] ارسال به {channel.platform.value}: "
                 f"{channel.channel_identifier}"
