@@ -14,17 +14,20 @@ BRAND_TAGS = {
 }
 
 PRICE_RANGES = (
-    (0, 5_000_000, "زیر_پنج_میلیون"),
-    (5_000_000, 10_000_000, "پنج_تا_ده_میلیون"),
-    (10_000_000, 15_000_000, "ده_تا_پانزده_میلیون"),
-    (15_000_000, 20_000_000, "پانزده_تا_بیست_میلیون"),
-    (20_000_000, 30_000_000, "بیست_تا_سی_میلیون"),
-    (30_000_000, 40_000_000, "سی_تا_چهل_میلیون"),
-    (40_000_000, 50_000_000, "چهل_تا_پنجاه_میلیون"),
-    (50_000_000, 60_000_000, "پنجاه_تا_شصت_میلیون"),
-    (60_000_000, 70_000_000, "شصت_تا_هفتاد_میلیون"),
-    (70_000_000, 80_000_000, "هفتاد_تا_هشتاد_میلیون"),
-    (80_000_000, float("inf"), "بالای_هشتاد_میلیون"),
+    (10_000_000, 20_000_000, "10تا20تومان"),
+    (20_000_000, 30_000_000, "20تا30تومان"),
+    (30_000_000, 40_000_000, "30تا40تومان"),
+    (40_000_000, 50_000_000, "40تا50تومان"),
+    (50_000_000, 60_000_000, "50تا60تومان"),
+    (60_000_000, 80_000_000, "60تا80تومان"),
+    (80_000_000, 100_000_000, "80تا100تومان"),
+    (100_000_000, 150_000_000, "100تا150تومان"),
+    (150_000_000, 200_000_000, "150تا200تومان"),
+    (200_000_000, 250_000_000, "200تا250تومان"),
+    (250_000_000, 300_000_000, "250تا300تومان"),
+    (300_000_000, 400_000_000, "300تا400تومان"),
+    (400_000_000, 500_000_000, "400تا500تومان"),
+    (500_000_000, 600_000_000, "500تا600تومان"),
 )
 
 
@@ -38,6 +41,10 @@ def _text(value) -> str:
 
 def _has_any(text: str, values: tuple[str, ...]) -> bool:
     return any(value in text for value in values)
+
+
+def _is_yes(value) -> bool:
+    return _text(value) in {"yes", "true", "1", "بله", "دارد", "داره"}
 
 
 def generate_hashtags(
@@ -94,25 +101,31 @@ def generate_hashtags(
     is_laptop = subcategory_key == "laptop"
     is_gaming = _has_any(all_text, ("gaming", "گیم", "گیمنگ"))
 
-    if gpu and not _has_any(gpu, ("integrated", "onboard", "آن برد", "ندارد", "without")):
-        add("#گرافیک_دار")
+    if gpu and not _has_any(gpu, ("integrated", "onboard", "آن برد", "ندارد", "without", "intel hd")):
+        add("#گرافیک")
     if is_gaming:
         add("#گیمینگ")
     if _has_any(all_text, ("accounting", "حسابداری")):
-        add("#نام_لاک")
+        add("#حسابداری")
     if _has_any(all_text, ("light", "سبک", "ultrabook")):
         add("#سبک")
     if _has_any(all_text, ("tablet", "تبلت", "2-in-1", "convertible")):
         add("#تبلت_شو")
     if _has_any(all_text, ("render", "رندر", "workstation")):
-        add("#مخصوص_رندر")
-    if _has_any(_text(specs.get("touch_screen")), ("yes", "true", "1", "بله", "دارد", "touch", "لمسی")):
-        add("#Touch")
-    if _has_any(_text(specs.get("pen_support")), ("yes", "true", "1", "بله", "دارد", "pen", "قلم")):
+        add("#رندرینگ")
+        add("#رندر")
+    touch_enabled = _is_yes(specs.get("touch_screen"))
+    pen_enabled = _is_yes(specs.get("pen_support"))
+    x360_enabled = _is_yes(specs.get("x360"))
+    if touch_enabled:
+        add("#لمسی")
+    if touch_enabled and x360_enabled:
+        add("#چرخشی_لمسی")
+    if pen_enabled:
         add("#Pen")
     if _has_any(all_text, ("chromebook", "کروم_بوک")):
         add("#CHROMEBOOK")
-    if _has_any(_text(specs.get("lte")), ("yes", "true", "1", "بله", "دارد", "lte", "4g", "سیمکارت")):
+    if _is_yes(specs.get("lte")):
         add("#LTE")
     if _has_any(all_text, ("new", "نو", "آکبند", "استوک نو")):
         add("#Brand_New")
@@ -122,13 +135,24 @@ def generate_hashtags(
     # برچسب‌های کاربردی فقط با نشانه‌های واقعی محصول اضافه می‌شوند.
     if is_laptop and not is_gaming:
         if _has_any(all_text, ("student", "دانشجو", "دانشجویی")) or "i3" in cpu or "i5" in cpu:
-            add("#لپتاپ_دانشجویی")
+            add("#دانشجویی")
         if _has_any(all_text, ("office", "اداری", "حسابداری", "business")) or "i3" in cpu or "i5" in cpu:
-            add("#لپتاپ_اداری")
+            add("#اداری")
         if _has_any(all_text, ("home", "خانگی", "منزل")) or (price > 0 and price <= 30_000_000 and not gpu):
-            add("#لپتاپ_خانگی")
+            add("#کاربری_روزانه")
+            add("#وبگردی")
     if _has_any(all_text, ("programming", "programmer", "برنامه نویسی", "برنامه‌نویسی", "کدنویسی", "developer")):
-        add("#لپتاپ_برنامه_نویسی" if is_laptop else "#برنامه_نویسی")
+        add("#برنامه_نویسی")
+    if is_laptop and not is_gaming and _has_any(all_text, ("student", "دانشجو", "دانشجویی")):
+        add("#دانشجویی")
+    if is_laptop and not is_gaming and _has_any(all_text, ("school", "دانش_آموز", "دانش‌آموز", "دانش آموز")):
+        add("#دانش_آموزی")
+    if is_laptop and not is_gaming and _has_any(all_text, ("seminary", "طلبه", "طلبگی")):
+        add("#طلبگی")
+    if _has_any(all_text, ("photoshop", "فتوشاپ", "illustrator", "ایلاستریتور", "graphic design", "طراحی")):
+        add("#طراحی_فتوشاپ")
+    if _has_any(all_text, ("editing", "تدوین", "premiere", "پریمیر", "video")):
+        add("#تدوین")
 
     for generation in range(1, 15):
         if f"نسل{generation}" in all_text or re.search(rf"\b{generation}(?:th|st|nd|rd)\b", all_text):

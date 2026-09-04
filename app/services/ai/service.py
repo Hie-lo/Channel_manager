@@ -61,7 +61,7 @@ async def generate_product_description(
     ai_response = await call_ai(
         system_prompt=get_system_prompt(business_config.key),
         user_prompt=user_prompt,
-        max_tokens=700,
+        max_tokens=450,
         temperature=0.6,
     )
 
