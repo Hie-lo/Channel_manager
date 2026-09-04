@@ -31,7 +31,7 @@ PRICE_RANGES = (
 )
 
 # ==================================================
-#  توابع کمکی عمومی
+#  توابع کمکی عمومی (دست نخورده)
 # ==================================================
 
 def _text(value: Any) -> str:
@@ -50,21 +50,32 @@ def _get_price(product: Product) -> int:
     except (TypeError, ValueError):
         return 0
 
+def _extract_ram_gb(specs: dict) -> int:
+    """استخراج رم به گیگابایت از specs"""
+    ram = specs.get("ram") or specs.get("memory") or ""
+    if isinstance(ram, str):
+        match = re.search(r"(\d+)", ram)
+        if match:
+            return int(match.group(1))
+    return 0
+
+def _extract_screen_resolution(specs: dict) -> str:
+    """استخراج رزولوشن صفحه از specs"""
+    return _text(specs.get("screen_resolution") or specs.get("resolution") or "")
+
 # ==================================================
 #  توابع شرط (همگی با امضای (specs, all_text, price))
 # ==================================================
 
+# ----- توابع قبلی (دست نخورده) -----
 def has_discrete_gpu(specs: dict, all_text: str, price: int) -> bool:
     gpu = _text(specs.get("gpu") or specs.get("graphics"))
     if not gpu:
         return False
-    # رد کردن موارد onboard / integrated
     if _has_any(gpu, ("integrated", "onboard", "آن برد", "ندارد", "without", "intel hd", "intel hd graphics")):
         return False
-    # تشخیص نام‌های معروف کارت‌های مجزا
     if _has_any(gpu, ("nvidia", "amd", "geforce", "radeon", "rtx", "gtx", "rx")):
         return True
-    # اگر در all_text به discrete یا مجزا اشاره شده باشد
     if "discrete" in all_text or "مجزا" in all_text:
         return True
     return False
@@ -109,13 +120,13 @@ def is_office(specs: dict, all_text: str, price: int) -> bool:
     return _has_any(all_text, ("office", "اداری", "business"))
 
 def is_programming(specs: dict, all_text: str, price: int) -> bool:
-    return _has_any(all_text, ("programming", "programmer", "برنامه نویسی", "برنامه‌نویسی", "کدنویسی", "developer"))
+    return _has_any(all_text, ("programming", "programmer", "برنامه نویسی", "برنامه‌نویسی", "کدنویسی", "developer", "python", "java", "c++", "javascript"))
 
 def is_design(specs: dict, all_text: str, price: int) -> bool:
-    return _has_any(all_text, ("photoshop", "فتوشاپ", "illustrator", "ایلاستریتور", "graphic design", "طراحی"))
+    return _has_any(all_text, ("photoshop", "فتوشاپ", "illustrator", "ایلاستریتور", "graphic design", "طراحی", "corel", "پردازش تصویر"))
 
 def is_editing(specs: dict, all_text: str, price: int) -> bool:
-    return _has_any(all_text, ("editing", "تدوین", "premiere", "پریمیر", "video"))
+    return _has_any(all_text, ("editing", "تدوین", "premiere", "پریمیر", "video", "افترافکت", "after effects"))
 
 def is_budget_laptop(specs: dict, all_text: str, price: int) -> bool:
     cpu = _text(specs.get("cpu") or specs.get("processor"))
@@ -124,15 +135,45 @@ def is_budget_laptop(specs: dict, all_text: str, price: int) -> bool:
             return True
     return False
 
+# ----- توابع جدید (تشخیص خودکار بر اساس سخت‌افزار) -----
+
+def is_programming_by_hardware(specs: dict, all_text: str, price: int) -> bool:
+    cpu = _text(specs.get("cpu") or specs.get("processor"))
+    ram_gb = _extract_ram_gb(specs)
+    if ("i5" in cpu or "i7" in cpu or "i9" in cpu or "ryzen 5" in cpu or "ryzen 7" in cpu) and ram_gb >= 8:
+        return True
+    return False
+
+def is_design_by_hardware(specs: dict, all_text: str, price: int) -> bool:
+    screen = _extract_screen_resolution(specs)
+    if ("full hd" in screen or "fhd" in screen or "4k" in screen or "1920" in screen) and has_discrete_gpu(specs, all_text, price):
+        return True
+    return False
+
+def is_editing_by_hardware(specs: dict, all_text: str, price: int) -> bool:
+    cpu = _text(specs.get("cpu") or specs.get("processor"))
+    ram_gb = _extract_ram_gb(specs)
+    if ("i7" in cpu or "i9" in cpu or "ryzen 7" in cpu or "ryzen 9" in cpu) and ram_gb >= 16 and has_discrete_gpu(specs, all_text, price):
+        return True
+    return False
+
+def is_professional_by_price(specs: dict, all_text: str, price: int) -> bool:
+    # لپ‌تاپ‌های بالای ۶۰ میلیون → حرفه‌ای
+    return price > 60_000_000
+
+def is_semi_professional_by_price(specs: dict, all_text: str, price: int) -> bool:
+    # لپ‌تاپ‌های ۳۰ تا ۶۰ میلیون → نیمه‌حرفه‌ای
+    return 30_000_000 < price <= 60_000_000
+
 # ==================================================
-#  کلاس امتیازدهنده
+#  کلاس امتیازدهنده (دست نخورده)
 # ==================================================
 
 @dataclass
 class Rule:
     tag: str
     weight: int = 1
-    condition: Callable[[dict, str, int], bool] | None = None   # (specs, all_text, price)
+    condition: Callable[[dict, str, int], bool] | None = None
 
 class Scorer:
     def __init__(self, specs: dict, all_text: str, price: int):
@@ -172,10 +213,11 @@ class Scorer:
         return result[:max_tags]
 
 # ==================================================
-#  قوانین لپ‌تاپ (با استفاده از توابع شرط اصلاح‌شده)
+#  قوانین لپ‌تاپ (ارتقا‌یافته با قوانین سخت‌افزاری)
 # ==================================================
 
 LAPTOP_RULES = [
+    # قوانین قبلی
     Rule("#گرافیک", weight=8, condition=has_discrete_gpu),
     Rule("#گیمینگ", weight=10, condition=is_gaming),
     Rule("#رندرینگ", weight=10, condition=is_render_workstation),
@@ -191,15 +233,17 @@ LAPTOP_RULES = [
     Rule("#دانش_آموزی", weight=10, condition=is_school),
     Rule("#طلبگی", weight=10, condition=is_seminary),
     Rule("#اداری", weight=10, condition=is_office),
-    Rule("#برنامه_نویسی", weight=10, condition=is_programming),
-    Rule("#طراحی_فتوشاپ", weight=10, condition=is_design),
-    Rule("#تدوین", weight=10, condition=is_editing),
+    Rule("#برنامه_نویسی", weight=10, condition=lambda s, t, p: is_programming(s, t, p) or is_programming_by_hardware(s, t, p)),
+    Rule("#طراحی_فتوشاپ", weight=10, condition=lambda s, t, p: is_design(s, t, p) or is_design_by_hardware(s, t, p)),
+    Rule("#تدوین", weight=10, condition=lambda s, t, p: is_editing(s, t, p) or is_editing_by_hardware(s, t, p)),
+    Rule("#حرفه_ای", weight=9, condition=is_professional_by_price),
+    Rule("#نیمه_حرفه_ای", weight=7, condition=is_semi_professional_by_price),
     Rule("#کاربری_روزانه", weight=5, condition=is_budget_laptop),
     Rule("#وبگردی", weight=4, condition=is_budget_laptop),
 ]
 
 # ==================================================
-#  تابع اصلی تولید هشتگ (بدون قیمت)
+#  تابع اصلی تولید هشتگ (ارتقا‌یافته با اولویت جدید)
 # ==================================================
 
 def generate_hashtags(
@@ -212,7 +256,6 @@ def generate_hashtags(
     if business_config and not subcategory_key and business_config.sub_categories:
         subcategory_key = business_config.sub_categories[0].key
 
-    # ساخت all_text از نام محصول و تمام مقدارهای specs
     all_text_parts = []
     if hasattr(product, "product_name"):
         all_text_parts.append(_text(product.product_name))
@@ -230,7 +273,7 @@ def generate_hashtags(
             for tag in subcategory.static_hashtags:
                 scorer.add_static(tag)
 
-    # هشتک‌های دسته‌بندی اصلی (حداقل یکی)
+    # هشتک‌های دسته‌بندی اصلی
     category_tags = {
         "laptop": ("#لپتاپ",),
         "prebuilt_pc": ("#کیس_آماده", "#کامپیوتر"),
@@ -252,34 +295,40 @@ def generate_hashtags(
             if clean:
                 scorer.add_static(f"#{clean}")
 
-    # اعمال قوانین مخصوص لپ‌تاپ (در آینده برای سایر زیردسته‌ها می‌توان توسعه داد)
+    # اعمال قوانین
     rules = []
     if subcategory_key == "laptop":
         rules = LAPTOP_RULES
     scorer.apply_rules(rules)
 
-    # اولویت‌بندی هشتگ‌های کاربردی (حداقل دو مورد باید در خروجی باشند)
+    # اولویت‌بندی جدید: هشتگ‌های کاربردی در اولویت بالاتر
     priority_order = (
-        "#دانشجویی", "#طلبگی", "#دانش_آموزی", "#برنامه_نویسی",
-        "#طراحی_فتوشاپ", "#حسابداری", "#رندرینگ", "#رندر",
-        "#گیمینگ", "#اداری", "#کاربری_روزانه", "#وبگردی", "#تدوین",
-        "#سبک", "#لمسی", "#چرخشی_لمسی", "#گرافیک"
+        "#برنامه_نویسی", "#طراحی_فتوشاپ", "#تدوین", "#رندرینگ", "#رندر",
+        "#گیمینگ", "#حرفه_ای", "#نیمه_حرفه_ای",
+        "#دانشجویی", "#طلبگی", "#دانش_آموزی", "#اداری",
+        "#کاربری_روزانه", "#وبگردی", "#سبک", "#لمسی", "#چرخشی_لمسی", "#گرافیک"
     )
 
     tags = scorer.get_top_tags(max_hashtags, priority_order)
 
-    # اطمینان از وجود حداقل دو هشتگ کاربردی
+    # تضمین حداقل دو هشتگ کاربردی (با اولویت بالاتر)
     usage_tags = [t for t in tags if t in priority_order]
     if len(usage_tags) < 2:
-        # هشتگ‌های پیش‌فرض را در صورت وجود فضا اضافه کن
-        fallbacks = ["#کاربری_روزانه", "#وبگردی"]
+        fallbacks = []
+        # انتخاب پیش‌فرض بر اساس قیمت و سخت‌افزار
+        if price > 60_000_000:
+            fallbacks = ["#حرفه_ای", "#برنامه_نویسی"]
+        elif price > 30_000_000:
+            fallbacks = ["#نیمه_حرفه_ای", "#برنامه_نویسی"]
+        else:
+            fallbacks = ["#کاربری_روزانه", "#وبگردی"]
         for fb in fallbacks:
             if fb not in tags and len(tags) < max_hashtags:
                 tags.append(fb)
             if len([t for t in tags if t in priority_order]) >= 2:
                 break
 
-    # اضافه کردن نسل پردازنده و مدل CPU (در صورت وجود)
+    # اضافه کردن نسل و مدل CPU
     cpu = _text(specs.get("cpu") or specs.get("processor"))
     for gen in range(1, 15):
         if f"نسل{gen}" in all_text or re.search(rf"\b{gen}(?:th|st|nd|rd)\b", all_text):
@@ -298,7 +347,7 @@ def generate_hashtags(
     return tags[:max_hashtags]
 
 # ==================================================
-#  توابع مربوط به هشتگ قیمت (جدا از بقیه)
+#  توابع قیمت (دست نخورده و جدا)
 # ==================================================
 
 def generate_price_range_hashtag(product: Product) -> str:
