@@ -882,7 +882,11 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     field_name = {
         "description": "توضیح اصلی",
         "pros": "مزایا/ویژگی‌ها",
-        "cons": "معایب"
+        "cons": "معایب",
+        "cpu": "توضیح CPU",
+        "usage": "کاربردها",
+        "games": "بازی‌ها",
+        "software": "نرم‌افزارها",
     }[field_type]
 
     if from_saved:
