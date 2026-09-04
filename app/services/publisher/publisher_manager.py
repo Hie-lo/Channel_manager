@@ -787,6 +787,42 @@ async def _edit_bale_post(
                     message_id=old_message_id,
                     platform=Platform.BALE,
                 )
+
+            if "permission_denied" in error_msg or "forbidden" in error_msg:
+                try:
+                    bot_member = await actual_bot.get_chat_member(
+                        chat_id=channel.channel_identifier,
+                        user_id=actual_bot.id,
+                    )
+                    log.error(
+                        "[Bale Edit] permission diagnostic: chat=%s bot_id=%s "
+                        "status=%s can_edit=%s can_post=%s old_message_id=%s",
+                        channel.channel_identifier,
+                        actual_bot.id,
+                        getattr(bot_member, "status", "unknown"),
+                        getattr(bot_member, "can_edit_messages", "unknown"),
+                        getattr(bot_member, "can_post_messages", "unknown"),
+                        old_message_id,
+                    )
+                except Exception as diagnostic_error:
+                    log.error(
+                        "[Bale Edit] permission diagnostic failed: chat=%s "
+                        "old_message_id=%s error=%s",
+                        channel.channel_identifier,
+                        old_message_id,
+                        diagnostic_error,
+                    )
+
+                return UnifiedPublishResult(
+                    success=False,
+                    platform=Platform.BALE,
+                    error_message=(
+                        "بات بله مجوز ویرایش این پیام را ندارد؛ "
+                        "ادمین بودن بات و متعلق بودن پیام به همین بات را بررسی کنید. "
+                        f"({str(e)[:100]})"
+                    ),
+                )
+
             log.error(f"[Bale Edit] خطا: {e}")
             return UnifiedPublishResult(
                 success=False,
