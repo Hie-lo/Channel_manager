@@ -1,5 +1,9 @@
-"""تولید هشتگ‌های مرتبط با محصول."""
+# ===============================
+# بخش جدید: سیستم امتیازدهی ماژولار
+# ===============================
 
+from typing import Callable
+from dataclasses import dataclass
 import re
 from app.business.config import BusinessConfig, get_subcategory
 from app.database.models import Product
@@ -30,43 +34,207 @@ PRICE_RANGES = (
     (500_000_000, 600_000_000, "500تا600تومان"),
 )
 
+# ===============================
+# کلاس‌های کمکی برای امتیازدهی
+# ===============================
 
-def _specs(product: Product) -> dict:
-    return getattr(product, "specs", None) or {}
+@dataclass
+class HashtagRule:
+    tag: str
+    weight: int = 1
+    condition: Callable[..., bool] | None = None
+    # اگر condition None باشد، همیشه اعمال می‌شود
 
+class HashtagScorer:
+    def __init__(self, product: Product, subcategory_key: str, specs: dict):
+        self.product = product
+        self.subcategory_key = subcategory_key
+        self.specs = specs
+        self.price = self._get_price()
+        self.all_text = self._build_all_text()
+        self.scores: dict[str, int] = {}
+        self.static_tags: list[str] = []
 
-def _text(value) -> str:
-    return str(value or "").strip().lower()
+    def _get_price(self) -> int:
+        try:
+            p = getattr(self.product, 'price', 0) or 0
+            return int(float(p))
+        except (TypeError, ValueError):
+            return 0
 
+    def _build_all_text(self) -> str:
+        parts = []
+        if hasattr(self.product, 'product_name'):
+            parts.append(str(self.product.product_name or ''))
+        for v in self.specs.values():
+            parts.append(str(v or ''))
+        return " ".join(parts).lower()
 
-def _has_any(text: str, values: tuple[str, ...]) -> bool:
-    return any(value in text for value in values)
+    def _text(self, value) -> str:
+        return str(value or "").strip().lower()
 
+    def _has_any(self, values: tuple[str, ...]) -> bool:
+        return any(v in self.all_text for v in values)
 
-def _is_yes(value) -> bool:
-    return _text(value) in {"yes", "true", "1", "بله", "دارد", "داره"}
+    def _is_yes(self, key: str) -> bool:
+        v = self._text(self.specs.get(key, ''))
+        return v in {"yes", "true", "1", "بله", "دارد", "داره"}
 
+    def add_score(self, tag: str, points: int) -> None:
+        if tag:
+            self.scores[tag] = self.scores.get(tag, 0) + points
+
+    def add_static(self, tag: str) -> None:
+        if tag and tag not in self.static_tags:
+            self.static_tags.append(tag)
+
+    def apply_rules(self, rules: list[HashtagRule]) -> None:
+        for rule in rules:
+            if rule.condition is None:
+                self.add_score(rule.tag, rule.weight)
+            else:
+                if rule.condition(self.product, self.specs, self.all_text, self.price):
+                    self.add_score(rule.tag, rule.weight)
+
+    def get_top_tags(self, max_tags: int, priority_order: tuple[str, ...] = ()) -> list[str]:
+        result = self.static_tags.copy()
+
+        # مرتب‌سازی هشتک‌های امتیازدار
+        sorted_tags = sorted(self.scores.items(), key=lambda x: (-x[1], x[0]))
+        for tag, _ in sorted_tags:
+            if tag not in result:
+                result.append(tag)
+
+        # اعمال اولویت
+        if priority_order:
+            ordered = []
+            for ptag in priority_order:
+                if ptag in result:
+                    ordered.append(ptag)
+                    result.remove(ptag)
+            ordered.extend(result)
+            result = ordered
+
+        return result[:max_tags]
+
+# ===============================
+# تعریف توابع شرطی (Conditions)
+# ===============================
+
+def has_discrete_gpu(product, specs, all_text, price):
+    gpu = str(specs.get('gpu') or specs.get('graphics') or '').lower()
+    if not gpu:
+        return False
+    if any(x in gpu for x in ('integrated', 'onboard', 'آن برد', 'ندارد', 'without', 'intel hd')):
+        return False
+    return True
+
+def is_gaming(product, specs, all_text, price):
+    return any(x in all_text for x in ('gaming', 'گیم', 'گیمنگ'))
+
+def is_accounting(product, specs, all_text, price):
+    return any(x in all_text for x in ('accounting', 'حسابداری'))
+
+def is_light(product, specs, all_text, price):
+    return any(x in all_text for x in ('light', 'سبک', 'ultrabook'))
+
+def is_tablet_convertible(product, specs, all_text, price):
+    return any(x in all_text for x in ('tablet', 'تبلت', '2-in-1', 'convertible'))
+
+def is_render(product, specs, all_text, price):
+    return any(x in all_text for x in ('render', 'رندر', 'workstation'))
+
+def is_touch(product, specs, all_text, price):
+    return str(specs.get('touch_screen', '')).lower() in ('yes', 'true', '1', 'بله', 'دارد', 'داره')
+
+def is_pen(product, specs, all_text, price):
+    return str(specs.get('pen_support', '')).lower() in ('yes', 'true', '1', 'بله', 'دارد', 'داره')
+
+def is_x360(product, specs, all_text, price):
+    return str(specs.get('x360', '')).lower() in ('yes', 'true', '1', 'بله', 'دارد', 'داره')
+
+def has_lte(product, specs, all_text, price):
+    return str(specs.get('lte', '')).lower() in ('yes', 'true', '1', 'بله', 'دارد', 'داره')
+
+def is_chromebook(product, specs, all_text, price):
+    return 'chromebook' in all_text or 'کروم_بوک' in all_text
+
+def is_student(product, specs, all_text, price):
+    return any(x in all_text for x in ('student', 'دانشجو', 'دانشجویی'))
+
+def is_school(product, specs, all_text, price):
+    return any(x in all_text for x in ('school', 'دانش_آموز', 'دانش‌آموز', 'دانش آموز'))
+
+def is_seminary(product, specs, all_text, price):
+    return any(x in all_text for x in ('seminary', 'طلبه', 'طلبگی'))
+
+def is_office(product, specs, all_text, price):
+    return any(x in all_text for x in ('office', 'اداری', 'business'))
+
+def is_programming(product, specs, all_text, price):
+    return any(x in all_text for x in ('programming', 'programmer', 'برنامه نویسی', 'برنامه‌نویسی', 'کدنویسی', 'developer'))
+
+def is_design(product, specs, all_text, price):
+    return any(x in all_text for x in ('photoshop', 'فتوشاپ', 'illustrator', 'ایلاستریتور', 'graphic design', 'طراحی'))
+
+def is_editing(product, specs, all_text, price):
+    return any(x in all_text for x in ('editing', 'تدوین', 'premiere', 'پریمیر', 'video'))
+
+# ===============================
+# قوانین (Rules) برای زیردسته‌ها
+# ===============================
+
+def rule(tag: str, weight: int = 1, condition=None):
+    return HashtagRule(tag, weight, condition)
+
+LAPTOP_RULES = [
+    rule("#گرافیک", weight=5, condition=has_discrete_gpu),
+    rule("#گیمینگ", weight=10, condition=is_gaming),
+    rule("#حسابداری", weight=10, condition=is_accounting),
+    rule("#سبک", weight=5, condition=is_light),
+    rule("#تبلت_شو", weight=5, condition=is_tablet_convertible),
+    rule("#رندرینگ", weight=10, condition=is_render),
+    rule("#رندر", weight=8, condition=is_render),
+    rule("#لمسی", weight=5, condition=is_touch),
+    rule("#چرخشی_لمسی", weight=5, condition=lambda p,s,t,pr: is_touch(p,s,t,pr) and is_x360(p,s,t,pr)),
+    rule("#Pen", weight=3, condition=is_pen),
+    rule("#LTE", weight=3, condition=has_lte),
+    rule("#CHROMEBOOK", weight=5, condition=is_chromebook),
+    rule("#دانشجویی", weight=10, condition=is_student),
+    rule("#دانش_آموزی", weight=10, condition=is_school),
+    rule("#طلبگی", weight=10, condition=is_seminary),
+    rule("#اداری", weight=10, condition=is_office),
+    rule("#برنامه_نویسی", weight=10, condition=is_programming),
+    rule("#طراحی_فتوشاپ", weight=10, condition=is_design),
+    rule("#تدوین", weight=10, condition=is_editing),
+]
+
+COMMON_RULES = []  # می‌توان قوانین عمومی اضافه کرد
+
+# ===============================
+# توابع اصلی (بازنویسی‌شده)
+# ===============================
 
 def generate_hashtags(
     product: Product,
     business_config: BusinessConfig | None = None,
     max_hashtags: int = 9,
 ) -> list[str]:
-    """تولید هشتگ‌های واقعی و مرتبط از اطلاعات محصول."""
-    tags: list[str] = []
-
-    def add(tag: str | None) -> None:
-        if tag and tag not in tags:
-            tags.append(tag)
-
+    specs = getattr(product, "specs", None) or {}
     subcategory_key = getattr(product, "sub_category_key", None) or ""
     if business_config and not subcategory_key and business_config.sub_categories:
         subcategory_key = business_config.sub_categories[0].key
+
+    scorer = HashtagScorer(product, subcategory_key, specs)
+
+    # هشتک‌های ثابت از زیردسته
     if business_config and subcategory_key:
         subcategory = get_subcategory(business_config.key, subcategory_key)
         if subcategory:
             for tag in subcategory.static_hashtags:
-                add(tag)
+                scorer.add_static(tag)
+
+    # هشتک‌های دسته‌بندی
     category_tags = {
         "laptop": ("#لپتاپ",),
         "prebuilt_pc": ("#کیس_آماده", "#کامپیوتر"),
@@ -75,127 +243,63 @@ def generate_hashtags(
         "accessory": ("#لوازم_جانبی",),
     }
     for tag in category_tags.get(subcategory_key, ()):
-        add(tag)
+        scorer.add_static(tag)
 
-    specs = _specs(product)
-    brand_value = specs.get("brand")
-    brand = _text(brand_value)
-    add(BRAND_TAGS.get(brand))
-    if brand and brand not in BRAND_TAGS:
-        add("#" + re.sub(r"[^\w]+", "_", str(brand_value).strip()).strip("_"))
+    # برند
+    brand = specs.get("brand")
+    if brand:
+        brand_text = str(brand).strip().lower()
+        brand_hashtag = BRAND_TAGS.get(brand_text)
+        if brand_hashtag:
+            scorer.add_static(brand_hashtag)
+        else:
+            clean = re.sub(r"[^\w]+", "_", brand_text).strip("_")
+            if clean:
+                scorer.add_static(f"#{clean}")
 
-    try:
-        price = int(float(getattr(product, "price", 0) or 0))
-    except (TypeError, ValueError):
-        price = 0
-    all_values = " ".join(_text(value) for value in specs.values())
-    all_text = f"{_text(getattr(product, 'product_name', ''))} {all_values}"
-    gpu = _text(specs.get("gpu") or specs.get("graphics"))
-    cpu = _text(specs.get("cpu") or specs.get("processor"))
-    is_laptop = subcategory_key == "laptop"
-    is_gaming = _has_any(all_text, ("gaming", "گیم", "گیمنگ"))
-    has_discrete_gpu = bool(gpu) and not _has_any(
-        gpu, ("integrated", "onboard", "آن برد", "ندارد", "without", "intel hd")
-    )
+    # هشتگ قیمت
+    price_tag = generate_price_range_hashtag(product)
+    if price_tag:
+        scorer.add_static(price_tag)
 
-    category_scores: dict[str, int] = {}
+    # انتخاب قوانین بر اساس زیردسته
+    rules = []
+    if subcategory_key == "laptop":
+        rules = LAPTOP_RULES
+    # می‌توان برای prebuilt_pc، monitor و ... قوانین جداگانه تعریف کرد
+    rules.extend(COMMON_RULES)
+    scorer.apply_rules(rules)
 
-    def score(category: str, points: int) -> None:
-        category_scores[category] = category_scores.get(category, 0) + points
-
-    if has_discrete_gpu:
-        score("#گرافیک", 5)
-    if is_gaming:
-        score("#گیمینگ", 10)
-    if _has_any(all_text, ("accounting", "حسابداری")):
-        score("#حسابداری", 10)
-    if _has_any(all_text, ("light", "سبک", "ultrabook")):
-        add("#سبک")
-    if _has_any(all_text, ("tablet", "تبلت", "2-in-1", "convertible")):
-        add("#تبلت_شو")
-    if _has_any(all_text, ("render", "رندر", "workstation")):
-        score("#رندرینگ", 10)
-        score("#رندر", 8)
-    touch_enabled = _is_yes(specs.get("touch_screen"))
-    pen_enabled = _is_yes(specs.get("pen_support"))
-    x360_enabled = _is_yes(specs.get("x360"))
-    if touch_enabled:
-        add("#لمسی")
-    if touch_enabled and x360_enabled:
-        add("#چرخشی_لمسی")
-    if pen_enabled:
-        add("#Pen")
-    if _has_any(all_text, ("chromebook", "کروم_بوک")):
-        add("#CHROMEBOOK")
-    if _is_yes(specs.get("lte")):
-        add("#LTE")
-    if _has_any(all_text, ("new", "نو", "آکبند", "استوک نو")):
-        add("#Brand_New")
-    if "vaio" in all_text:
-        add("#VAIO")
-
-    # دسته‌های کاربردی فقط از شواهد محصول امتیاز می‌گیرند.
-    if _has_any(all_text, ("student", "دانشجو", "دانشجویی")):
-        score("#دانشجویی", 10)
-    if _has_any(all_text, ("school", "دانش_آموز", "دانش‌آموز", "دانش آموز")):
-        score("#دانش_آموزی", 10)
-    if _has_any(all_text, ("seminary", "طلبه", "طلبگی")):
-        score("#طلبگی", 10)
-    if _has_any(all_text, ("office", "اداری", "business")):
-        score("#اداری", 10)
-    if _has_any(all_text, ("programming", "programmer", "برنامه نویسی", "برنامه‌نویسی", "کدنویسی", "developer")):
-        score("#برنامه_نویسی", 10)
-    if _has_any(all_text, ("photoshop", "فتوشاپ", "illustrator", "ایلاستریتور", "graphic design", "طراحی")):
-        score("#طراحی_فتوشاپ", 10)
-    if _has_any(all_text, ("editing", "تدوین", "premiere", "پریمیر", "video")):
-        score("#تدوین", 10)
-    if is_laptop and not is_gaming and ("i3" in cpu or "i5" in cpu):
-        score("#دانشجویی", 5)
-        score("#اداری", 5)
-    if is_laptop and not is_gaming and price > 0 and price <= 30_000_000 and not has_discrete_gpu:
-        score("#کاربری_روزانه", 7)
-        score("#وبگردی", 6)
-    if is_laptop and is_gaming and has_discrete_gpu:
-        score("#گرافیک", 6)
-
-    ranked_categories = sorted(
-        category_scores.items(), key=lambda item: (-item[1], item[0])
-    )
-    for tag, _ in ranked_categories[:max(2, min(4, max_hashtags))]:
-        add(tag)
-
-    for generation in range(1, 15):
-        if f"نسل{generation}" in all_text or re.search(rf"\b{generation}(?:th|st|nd|rd)\b", all_text):
-            add(f"#نسل{generation}")
-            break
-
-    for cpu_tag in ("i3", "i5", "i7", "i9", "xeon"):
-        if re.search(rf"\b{cpu_tag}\b", cpu):
-            add(f"#{cpu_tag}")
-    if "amd" in cpu:
-        add("#AMD")
-    if "ryzen" in cpu:
-        add("#Ryzen")
-
-    usage_order = (
+    # اولویت‌بندی نهایی
+    priority_order = (
         "#دانشجویی", "#طلبگی", "#دانش_آموزی", "#برنامه_نویسی",
         "#طراحی_فتوشاپ", "#حسابداری", "#رندرینگ", "#رندر",
         "#گیمینگ", "#اداری", "#کاربری_روزانه", "#وبگردی", "#تدوین",
-        "#سبک", "#لمسی", "#چرخشی_لمسی", "#گرافیک",
+        "#سبک", "#لمسی", "#چرخشی_لمسی", "#گرافیک"
     )
-    selected_usage = [tag for tag in usage_order if tag in tags]
-    if len(selected_usage) < 2:
-        for fallback in ("#کاربری_روزانه", "#وبگردی"):
-            if fallback not in selected_usage:
-                selected_usage.append(fallback)
-            if len(selected_usage) == 2:
-                break
-    remaining = [tag for tag in tags if tag not in selected_usage]
-    return (selected_usage + remaining)[:max_hashtags]
+    tags = scorer.get_top_tags(max_hashtags, priority_order)
+
+    # اضافه کردن نسل و مدل CPU (اگر وجود داشته باشد)
+    cpu = str(specs.get('cpu') or specs.get('processor') or '').lower()
+    all_text = scorer.all_text
+    for gen in range(1, 15):
+        if f"نسل{gen}" in all_text or re.search(rf"\b{gen}(?:th|st|nd|rd)\b", all_text):
+            if f"#نسل{gen}" not in tags:
+                tags.append(f"#نسل{gen}")
+            break
+    for cpu_tag in ("i3", "i5", "i7", "i9", "xeon"):
+        if re.search(rf"\b{cpu_tag}\b", cpu):
+            if f"#{cpu_tag}" not in tags:
+                tags.append(f"#{cpu_tag}")
+    if "amd" in cpu and "#AMD" not in tags:
+        tags.append("#AMD")
+    if "ryzen" in cpu and "#Ryzen" not in tags:
+        tags.append("#Ryzen")
+
+    return tags[:max_hashtags]
 
 
 def generate_price_range_hashtag(product: Product) -> str:
-    """هشتگ بازه قیمت، مستقل از سایر هشتگ‌های محصول."""
     try:
         price = int(float(getattr(product, "price", 0) or 0))
     except (TypeError, ValueError):
@@ -210,26 +314,3 @@ def generate_price_range_hashtag(product: Product) -> str:
 
 def format_hashtags_for_post(hashtags: list[str]) -> str:
     return " ".join(hashtags) if hashtags else ""
-
-
-def _get_brand_from_specs(product: Product) -> str | None:
-    value = _specs(product).get("brand")
-    return str(value).strip() if value else None
-
-
-def _make_brand_hashtag(sub_category_key: str, brand: str) -> str | None:
-    if sub_category_key == "laptop_store":
-        sub_category_key = "laptop"
-    prefix = {"laptop": "لپتاپ", "prebuilt_pc": "کیس", "monitor": "مانیتور"}.get(sub_category_key)
-    known = {"lenovo": "لنوو", "asus": "ایسوس", "hp": "اچ_پی", "dell": "دل", "acer": "ایسر", "msi": "ام_اس_آی"}
-    name = known.get(brand.lower().strip(), brand.strip().replace(" ", "_"))
-    return f"#{prefix}_{name}" if prefix else f"#{name}"
-
-
-def _make_price_range_hashtag(sub_category_key: str, price: int) -> str | None:
-    if price <= 0:
-        return None
-    for minimum, maximum, label in PRICE_RANGES:
-        if minimum <= price < maximum:
-            return f"#{label}"
-    return None
