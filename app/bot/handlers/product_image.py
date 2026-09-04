@@ -488,6 +488,7 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         get_business_for_customer,
     )
     from app.services.content.post_builder import build_post_caption
+    from app.services.post_preset_service import get_selected_preset
     from app.services.publisher.publisher_manager import publish_to_channel
     from app.services.publisher.posted_message_service import create_posted_message
     from sqlalchemy import select
@@ -516,6 +517,7 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         business_config = get_business_config_for_customer(customer)
         business = await get_business_for_customer(session, customer.id)
+        selected_preset = await get_selected_preset(session, customer.id)
 
         # همه پست‌های موجود این محصول
         posted_result = await session.execute(
@@ -714,7 +716,13 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     # مرحله ۵: ساخت کپشن جدید
     # ═══════════════════════════════════════════
 
-    caption = build_post_caption(product, business_config, business)
+    preset_text = selected_preset.template_text if selected_preset else None
+    caption = build_post_caption(
+        product,
+        business_config,
+        business,
+        preset_template_text=preset_text,
+    )
 
     # ═══════════════════════════════════════════
     # مرحله ۶: ارسال پست‌های جدید
