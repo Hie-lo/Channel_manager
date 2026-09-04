@@ -794,16 +794,36 @@ async def _edit_bale_post(
                         chat_id=channel.channel_identifier,
                         user_id=actual_bot.id,
                     )
+                    bot_status = getattr(bot_member, "status", "unknown")
+                    can_edit = getattr(bot_member, "can_edit_messages", None)
+                    can_post = getattr(bot_member, "can_post_messages", None)
                     log.error(
                         "[Bale Edit] permission diagnostic: chat=%s bot_id=%s "
                         "status=%s can_edit=%s can_post=%s old_message_id=%s",
                         channel.channel_identifier,
                         actual_bot.id,
-                        getattr(bot_member, "status", "unknown"),
-                        getattr(bot_member, "can_edit_messages", "unknown"),
-                        getattr(bot_member, "can_post_messages", "unknown"),
+                        bot_status,
+                        can_edit if can_edit is not None else "unknown",
+                        can_post if can_post is not None else "unknown",
                         old_message_id,
                     )
+
+                    if (
+                        bot_status == "creator"
+                        or (
+                            bot_status == "administrator"
+                            and can_post is True
+                            and can_edit is not False
+                        )
+                    ):
+                        return UnifiedPublishResult(
+                            success=False,
+                            platform=Platform.BALE,
+                            error_message=(
+                                "[BALE_MISSING_MESSAGE] پیام قبلی پیدا نشد؛ "
+                                "ارسال مجدد انجام می‌شود."
+                            ),
+                        )
                 except Exception as diagnostic_error:
                     log.error(
                         "[Bale Edit] permission diagnostic failed: chat=%s "

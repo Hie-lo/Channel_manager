@@ -39,7 +39,7 @@ from app.services.product_service import (
 )
 from app.services.channel_service import get_customer_channels
 from app.services.content.post_builder import build_post_caption
-from app.services.publisher.publisher_manager import edit_channel_post
+from app.services.publisher.publisher_manager import edit_channel_post, publish_to_channel
 from app.services.publisher.posted_message_service import (
     get_posted_message,
     update_posted_message,
@@ -620,7 +620,7 @@ async def _edit_single_post_with_fallback(
             # به‌روزرسانی posted_message
             async with AsyncSessionLocal() as session:
                 # اگر پیام جدید ارسال شده باشد، message_id جدید در edit_result موجود است
-                new_message_id = getattr(edit_result, "new_message_id", old_message_id)
+                new_message_id = edit_result.message_id or old_message_id
                 # شیء posted_message را به‌روز می‌کنیم (بدون کوئری اضافی)
                 posted_message.telegram_message_id = new_message_id
                 posted_message.last_caption = caption
@@ -635,6 +635,35 @@ async def _edit_single_post_with_fallback(
             )
             return True
         else:
+            if (
+                platform == Platform.BALE
+                and "[BALE_MISSING_MESSAGE]" in (edit_result.error_message or "")
+            ):
+                log.warning(
+                    f"[Edit Posts] پیام Bale حذف شده؛ ارسال مجدد در "
+                    f"{channel.channel_identifier}"
+                )
+                repost_result = await publish_to_channel(
+                    bot=bot,
+                    channel=channel,
+                    product=product,
+                    caption=caption,
+                )
+                if repost_result.success and repost_result.message_id:
+                    async with AsyncSessionLocal() as session:
+                        posted_message.telegram_message_id = repost_result.message_id
+                        posted_message.last_caption = caption
+                        posted_message.last_price = int(product.price) if product.price else 0
+                        posted_message.last_stock_qty = product.stock_qty or 0
+                        session.add(posted_message)
+                        await session.commit()
+
+                    log.info(
+                        f"✅ [Edit Posts] پست Bale دوباره ارسال و شناسه آن به‌روز شد: "
+                        f"{channel.channel_identifier}"
+                    )
+                    return True
+
             log.warning(
                 f"⚠️ [Edit Posts] ادیت {product.sku} در {channel.channel_identifier} "
                 f"ناموفق: {edit_result.error_message}"
