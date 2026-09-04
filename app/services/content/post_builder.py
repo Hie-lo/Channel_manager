@@ -14,6 +14,7 @@ from app.business.config import (
 )
 from app.services.content.hashtag_generator import (
     generate_hashtags,
+    generate_price_range_hashtag,
     format_hashtags_for_post,
 )
 from app.utils.logger import log
@@ -122,6 +123,7 @@ def _prepare_template_values(
     # هشتگ‌ها
     hashtags = generate_hashtags(product, business_config)
     values["hashtags"] = format_hashtags_for_post(hashtags)
+    values["price_range"] = generate_price_range_hashtag(product)
 
     # اطلاعات تماس
     if business and business.contact_text:

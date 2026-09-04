@@ -88,20 +88,17 @@ def generate_hashtags(
         price = int(float(getattr(product, "price", 0) or 0))
     except (TypeError, ValueError):
         price = 0
-    if price > 0:
-        for minimum, maximum, label in PRICE_RANGES:
-            if minimum <= price < maximum:
-                add(f"#{label}")
-                break
-
     all_values = " ".join(_text(value) for value in specs.values())
     all_text = f"{_text(getattr(product, 'product_name', ''))} {all_values}"
     gpu = _text(specs.get("gpu") or specs.get("graphics"))
     cpu = _text(specs.get("cpu") or specs.get("processor"))
     is_laptop = subcategory_key == "laptop"
     is_gaming = _has_any(all_text, ("gaming", "گیم", "گیمنگ"))
+    has_discrete_gpu = bool(gpu) and not _has_any(
+        gpu, ("integrated", "onboard", "آن برد", "ندارد", "without", "intel hd")
+    )
 
-    if gpu and not _has_any(gpu, ("integrated", "onboard", "آن برد", "ندارد", "without", "intel hd")):
+    if has_discrete_gpu:
         add("#گرافیک")
     if is_gaming:
         add("#گیمینگ")
@@ -133,14 +130,22 @@ def generate_hashtags(
         add("#VAIO")
 
     # برچسب‌های کاربردی فقط با نشانه‌های واقعی محصول اضافه می‌شوند.
+    usage_tags = []
     if is_laptop and not is_gaming:
         if _has_any(all_text, ("student", "دانشجو", "دانشجویی")) or "i3" in cpu or "i5" in cpu:
-            add("#دانشجویی")
+            usage_tags.append("#دانشجویی")
         if _has_any(all_text, ("office", "اداری", "حسابداری", "business")) or "i3" in cpu or "i5" in cpu:
-            add("#اداری")
+            usage_tags.append("#اداری")
         if _has_any(all_text, ("home", "خانگی", "منزل")) or (price > 0 and price <= 30_000_000 and not gpu):
-            add("#کاربری_روزانه")
-            add("#وبگردی")
+            usage_tags.extend(("#کاربری_روزانه", "#وبگردی"))
+        if len(usage_tags) < 2:
+            usage_tags.extend(("#کاربری_روزانه", "#وبگردی"))
+    elif is_gaming:
+        usage_tags.extend(("#گیمینگ", "#کاربری_روزانه"))
+    else:
+        usage_tags.extend(("#کاربری_روزانه", "#وبگردی"))
+    for tag in usage_tags:
+        add(tag)
     if _has_any(all_text, ("programming", "programmer", "برنامه نویسی", "برنامه‌نویسی", "کدنویسی", "developer")):
         add("#برنامه_نویسی")
     if is_laptop and not is_gaming and _has_any(all_text, ("student", "دانشجو", "دانشجویی")):
@@ -167,7 +172,35 @@ def generate_hashtags(
     if "ryzen" in cpu:
         add("#Ryzen")
 
-    return tags[:max_hashtags]
+    usage_order = (
+        "#دانشجویی", "#طلبگی", "#دانش_آموزی", "#برنامه_نویسی",
+        "#طراحی_فتوشاپ", "#حسابداری", "#رندرینگ", "#رندر",
+        "#گیمینگ", "#اداری", "#کاربری_روزانه", "#وبگردی", "#تدوین",
+        "#سبک", "#لمسی", "#چرخشی_لمسی", "#گرافیک",
+    )
+    selected_usage = [tag for tag in usage_order if tag in tags]
+    if len(selected_usage) < 2:
+        for fallback in ("#کاربری_روزانه", "#وبگردی"):
+            if fallback not in selected_usage:
+                selected_usage.append(fallback)
+            if len(selected_usage) == 2:
+                break
+    remaining = [tag for tag in tags if tag not in selected_usage]
+    return (selected_usage + remaining)[:max_hashtags]
+
+
+def generate_price_range_hashtag(product: Product) -> str:
+    """هشتگ بازه قیمت، مستقل از سایر هشتگ‌های محصول."""
+    try:
+        price = int(float(getattr(product, "price", 0) or 0))
+    except (TypeError, ValueError):
+        return ""
+    if price <= 0:
+        return ""
+    for minimum, maximum, label in PRICE_RANGES:
+        if minimum <= price < maximum:
+            return f"#{label}"
+    return ""
 
 
 def format_hashtags_for_post(hashtags: list[str]) -> str:

@@ -24,6 +24,7 @@ from app.database.models import PostTemplate
 from app.business.config import get_business
 from app.services.content.hashtag_generator import (
     generate_hashtags,
+    generate_price_range_hashtag,
     format_hashtags_for_post,
 )
 from app.utils.logger import log
@@ -388,6 +389,7 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
     flat["hashtags"] = format_hashtags_for_post(
         generate_hashtags(product, business_config)
     )
+    flat["price_range"] = generate_price_range_hashtag(product)
 
     flat["contact_id"] = "{contact_id}"
     flat["contact"] = "{contact}"
