@@ -811,7 +811,7 @@ async def _edit_bale_post(
                         or (
                             bot_status == "administrator"
                             and can_post is True
-                            and can_edit is not False
+                            and can_edit is True
                         )
                     ):
                         return UnifiedPublishResult(
