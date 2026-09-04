@@ -668,7 +668,13 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
                 current_value = "\n".join(product.ai_cons or [])
             else:
                 details = product.ai_details or {}
-                current_value = details.get({"cpu": "cpu_detail", "usage": "suitable_for", "games": "games", "software": "software"}[field_type], "")
+                detail_key = {
+                    "cpu": "cpu_detail",
+                    "usage": "suitable_for",
+                    "games": "games",
+                    "software": "software",
+                }.get(field_type)
+                current_value = details.get(detail_key, "") if detail_key else ""
                 if isinstance(current_value, list):
                     current_value = "\n".join(current_value)
         else:
@@ -693,10 +699,13 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
                 items = ai_description_obj.cons or []
                 current_value = "\n".join(items)
             else:
-                current_value = getattr(ai_description_obj, {
-                    "cpu": "cpu_detail", "usage": "suitable_for",
-                    "games": "games", "software": "software",
-                }[field_type], "")
+                detail_attr = {
+                    "cpu": "cpu_detail",
+                    "usage": "suitable_for",
+                    "games": "games",
+                    "software": "software",
+                }.get(field_type)
+                current_value = getattr(ai_description_obj, detail_attr, "") if detail_attr else ""
                 if isinstance(current_value, list):
                     current_value = "\n".join(current_value)
 
@@ -708,7 +717,7 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
         "usage": "کاربردها",
         "games": "بازی‌ها",
         "software": "نرم‌افزارها",
-    }[field_type]
+    }.get(field_type, "این بخش")
 
     text = (
         f"✏️ ویرایش {field_name}\n"
@@ -838,7 +847,14 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 product.ai_cons = new_value
             else:
                 details = dict(product.ai_details or {})
-                details[{"cpu": "cpu_detail", "usage": "suitable_for", "games": "games", "software": "software"}[field_type]] = new_value
+                detail_key = {
+                    "cpu": "cpu_detail",
+                    "usage": "suitable_for",
+                    "games": "games",
+                    "software": "software",
+                }.get(field_type)
+                if detail_key:
+                    details[detail_key] = new_value
                 product.ai_details = details
 
             await session.commit()
@@ -864,10 +880,14 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             elif field_type == "cons":
                 ai_description_obj.cons = new_value
             else:
-                setattr(ai_description_obj, {
-                    "cpu": "cpu_detail", "usage": "suitable_for",
-                    "games": "games", "software": "software",
-                }[field_type], new_value)
+                detail_attr = {
+                    "cpu": "cpu_detail",
+                    "usage": "suitable_for",
+                    "games": "games",
+                    "software": "software",
+                }.get(field_type)
+                if detail_attr:
+                    setattr(ai_description_obj, detail_attr, new_value)
             
             # آپدیت user_data
             set_user_state(user.id, UserState.VIEWING_AI_RESULT, {
@@ -887,7 +907,7 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         "usage": "کاربردها",
         "games": "بازی‌ها",
         "software": "نرم‌افزارها",
-    }[field_type]
+    }.get(field_type, "این بخش")
 
     if from_saved:
         await update.message.reply_text(
