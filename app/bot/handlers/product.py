@@ -602,6 +602,23 @@ async def _publish_or_edit(bot, product, channel, caption):
 
     # ─── حالت ویرایش ───
     if existing and existing.telegram_message_id:
+        current_price = int(product.price) if product.price else 0
+        current_stock_qty = product.stock_qty or 0
+        if (
+            existing.last_caption == caption
+            and int(existing.last_price or 0) == current_price
+            and (existing.last_stock_qty or 0) == current_stock_qty
+        ):
+            from app.services.publisher.telegram_publisher import PublishResult
+            log.info(
+                f"[Publish] محصول {product.id} در {channel.channel_identifier} "
+                "بدون تغییر است؛ عملیات ارسال/ادیت انجام نشد"
+            )
+            return PublishResult(
+                success=True,
+                message_id=existing.telegram_message_id,
+            )
+
         result = await edit_channel_post(
             bot=bot,
             channel=channel,
@@ -696,6 +713,8 @@ async def _publish_or_edit(bot, product, channel, caption):
                 caption=caption,
                 price=int(product.price),
                 stock_qty=product.stock_qty,
+                platform=channel.platform,
+                message_ids=result.message_ids,
             )
 
             # ذخیره message_ids آلبوم
