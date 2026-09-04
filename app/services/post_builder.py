@@ -361,10 +361,15 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
         "hdmi": "HDMI",
         "thunderbolt": "USB-C/Thunderbolt",
     }
+    ports_for_template = ("lan", "dp", "thunderbolt")
+    selected_ports = []
     for port_key, port_name in port_names.items():
         raw_value = flat.get(port_key)
         enabled = str(raw_value or "").strip().lower() in {"yes", "true", "1", "بله", "دارد"}
         flat[f"{port_key}_name"] = port_name if enabled else ""
+        if enabled and port_key in ports_for_template:
+            selected_ports.append(port_name)
+    flat["ports"] = " | ".join(selected_ports)
 
     business_key = getattr(business, "business_type_key", None) if business else None
     business_config = get_business(business_key) if business_key else None
