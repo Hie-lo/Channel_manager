@@ -347,7 +347,19 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
 
     # 🆕 خروجی AI — جدا از description_custom
     flat["ai_description"] = ai_description or ""
-    flat["ai_features"] = "\n".join(f"🔹 {f}" for f in ai_pros) if ai_pros else ""
+    spec_values = {
+        str(value).strip().casefold()
+        for value in specs.values()
+        if value not in (None, "")
+    }
+    useful_strengths = [
+        strength for strength in ai_pros
+        if str(strength).strip().casefold() not in spec_values
+    ][:6]
+    flat["ai_features"] = (
+        "\n".join(f"🔹 {strength}" for strength in useful_strengths)
+        if useful_strengths else ""
+    )
     flat["ai_cons"] = "\n".join(f"⚠️ {c}" for c in ai_cons) if ai_cons else ""
     flat["ai_cpu_detail"] = ai_details.get("cpu_detail", "")
     flat["ai_suitable_for"] = "\n".join(f"• {item}" for item in ai_details.get("suitable_for", []))
@@ -373,10 +385,8 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
 
     business_key = getattr(business, "business_type_key", None) if business else None
     business_config = get_business(business_key) if business_key else None
-    flat["hashtags"] = (
-        format_hashtags_for_post(generate_hashtags(product, business_config))
-        if business_config and not isinstance(product, dict)
-        else ""
+    flat["hashtags"] = format_hashtags_for_post(
+        generate_hashtags(product, business_config)
     )
 
     flat["contact_id"] = "{contact_id}"

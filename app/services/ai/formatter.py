@@ -132,7 +132,7 @@ def parse_ai_response(raw_response: str, business_key: str = "other") -> AIDescr
 
         # پارس F1-F12 (ویژگی‌ها برای کامپیوتری)
         elif re.match(r'^F\d+\s*:', line):
-            if is_computer_business:
+            if is_computer_business and len(result.features) < 6:
                 content = _extract_content(line)
                 if content:
                     result.features.append(content)
