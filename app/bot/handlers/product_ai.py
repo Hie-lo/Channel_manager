@@ -467,11 +467,26 @@ async def ai_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             text += f"• {item}\n"
         text += "\n"
 
+    details = {
+        "cpu": getattr(ai_description_obj, "cpu_detail", ""),
+        "usage": getattr(ai_description_obj, "suitable_for", []),
+        "games": getattr(ai_description_obj, "games", ""),
+        "software": getattr(ai_description_obj, "software", ""),
+    }
+    text += "🧠 CPU: " + (details["cpu"] or "-") + "\n"
+    text += "🎯 کاربردها: " + ("، ".join(details["usage"]) or "-") + "\n"
+    text += "🎮 بازی‌ها: " + (details["games"] or "-") + "\n"
+    text += "⚙️ نرم‌افزارها: " + (details["software"] or "-") + "\n\n"
+
     text += f"کدام بخش را می‌خواهید ویرایش کنید؟"
 
     keyboard = [
         [InlineKeyboardButton("📝 توضیح اصلی", callback_data=f"ai_edit_desc_{product_id}_{log_id}")],
         [InlineKeyboardButton("✅ مزایا/ویژگی‌ها", callback_data=f"ai_edit_pros_{product_id}_{log_id}")],
+        [InlineKeyboardButton("🧠 ویرایش توضیح CPU", callback_data=f"ai_edit_cpu_{product_id}_{log_id}")],
+        [InlineKeyboardButton("🎯 ویرایش کاربردها", callback_data=f"ai_edit_usage_{product_id}_{log_id}")],
+        [InlineKeyboardButton("🎮 ویرایش بازی‌ها", callback_data=f"ai_edit_games_{product_id}_{log_id}")],
+        [InlineKeyboardButton("⚙️ ویرایش نرم‌افزارها", callback_data=f"ai_edit_software_{product_id}_{log_id}")],
     ]
 
     if cons:
@@ -511,6 +526,7 @@ async def ai_edit_saved_callback(update: Update, context: ContextTypes.DEFAULT_T
     description = product.ai_description or ""
     pros = product.ai_pros or []
     cons = product.ai_cons or []
+    details = product.ai_details or {}
 
     text = (
         f"✏️ ویرایش توضیحات AI ذخیره شده\n"
@@ -530,11 +546,20 @@ async def ai_edit_saved_callback(update: Update, context: ContextTypes.DEFAULT_T
             text += f"• {item}\n"
         text += "\n"
 
+    text += f"🧠 CPU: {details.get('cpu_detail') or '-'}\n"
+    text += f"🎯 کاربردها: {'، '.join(details.get('suitable_for') or []) or '-'}\n"
+    text += f"🎮 بازی‌ها: {details.get('games') or '-'}\n"
+    text += f"⚙️ نرم‌افزارها: {details.get('software') or '-'}\n\n"
+
     text += f"کدام بخش را می‌خواهید ویرایش کنید؟"
 
     keyboard = [
         [InlineKeyboardButton("📝 توضیح اصلی", callback_data=f"ai_edit_saved_desc_{product_id}")],
         [InlineKeyboardButton("✅ مزایا/ویژگی‌ها", callback_data=f"ai_edit_saved_pros_{product_id}")],
+        [InlineKeyboardButton("🧠 ویرایش توضیح CPU", callback_data=f"ai_edit_saved_cpu_{product_id}")],
+        [InlineKeyboardButton("🎯 ویرایش کاربردها", callback_data=f"ai_edit_saved_usage_{product_id}")],
+        [InlineKeyboardButton("🎮 ویرایش بازی‌ها", callback_data=f"ai_edit_saved_games_{product_id}")],
+        [InlineKeyboardButton("⚙️ ویرایش نرم‌افزارها", callback_data=f"ai_edit_saved_software_{product_id}")],
     ]
 
     if cons:
@@ -572,6 +597,18 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
         log_id = int(parts[1])
         field_type = "cons"
         from_saved = False
+    elif data.startswith("ai_edit_cpu_"):
+        parts = data.replace("ai_edit_cpu_", "").split("_")
+        product_id, log_id, field_type, from_saved = int(parts[0]), int(parts[1]), "cpu", False
+    elif data.startswith("ai_edit_usage_"):
+        parts = data.replace("ai_edit_usage_", "").split("_")
+        product_id, log_id, field_type, from_saved = int(parts[0]), int(parts[1]), "usage", False
+    elif data.startswith("ai_edit_games_"):
+        parts = data.replace("ai_edit_games_", "").split("_")
+        product_id, log_id, field_type, from_saved = int(parts[0]), int(parts[1]), "games", False
+    elif data.startswith("ai_edit_software_"):
+        parts = data.replace("ai_edit_software_", "").split("_")
+        product_id, log_id, field_type, from_saved = int(parts[0]), int(parts[1]), "software", False
     elif data.startswith("ai_edit_saved_desc_"):
         product_id = int(data.replace("ai_edit_saved_desc_", ""))
         log_id = None
@@ -587,6 +624,18 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
         log_id = None
         field_type = "cons"
         from_saved = True
+    elif data.startswith("ai_edit_saved_cpu_"):
+        product_id = int(data.replace("ai_edit_saved_cpu_", ""))
+        log_id, field_type, from_saved = None, "cpu", True
+    elif data.startswith("ai_edit_saved_usage_"):
+        product_id = int(data.replace("ai_edit_saved_usage_", ""))
+        log_id, field_type, from_saved = None, "usage", True
+    elif data.startswith("ai_edit_saved_games_"):
+        product_id = int(data.replace("ai_edit_saved_games_", ""))
+        log_id, field_type, from_saved = None, "games", True
+    elif data.startswith("ai_edit_saved_software_"):
+        product_id = int(data.replace("ai_edit_saved_software_", ""))
+        log_id, field_type, from_saved = None, "software", True
     else:
         await query.edit_message_text("❌ خطا در پردازش!")
         return
@@ -615,8 +664,13 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
                 current_value = product.ai_description or ""
             elif field_type == "pros":
                 current_value = "\n".join(product.ai_pros or [])
-            else:  # cons
+            elif field_type == "cons":
                 current_value = "\n".join(product.ai_cons or [])
+            else:
+                details = product.ai_details or {}
+                current_value = details.get({"cpu": "cpu_detail", "usage": "suitable_for", "games": "games", "software": "software"}[field_type], "")
+                if isinstance(current_value, list):
+                    current_value = "\n".join(current_value)
         else:
             # از user_data (نتیجه AI که هنوز ذخیره نشده)
             user_data = get_user_data(user.id)
@@ -635,14 +689,25 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
                 else:
                     items = ai_description_obj.pros or []
                 current_value = "\n".join(items)
-            else:  # cons
+            elif field_type == "cons":
                 items = ai_description_obj.cons or []
                 current_value = "\n".join(items)
+            else:
+                current_value = getattr(ai_description_obj, {
+                    "cpu": "cpu_detail", "usage": "suitable_for",
+                    "games": "games", "software": "software",
+                }[field_type], "")
+                if isinstance(current_value, list):
+                    current_value = "\n".join(current_value)
 
     field_name = {
         "description": "توضیح اصلی",
         "pros": "مزایا/ویژگی‌ها",
-        "cons": "معایب"
+        "cons": "معایب",
+        "cpu": "توضیح CPU",
+        "usage": "کاربردها",
+        "games": "بازی‌ها",
+        "software": "نرم‌افزارها",
     }[field_type]
 
     text = (
@@ -653,7 +718,7 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
         f"━━━━━━━━━━━━━━━\n\n"
     )
 
-    if field_type in ["pros", "cons"]:
+    if field_type in ["pros", "cons", "usage"]:
         text += f"لطفاً موارد جدید را هر کدام در یک خط جداگانه ارسال کنید:\n\n"
         text += f"مثال:\n```\nمورد اول\nمورد دوم\nمورد سوم\n```"
     else:
@@ -673,11 +738,23 @@ async def ai_edit_field_callback(update: Update, context: ContextTypes.DEFAULT_T
             "log_id": log_id,
             "from_saved": from_saved
         })
-    else:  # cons
+    elif field_type == "cons":
         set_user_state(user.id, UserState.EDITING_AI_CONS, {
             "product_id": product_id,
             "log_id": log_id,
             "from_saved": from_saved
+        })
+    else:
+        state_for_field = {
+            "cpu": UserState.EDITING_AI_CPU,
+            "usage": UserState.EDITING_AI_USAGE,
+            "games": UserState.EDITING_AI_GAMES,
+            "software": UserState.EDITING_AI_SOFTWARE,
+        }[field_type]
+        set_user_state(user.id, state_for_field, {
+            "product_id": product_id,
+            "log_id": log_id,
+            "from_saved": from_saved,
         })
 
     await query.edit_message_text(
@@ -698,7 +775,16 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     from app.bot.states.user_state import get_user_state, get_user_data, clear_user_state, UserState
 
     state = get_user_state(user.id)
-    if state not in [UserState.EDITING_AI_DESCRIPTION, UserState.EDITING_AI_PROS, UserState.EDITING_AI_CONS]:
+    editable_states = {
+        UserState.EDITING_AI_DESCRIPTION: "description",
+        UserState.EDITING_AI_PROS: "pros",
+        UserState.EDITING_AI_CONS: "cons",
+        UserState.EDITING_AI_CPU: "cpu",
+        UserState.EDITING_AI_USAGE: "usage",
+        UserState.EDITING_AI_GAMES: "games",
+        UserState.EDITING_AI_SOFTWARE: "software",
+    }
+    if state not in editable_states:
         return
 
     state_data = get_user_data(user.id)
@@ -714,16 +800,13 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     new_text = update.message.text.strip()
 
     # تشخیص نوع فیلد
-    if state == UserState.EDITING_AI_DESCRIPTION:
-        field_type = "description"
+    field_type = editable_states[state]
+    if field_type == "description":
         new_value = new_text
-    elif state == UserState.EDITING_AI_PROS:
-        field_type = "pros"
-        # Split by newlines
+    elif field_type in ["pros", "cons", "usage"]:
         new_value = [line.strip() for line in new_text.split('\n') if line.strip()]
     else:  # EDITING_AI_CONS
-        field_type = "cons"
-        new_value = [line.strip() for line in new_text.split('\n') if line.strip()]
+        new_value = new_text
 
     # ذخیره تغییرات
     async with AsyncSessionLocal() as session:
@@ -751,8 +834,12 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 product.ai_description = new_value
             elif field_type == "pros":
                 product.ai_pros = new_value
-            else:  # cons
+            elif field_type == "cons":
                 product.ai_cons = new_value
+            else:
+                details = dict(product.ai_details or {})
+                details[{"cpu": "cpu_detail", "usage": "suitable_for", "games": "games", "software": "software"}[field_type]] = new_value
+                product.ai_details = details
 
             await session.commit()
         else:
@@ -774,8 +861,13 @@ async def ai_edit_text_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                     ai_description_obj.features = new_value
                 else:
                     ai_description_obj.pros = new_value
-            else:  # cons
+            elif field_type == "cons":
                 ai_description_obj.cons = new_value
+            else:
+                setattr(ai_description_obj, {
+                    "cpu": "cpu_detail", "usage": "suitable_for",
+                    "games": "games", "software": "software",
+                }[field_type], new_value)
             
             # آپدیت user_data
             set_user_state(user.id, UserState.VIEWING_AI_RESULT, {

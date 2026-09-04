@@ -50,6 +50,10 @@ class UserState(Enum):
     EDITING_AI_DESCRIPTION = "editing_ai_description"
     EDITING_AI_PROS = "editing_ai_pros"
     EDITING_AI_CONS = "editing_ai_cons"
+    EDITING_AI_CPU = "editing_ai_cpu"
+    EDITING_AI_USAGE = "editing_ai_usage"
+    EDITING_AI_GAMES = "editing_ai_games"
+    EDITING_AI_SOFTWARE = "editing_ai_software"
     
 @dataclass
 class UserContext:

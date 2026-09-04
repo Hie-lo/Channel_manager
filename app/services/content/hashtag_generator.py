@@ -98,19 +98,24 @@ def generate_hashtags(
         gpu, ("integrated", "onboard", "آن برد", "ندارد", "without", "intel hd")
     )
 
+    category_scores: dict[str, int] = {}
+
+    def score(category: str, points: int) -> None:
+        category_scores[category] = category_scores.get(category, 0) + points
+
     if has_discrete_gpu:
-        add("#گرافیک")
+        score("#گرافیک", 5)
     if is_gaming:
-        add("#گیمینگ")
+        score("#گیمینگ", 10)
     if _has_any(all_text, ("accounting", "حسابداری")):
-        add("#حسابداری")
+        score("#حسابداری", 10)
     if _has_any(all_text, ("light", "سبک", "ultrabook")):
         add("#سبک")
     if _has_any(all_text, ("tablet", "تبلت", "2-in-1", "convertible")):
         add("#تبلت_شو")
     if _has_any(all_text, ("render", "رندر", "workstation")):
-        add("#رندرینگ")
-        add("#رندر")
+        score("#رندرینگ", 10)
+        score("#رندر", 8)
     touch_enabled = _is_yes(specs.get("touch_screen"))
     pen_enabled = _is_yes(specs.get("pen_support"))
     x360_enabled = _is_yes(specs.get("x360"))
@@ -129,35 +134,35 @@ def generate_hashtags(
     if "vaio" in all_text:
         add("#VAIO")
 
-    # برچسب‌های کاربردی فقط با نشانه‌های واقعی محصول اضافه می‌شوند.
-    usage_tags = []
-    if is_laptop and not is_gaming:
-        if _has_any(all_text, ("student", "دانشجو", "دانشجویی")) or "i3" in cpu or "i5" in cpu:
-            usage_tags.append("#دانشجویی")
-        if _has_any(all_text, ("office", "اداری", "حسابداری", "business")) or "i3" in cpu or "i5" in cpu:
-            usage_tags.append("#اداری")
-        if _has_any(all_text, ("home", "خانگی", "منزل")) or (price > 0 and price <= 30_000_000 and not gpu):
-            usage_tags.extend(("#کاربری_روزانه", "#وبگردی"))
-        if len(usage_tags) < 2:
-            usage_tags.extend(("#کاربری_روزانه", "#وبگردی"))
-    elif is_gaming:
-        usage_tags.extend(("#گیمینگ", "#کاربری_روزانه"))
-    else:
-        usage_tags.extend(("#کاربری_روزانه", "#وبگردی"))
-    for tag in usage_tags:
-        add(tag)
+    # دسته‌های کاربردی فقط از شواهد محصول امتیاز می‌گیرند.
+    if _has_any(all_text, ("student", "دانشجو", "دانشجویی")):
+        score("#دانشجویی", 10)
+    if _has_any(all_text, ("school", "دانش_آموز", "دانش‌آموز", "دانش آموز")):
+        score("#دانش_آموزی", 10)
+    if _has_any(all_text, ("seminary", "طلبه", "طلبگی")):
+        score("#طلبگی", 10)
+    if _has_any(all_text, ("office", "اداری", "business")):
+        score("#اداری", 10)
     if _has_any(all_text, ("programming", "programmer", "برنامه نویسی", "برنامه‌نویسی", "کدنویسی", "developer")):
-        add("#برنامه_نویسی")
-    if is_laptop and not is_gaming and _has_any(all_text, ("student", "دانشجو", "دانشجویی")):
-        add("#دانشجویی")
-    if is_laptop and not is_gaming and _has_any(all_text, ("school", "دانش_آموز", "دانش‌آموز", "دانش آموز")):
-        add("#دانش_آموزی")
-    if is_laptop and not is_gaming and _has_any(all_text, ("seminary", "طلبه", "طلبگی")):
-        add("#طلبگی")
+        score("#برنامه_نویسی", 10)
     if _has_any(all_text, ("photoshop", "فتوشاپ", "illustrator", "ایلاستریتور", "graphic design", "طراحی")):
-        add("#طراحی_فتوشاپ")
+        score("#طراحی_فتوشاپ", 10)
     if _has_any(all_text, ("editing", "تدوین", "premiere", "پریمیر", "video")):
-        add("#تدوین")
+        score("#تدوین", 10)
+    if is_laptop and not is_gaming and ("i3" in cpu or "i5" in cpu):
+        score("#دانشجویی", 5)
+        score("#اداری", 5)
+    if is_laptop and not is_gaming and price > 0 and price <= 30_000_000 and not has_discrete_gpu:
+        score("#کاربری_روزانه", 7)
+        score("#وبگردی", 6)
+    if is_laptop and is_gaming and has_discrete_gpu:
+        score("#گرافیک", 6)
+
+    ranked_categories = sorted(
+        category_scores.items(), key=lambda item: (-item[1], item[0])
+    )
+    for tag, _ in ranked_categories[:max(2, min(4, max_hashtags))]:
+        add(tag)
 
     for generation in range(1, 15):
         if f"نسل{generation}" in all_text or re.search(rf"\b{generation}(?:th|st|nd|rd)\b", all_text):

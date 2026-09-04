@@ -274,7 +274,7 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
         text += f"\n📝 توضیحات:\n{product.description_custom}\n"
     
     # نمایش توضیحات AI اگر وجود داشته باشد
-    if product.ai_description or product.ai_pros or product.ai_cons:
+    if product.ai_description or product.ai_pros or product.ai_cons or product.ai_details:
         text += f"\n🤖 توضیحات AI ذخیره شده ✅\n"
 
     keyboard = [
@@ -288,7 +288,7 @@ async def _show_product_detail(query, product_id: int, telegram_user_id: int) ->
         ])
     
     # دکمه ویرایش توضیحات AI (اگر قبلاً ذخیره شده باشد)
-    if product.ai_description or product.ai_pros or product.ai_cons:
+    if product.ai_description or product.ai_pros or product.ai_cons or product.ai_details:
         keyboard.append([
             InlineKeyboardButton("✏️ ویرایش توضیحات AI", callback_data=f"ai_edit_saved_{product.id}")
         ])
