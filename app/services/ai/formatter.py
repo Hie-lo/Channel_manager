@@ -17,6 +17,10 @@ class AIDescription:
     pros: list[str] = field(default_factory=list)
     # cons برای همه کسب‌وکارها (N1-N2)
     cons: list[str] = field(default_factory=list)
+    cpu_detail: str = ""
+    suitable_for: list[str] = field(default_factory=list)
+    games: str = ""
+    software: str = ""
 
     @property
     def is_valid(self) -> bool:
@@ -38,6 +42,16 @@ class AIDescription:
         # توضیح اصلی
         if self.description:
             parts.append(f"📝 {self.description}")
+
+        if self.cpu_detail:
+            parts.extend(["", f"🧠 CPU: {self.cpu_detail}"])
+        if self.suitable_for:
+            parts.extend(["", "🎯 مناسب برای"])
+            parts.extend(f"• {item}" for item in self.suitable_for)
+        if self.games:
+            parts.extend(["", f"🎮 بازی‌ها: {self.games}"])
+        if self.software:
+            parts.extend(["", f"⚙️ نرم‌افزارها: {self.software}"])
 
         # ویژگی‌ها (اگر کسب‌وکار کامپیوتری باشه)
         if self.features:
@@ -101,6 +115,20 @@ def parse_ai_response(raw_response: str, business_key: str = "other") -> AIDescr
             content = _extract_content(line)
             if content:
                 result.description = content
+
+        elif re.match(r'^C\s*:', line):
+            result.cpu_detail = _extract_content(line)
+
+        elif re.match(r'^U\d*\s*:', line):
+            content = _extract_content(line)
+            if content:
+                result.suitable_for.append(content)
+
+        elif re.match(r'^G\s*:', line):
+            result.games = _extract_content(line)
+
+        elif re.match(r'^SW\s*:', line):
+            result.software = _extract_content(line)
 
         # پارس F1-F12 (ویژگی‌ها برای کامپیوتری)
         elif re.match(r'^F\d+\s*:', line):

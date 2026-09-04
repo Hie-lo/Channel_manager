@@ -212,6 +212,7 @@ class Product(Base):
     ai_description: Mapped[str | None] = mapped_column(Text, nullable=True)  # توضیح اصلی
     ai_pros: Mapped[list] = mapped_column(JSONB, default=list)  # لیست مزایا ["مزیت 1", "مزیت 2", ...]
     ai_cons: Mapped[list] = mapped_column(JSONB, default=list)  # لیست معایب ["معایب 1", "معایب 2", ...]
+    ai_details: Mapped[dict] = mapped_column(JSONB, default=dict)  # جزئیات تکمیلی AI برای قالب پست
     
     image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 

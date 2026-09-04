@@ -280,10 +280,17 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                             p.ai_description = ai_result.description.description
                             p.ai_pros = ai_result.description.features or ai_result.description.pros
                             p.ai_cons = ai_result.description.cons
+                            p.ai_details = {
+                                "cpu_detail": ai_result.description.cpu_detail,
+                                "suitable_for": ai_result.description.suitable_for,
+                                "games": ai_result.description.games,
+                                "software": ai_result.description.software,
+                            }
                             await session.commit()
                             product.ai_description = p.ai_description
                             product.ai_pros = p.ai_pros
                             product.ai_cons = p.ai_cons
+                            product.ai_details = p.ai_details
 
                         # لاگ
                         await log_ai_usage(

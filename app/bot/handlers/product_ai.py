@@ -389,6 +389,12 @@ async def ai_accept_result_callback(update: Update, context: ContextTypes.DEFAUL
         product.ai_description = ai_description_obj.description
         product.ai_pros = ai_description_obj.pros if ai_description_obj.pros else []
         product.ai_cons = ai_description_obj.cons if ai_description_obj.cons else []
+        product.ai_details = {
+            "cpu_detail": ai_description_obj.cpu_detail,
+            "suitable_for": ai_description_obj.suitable_for,
+            "games": ai_description_obj.games,
+            "software": ai_description_obj.software,
+        }
         
         # اگر features وجود داشت (کسب‌وکارهای کامپیوتری)، در pros ذخیره می‌کنیم
         if ai_description_obj.features:

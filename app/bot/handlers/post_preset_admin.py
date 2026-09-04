@@ -270,6 +270,8 @@ async def admin_preset_name_received_handler(update: Update, context: ContextTyp
         "دقیقاً مثل فایل‌های .txt فعلی، با <code>{placeholder}</code> بنویسش.\n"
         "مثال: <code>{product_name}</code>, <code>{price}</code>, "
         "<code>{specs.cpu}</code>, <code>{description_custom}</code>, "
+        "<code>{ai_cpu_detail}</code>, <code>{ai_suitable_for}</code>, "
+        "<code>{ai_games}</code>, <code>{ai_software}</code>, "
         "<code>{contact}</code>, <code>{hashtags}</code>",
         parse_mode="HTML",
     )

@@ -305,6 +305,7 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
         ai_description = flat.get("ai_description", "")
         ai_pros = flat.get("ai_pros") or []
         ai_cons = flat.get("ai_cons") or []
+        ai_details = flat.get("ai_details") or {}
         updated_at = flat.get("updated_at")
     else:
         flat = {
@@ -321,6 +322,7 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
         ai_description = getattr(product, "ai_description", "") or ""
         ai_pros = getattr(product, "ai_pros", None) or []
         ai_cons = getattr(product, "ai_cons", None) or []
+        ai_details = getattr(product, "ai_details", None) or {}
         updated_at = getattr(product, "updated_at", None)
 
     # مسطح‌سازی specs روی سطح بالا (دقیقاً مثل سیستم قدیمی .txt)
@@ -347,6 +349,10 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
     flat["ai_description"] = ai_description or ""
     flat["ai_features"] = "\n".join(f"🔹 {f}" for f in ai_pros) if ai_pros else ""
     flat["ai_cons"] = "\n".join(f"⚠️ {c}" for c in ai_cons) if ai_cons else ""
+    flat["ai_cpu_detail"] = ai_details.get("cpu_detail", "")
+    flat["ai_suitable_for"] = "\n".join(f"• {item}" for item in ai_details.get("suitable_for", []))
+    flat["ai_games"] = ai_details.get("games", "")
+    flat["ai_software"] = ai_details.get("software", "")
 
     business_key = getattr(business, "business_type_key", None) if business else None
     business_config = get_business(business_key) if business_key else None
