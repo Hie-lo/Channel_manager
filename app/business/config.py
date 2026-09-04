@@ -166,7 +166,7 @@ LAPTOP_SUBCATEGORY = SubCategory(
         BusinessField(key="weight", label_fa="وزن", emoji="⚖️", excel_column="Weight", required=False, aliases=WEIGHT_ALIASES),
     ] + COMMON_FIELDS_END,
     post_template_file="post_templates/computer_shop/laptop.txt",
-    static_hashtags=["#لپتاپ", "#کامپیوتر"],
+    static_hashtags=["#لپتاپ",],
 )
 
 

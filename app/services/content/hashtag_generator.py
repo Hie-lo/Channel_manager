@@ -68,7 +68,7 @@ def generate_hashtags(
             for tag in subcategory.static_hashtags:
                 add(tag)
     category_tags = {
-        "laptop": ("#لپتاپ", "#کامپیوتر"),
+        "laptop": ("#لپتاپ",),
         "prebuilt_pc": ("#کیس_آماده", "#کامپیوتر"),
         "monitor": ("#مانیتور",),
         "component": ("#قطعات_کامپیوتر",),
