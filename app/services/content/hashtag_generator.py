@@ -87,10 +87,8 @@ def generate_hashtags(
                 add(f"#{label}")
                 break
 
-    all_specs = " ".join(
-        f"{_text(key)} {_text(value)}" for key, value in specs.items()
-    )
-    all_text = f"{_text(getattr(product, 'product_name', ''))} {all_specs}"
+    all_values = " ".join(_text(value) for value in specs.values())
+    all_text = f"{_text(getattr(product, 'product_name', ''))} {all_values}"
     gpu = _text(specs.get("gpu") or specs.get("graphics"))
     cpu = _text(specs.get("cpu") or specs.get("processor"))
     is_laptop = subcategory_key == "laptop"
@@ -108,13 +106,13 @@ def generate_hashtags(
         add("#تبلت_شو")
     if _has_any(all_text, ("render", "رندر", "workstation")):
         add("#مخصوص_رندر")
-    if _has_any(all_text, ("touch", "لمسی")):
+    if _has_any(_text(specs.get("touch_screen")), ("yes", "true", "1", "بله", "دارد", "touch", "لمسی")):
         add("#Touch")
-    if _has_any(all_text, ("pen", "قلم")):
+    if _has_any(_text(specs.get("pen_support")), ("yes", "true", "1", "بله", "دارد", "pen", "قلم")):
         add("#Pen")
     if _has_any(all_text, ("chromebook", "کروم_بوک")):
         add("#CHROMEBOOK")
-    if _has_any(all_text, ("lte", "4g", "سیمکارت")):
+    if _has_any(_text(specs.get("lte")), ("yes", "true", "1", "بله", "دارد", "lte", "4g", "سیمکارت")):
         add("#LTE")
     if _has_any(all_text, ("new", "نو", "آکبند", "استوک نو")):
         add("#Brand_New")

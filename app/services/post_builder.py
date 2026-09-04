@@ -359,9 +359,9 @@ def render_post_from_text(product: Any, template_text: str, business: Any = None
         "dp": "DisplayPort",
         "vga_port": "VGA",
         "hdmi": "HDMI",
-        "thunderbolt": "USB-C/Thunderbolt",
+        "thunderbolt": "USB-C",
     }
-    ports_for_template = ("lan", "dp", "thunderbolt")
+    ports_for_template = ("lan", "dp", "thunderbolt","vga_port", "hdmi")
     selected_ports = []
     for port_key, port_name in port_names.items():
         raw_value = flat.get(port_key)
