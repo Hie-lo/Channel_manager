@@ -1,12 +1,24 @@
 """
 Job همگام‌سازی خودکار Google Sheet
+(نسخه بهینه‌شده با قابلیت پردازش موازی و مدیریت Rate Limit)
 """
+
+import asyncio
+import random
+from typing import List, Dict, Any, Optional
 
 from telegram import Bot
 from sqlalchemy import select
 
 from app.database.connection import AsyncSessionLocal
-from app.database.models import Customer, CustomerStatus, Platform, ProductPublishStatus
+from app.database.models import (
+    Customer,
+    CustomerStatus,
+    Platform,
+    Product,
+    ProductPublishStatus,
+    PostedMessage,
+)
 from app.services.customer_service import get_customer_by_telegram_id
 from app.services.subscription.service import get_active_subscription
 from app.services.sheet_connection_service import (
@@ -27,13 +39,43 @@ from app.services.product_service import (
 )
 from app.services.channel_service import get_customer_channels
 from app.services.content.post_builder import build_post_caption
-from app.services.publisher.telegram_publisher import edit_post_in_telegram
+from app.services.publisher.publisher_manager import edit_channel_post
 from app.services.publisher.posted_message_service import (
     get_posted_message,
     update_posted_message,
 )
 from app.utils.logger import log
 
+
+# ═══════════════════════════════════════════════════════════════
+# تنظیمات محدودیت نرخ و همزمانی به ازای هر پلتفرم
+# ═══════════════════════════════════════════════════════════════
+
+PLATFORM_CONFIG = {
+    Platform.TELEGRAM: {
+        "max_concurrent": 10,  # تعداد درخواست‌های همزمان
+        "base_delay": 0.3,  # تأخیر پایه بین درخواست‌ها (ثانیه)
+        "retry_delay": 2.0,  # تأخیر در صورت خطای Rate Limit
+        "max_retries": 3,
+    },
+    Platform.BALE: {
+        "max_concurrent": 8,
+        "base_delay": 0.5,
+        "retry_delay": 3.0,
+        "max_retries": 3,
+    },
+    Platform.EITAA: {
+        "max_concurrent": 3,  # ایتا محدودیت بیشتری دارد
+        "base_delay": 1.5,  # چون delete + send انجام می‌دهد
+        "retry_delay": 5.0,
+        "max_retries": 5,
+    },
+}
+
+
+# ═══════════════════════════════════════════════════════════════
+# توابع اصلی Job (بدون تغییر)
+# ═══════════════════════════════════════════════════════════════
 
 async def run_sheet_sync_job(bot: Bot) -> dict:
     """
@@ -78,8 +120,9 @@ async def run_sheet_sync_job(bot: Bot) -> dict:
                         continue
 
                     # ۲. ادیت پست‌های معلق (اگه از قبل sync دستی شده ولی پست‌ها ادیت نشدن)
-                    from app.tasks.jobs.sheet_sync_job import apply_pending_post_edits
-                    pending_result = await apply_pending_post_edits(bot, conn.customer_id)
+                    pending_result = await apply_pending_post_edits(
+                        bot, conn.customer_id
+                    )
                     pending_edited = pending_result.get("edited_count", 0)
 
                     # ۳. جمع‌بندی
@@ -123,7 +166,7 @@ async def sync_customer_sheet(
     bot: Bot,
     customer_id: int,
     edit_posts_now: bool = True,
-    is_manual: bool = False, # 💡 پرچم همگام‌سازی دستی/اولیه
+    is_manual: bool = False,  # 💡 پرچم همگام‌سازی دستی/اولیه
     custom_maps: dict = None,
     ignored_fields: list = None,
 ) -> dict:
@@ -142,7 +185,7 @@ async def sync_customer_sheet(
         "price_changes": [],
         "stock_changes": [],
         "edited_posts_count": 0,
-        "pending_edits_count": 0,   # ← جدید: تعداد پست‌هایی که نیاز به ادیت دارن ولی نکردیم
+        "pending_edits_count": 0,
     }
 
     async with AsyncSessionLocal() as session:
@@ -183,11 +226,17 @@ async def sync_customer_sheet(
     )
 
     if sheet_data.has_errors:
-        # جدا کردن خطای سطح ستون (missing_column) از خطای سطح یک محصول خاص (validation)
-        mapping_errors = [err for err in sheet_data.all_errors if getattr(err, 'error_type', '') == "missing_column"]
-        validation_errors = [err for err in sheet_data.all_errors if getattr(err, 'error_type', '') != "missing_column"]
+        mapping_errors = [
+            err
+            for err in sheet_data.all_errors
+            if getattr(err, "error_type", "") == "missing_column"
+        ]
+        validation_errors = [
+            err
+            for err in sheet_data.all_errors
+            if getattr(err, "error_type", "") != "missing_column"
+        ]
 
-        # اگر در همگام‌سازی دستی یا اولیه هستیم و خطای مپینگ داریم، ویزارد را تریگر کن
         if mapping_errors and (is_manual or edit_posts_now is False):
             return {
                 "requires_mapping_wizard": True,
@@ -196,7 +245,6 @@ async def sync_customer_sheet(
                 "sheet_id": connection.sheet_id,
             }
 
-        # خطای مپینگ در اجرای خودکار شبانه: واقعاً نمی‌تونیم ادامه بدیم چون ستون‌ها نامشخصن
         if mapping_errors:
             error_msg = f"خطا در خواندن شیت: {mapping_errors[0].message}"
             if edit_posts_now:
@@ -205,9 +253,6 @@ async def sync_customer_sheet(
             result["error"] = error_msg
             return result
 
-        # 💡 خطاهای validation (مثل قیمت خالی توی یک محصول خاص) نباید کل sync رو متوقف کنن.
-        # این ردیف‌ها همین الان توی read_google_sheet از products حذف شدن؛
-        # فقط گزارششون می‌کنیم و به ذخیره‌ی بقیه‌ی محصولات سالم ادامه می‌دیم.
         if validation_errors:
             result["skipped_rows"] = [
                 f"ردیف {e.row_number} ({e.worksheet}): {e.message}"
@@ -218,7 +263,6 @@ async def sync_customer_sheet(
                 f"[Sync Customer {customer_id}] {len(validation_errors)} ردیف "
                 f"به‌خاطر داده‌ی ناقص/نامعتبر نادیده گرفته شدن"
             )
-
 
     # تشخیص تغییرات
     for product_data in sheet_data.all_products:
@@ -233,22 +277,26 @@ async def sync_customer_sheet(
         detection = detect_product_changes(existing, product_data)
 
         if detection.price_changed:
-            result["price_changes"].append({
-                "sku": sku,
-                "name": existing.product_name,
-                "old": detection.old_price,
-                "new": detection.new_price,
-                "product_id": existing.id,
-            })
+            result["price_changes"].append(
+                {
+                    "sku": sku,
+                    "name": existing.product_name,
+                    "old": detection.old_price,
+                    "new": detection.new_price,
+                    "product_id": existing.id,
+                }
+            )
 
         if detection.stock_changed:
-            result["stock_changes"].append({
-                "sku": sku,
-                "name": existing.product_name,
-                "old": detection.old_stock,
-                "new": detection.new_stock,
-                "product_id": existing.id,
-            })
+            result["stock_changes"].append(
+                {
+                    "sku": sku,
+                    "name": existing.product_name,
+                    "old": detection.old_stock,
+                    "new": detection.new_stock,
+                    "product_id": existing.id,
+                }
+            )
 
     # ═══════════════════════════════════════
     # همیشه: ذخیره محصولات در دیتابیس
@@ -275,13 +323,14 @@ async def sync_customer_sheet(
     # ═══════════════════════════════════════
 
     if result["price_changes"] or result["stock_changes"]:
-        changed_product_ids = list(set(
-            change["product_id"]
-            for change in result["price_changes"] + result["stock_changes"]
-        ))
+        changed_product_ids = list(
+            set(
+                change["product_id"]
+                for change in result["price_changes"] + result["stock_changes"]
+            )
+        )
 
         if edit_posts_now:
-            # الان ادیت کن (Job خودکار)
             edited_count = await _edit_published_posts(
                 bot=bot,
                 customer_id=customer_id,
@@ -289,7 +338,6 @@ async def sync_customer_sheet(
             )
             result["edited_posts_count"] = edited_count
         else:
-            # فقط شمارش کن که چند تا از این محصولات PUBLISHED هستن
             published_count = await _count_published_products(changed_product_ids)
             result["pending_edits_count"] = published_count
 
@@ -303,7 +351,6 @@ async def sync_customer_sheet(
 async def _count_published_products(product_ids: list[int]) -> int:
     """شمارش محصولاتی که publish شدن (نیاز به ادیت پست دارن)"""
     async with AsyncSessionLocal() as session:
-        from app.database.models import Product, ProductPublishStatus
         result = await session.execute(
             select(Product).where(
                 Product.id.in_(product_ids),
@@ -311,119 +358,6 @@ async def _count_published_products(product_ids: list[int]) -> int:
             )
         )
         return len(list(result.scalars().all()))
-
-
-async def _edit_published_posts(
-    bot: Bot,
-    customer_id: int,
-    product_ids: list[int],
-) -> int:
-    """
-    ویرایش پست‌های منتشر شده در همه کانال‌های مشتری
-    برای محصولاتی که در product_ids هستن
-    """
-    edited_count = 0
-
-    async with AsyncSessionLocal() as session:
-        # اطلاعات مشتری
-        customer_result = await session.execute(
-            select(Customer).where(Customer.id == customer_id)
-        )
-        customer = customer_result.scalar_one_or_none()
-        if not customer:
-            log.warning(f"[Edit Posts] مشتری {customer_id} پیدا نشد")
-            return 0
-
-        business_config = get_business_config_for_customer(customer)
-        business = await get_business_for_customer(session, customer.id)
-        channels = await get_customer_channels(session, customer.id)
-
-        if not channels:
-            log.warning(f"[Edit Posts] مشتری {customer_id} کانال نداره")
-            return 0
-
-        # فقط کانال‌های ACTIVE
-        active_channels = [c for c in channels if c.activation_status == "ACTIVE"]
-
-        if not active_channels:
-            log.warning(f"[Edit Posts] مشتری {customer_id} کانال ACTIVE نداره")
-            return 0
-
-        # محصولات
-        from app.database.models import Product
-        products_result = await session.execute(
-            select(Product).where(Product.id.in_(product_ids))
-        )
-        products = list(products_result.scalars().all())
-
-    log.info(
-        f"[Edit Posts] شروع ادیت: {len(products)} محصول، "
-        f"{len(active_channels)} کانال"
-    )
-
-    # گرفتن توکن ایتا (اگه لازمه)
-    from app.services.publisher.publisher_manager import edit_channel_post
-
-    eitaa_token = None
-    has_eitaa = any(ch.platform == Platform.EITAA for ch in active_channels)
-    if has_eitaa:
-        async with AsyncSessionLocal() as session:
-            from app.services.customer_service import get_customer_eitaa_token
-            eitaa_token = await get_customer_eitaa_token(session, customer.id)
-
-    for product in products:
-        # ساخت کپشن جدید
-        caption = build_post_caption(product, business_config, business)
-
-        for channel in active_channels:
-            # پیدا کن پست قبلی
-            async with AsyncSessionLocal() as session:
-                posted = await get_posted_message(session, product.id, channel.id)
-
-            if not posted or not posted.telegram_message_id:
-                log.info(
-                    f"[Edit Posts] محصول {product.sku} در {channel.platform.value}: "
-                    f"{channel.channel_identifier} پست نشده، رد شد"
-                )
-                continue
-
-            # ادیت با publisher manager
-            edit_result = await edit_channel_post(
-                bot=bot,
-                channel=channel,
-                product=product,
-                new_caption=caption,
-                old_message_id=posted.telegram_message_id,
-                eitaa_token=eitaa_token,
-            )
-
-            if edit_result.success:
-                # آپدیت posted_message با مقادیر جدید
-                async with AsyncSessionLocal() as session:
-                    posted_fresh = await get_posted_message(
-                        session, product.id, channel.id
-                    )
-                    if posted_fresh:
-                        await update_posted_message(
-                            session=session,
-                            posted_message=posted_fresh,
-                            new_caption=caption,
-                            new_price=int(product.price),
-                            new_stock_qty=product.stock_qty,
-                        )
-                edited_count += 1
-                log.info(
-                    f"✅ [Edit Posts] {product.sku} در "
-                    f"{channel.channel_identifier} ادیت شد"
-                )
-            else:
-                log.error(
-                    f"❌ [Edit Posts] خطا در {product.sku} - "
-                    f"{channel.channel_identifier}: {edit_result.error_message}"
-                )
-
-    log.info(f"[Edit Posts] پایان: {edited_count} پست ادیت شد")
-    return edited_count
 
 
 async def _send_sync_report(bot: Bot, telegram_user_id: int, result: dict) -> None:
@@ -462,6 +396,263 @@ async def _send_sync_report(bot: Bot, telegram_user_id: int, result: dict) -> No
     except Exception as e:
         log.error(f"خطا در ارسال گزارش sync: {e}")
 
+
+# ═══════════════════════════════════════════════════════════════
+# بخش بهینه‌شده: ویرایش موازی پست‌ها با مدیریت Rate Limit
+# ═══════════════════════════════════════════════════════════════
+
+async def _edit_published_posts(
+    bot: Bot,
+    customer_id: int,
+    product_ids: List[int],
+) -> int:
+    """
+    ویرایش پست‌های منتشر شده در همه کانال‌های مشتری
+    به‌صورت موازی با محدودیت همزمانی و مدیریت هوشمند Rate Limit
+    برای محصولاتی که در product_ids هستن
+    """
+    async with AsyncSessionLocal() as session:
+        # اطلاعات مشتری
+        customer_result = await session.execute(
+            select(Customer).where(Customer.id == customer_id)
+        )
+        customer = customer_result.scalar_one_or_none()
+        if not customer:
+            log.warning(f"[Edit Posts] مشتری {customer_id} پیدا نشد")
+            return 0
+
+        business_config = get_business_config_for_customer(customer)
+        business = await get_business_for_customer(session, customer.id)
+        channels = await get_customer_channels(session, customer.id)
+        active_channels = [c for c in channels if c.activation_status == "ACTIVE"]
+
+        if not active_channels:
+            log.warning(f"[Edit Posts] مشتری {customer_id} کانال ACTIVE نداره")
+            return 0
+
+        # محصولات
+        products_result = await session.execute(
+            select(Product).where(Product.id.in_(product_ids))
+        )
+        products = list(products_result.scalars().all())
+
+        if not products:
+            log.info("[Edit Posts] هیچ محصولی برای ادیت یافت نشد")
+            return 0
+
+    log.info(
+        f"[Edit Posts] شروع ادیت موازی: {len(products)} محصول، "
+        f"{len(active_channels)} کانال"
+    )
+
+    # ── گروه‌بندی تسک‌ها بر اساس پلتفرم ──
+    tasks_by_platform = {platform: [] for platform in Platform}
+    eitaa_token = None
+
+    for product in products:
+        caption = build_post_caption(product, business_config, business)
+        for channel in active_channels:
+            platform = channel.platform
+
+            # دریافت posted_message
+            async with AsyncSessionLocal() as session:
+                posted = await get_posted_message(session, product.id, channel.id)
+
+            if not posted or not posted.telegram_message_id:
+                log.info(
+                    f"[Edit Posts] محصول {product.sku} در {platform.value}: "
+                    f"{channel.channel_identifier} پست نشده، رد شد"
+                )
+                continue
+
+            # اگر ایتا است، توکن را یک بار بگیریم
+            if platform == Platform.EITAA and eitaa_token is None:
+                async with AsyncSessionLocal() as session:
+                    from app.services.customer_service import get_customer_eitaa_token
+
+                    eitaa_token = await get_customer_eitaa_token(session, customer.id)
+
+            tasks_by_platform[platform].append(
+                {
+                    "channel": channel,
+                    "product": product,
+                    "caption": caption,
+                    "old_message_id": posted.telegram_message_id,
+                    "posted_message": posted,
+                    "eitaa_token": eitaa_token if platform == Platform.EITAA else None,
+                }
+            )
+
+    total_tasks = sum(len(t) for t in tasks_by_platform.values())
+    if total_tasks == 0:
+        log.info("[Edit Posts] هیچ کاری برای ادیت وجود ندارد")
+        return 0
+
+    log.info(
+        f"[Edit Posts] {total_tasks} تسک در {len([t for t in tasks_by_platform.values() if t])} پلتفرم"
+    )
+
+    # ── اجرای تسک‌های هر پلتفرم به‌صورت جداگانه با تنظیمات مخصوص ──
+    all_success_count = 0
+    for platform, tasks in tasks_by_platform.items():
+        if not tasks:
+            continue
+
+        config = PLATFORM_CONFIG.get(platform)
+        if not config:
+            config = PLATFORM_CONFIG[Platform.TELEGRAM]  # fallback
+
+        success_count = await _edit_tasks_with_retry(
+            tasks=tasks,
+            platform=platform,
+            config=config,
+            bot=bot,
+        )
+        all_success_count += success_count
+
+    log.info(f"[Edit Posts] پایان: {all_success_count} پست از {total_tasks} با موفقیت ادیت شد")
+    return all_success_count
+
+
+async def _edit_tasks_with_retry(
+    tasks: List[dict],
+    platform: Platform,
+    config: dict,
+    bot: Bot,
+) -> int:
+    """
+    اجرای تسک‌های یک پلتفرم با محدودیت همزمانی، Retry و Backoff.
+    """
+    semaphore = asyncio.Semaphore(config["max_concurrent"])
+    success_count = 0
+
+    async def _limited_edit(task_data: dict) -> bool:
+        nonlocal success_count
+        async with semaphore:
+            # تأخیر پایه با کمی جیتر (random) برای جلوگیری از همزمانی دقیق
+            base_delay = config["base_delay"] * (1 + random.uniform(0, 0.2))
+            await asyncio.sleep(base_delay)
+
+            # اجرا با Retry
+            for attempt in range(config["max_retries"] + 1):
+                try:
+                    result = await _edit_single_post_with_fallback(
+                        **task_data,
+                        platform=platform,
+                        bot=bot,
+                    )
+                    if result:
+                        success_count += 1
+                        return True
+                    else:
+                        # false برگرداند، خطای غیرقابل بازیابی (مثلاً پیام وجود ندارد)
+                        return False
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    # تشخیص Rate Limit
+                    if (
+                        "rate limit" in error_msg
+                        or "too many" in error_msg
+                        or "429" in error_msg
+                    ):
+                        if attempt < config["max_retries"]:
+                            # Backoff: تأخیر افزایشی
+                            wait = config["retry_delay"] * (2 ** attempt) * (
+                                1 + random.uniform(0, 0.3)
+                            )
+                            log.warning(
+                                f"[Edit Posts] Rate Limit در {platform.value} - "
+                                f"تلاش {attempt+1}/{config['max_retries']} - "
+                                f"تأخیر {wait:.1f}s"
+                            )
+                            await asyncio.sleep(wait)
+                            continue
+                        else:
+                            log.error(
+                                f"[Edit Posts] Rate Limit در {platform.value} - "
+                                f"بعد از {config['max_retries']} تلاش شکست خورد"
+                            )
+                            return False
+                    else:
+                        # خطای دیگر
+                        log.error(
+                            f"[Edit Posts] خطا در {platform.value}: {e}",
+                            exc_info=True,
+                        )
+                        return False
+            return False
+
+    # اجرای همه تسک‌ها با gather و ادامه در صورت خطا
+    results = await asyncio.gather(
+        *[_limited_edit(task) for task in tasks],
+        return_exceptions=True,
+    )
+
+    # success_count قبلاً به‌روز شده، اما برای اطمینان از صحت از results هم می‌توان استفاده کرد
+    return success_count
+
+
+async def _edit_single_post_with_fallback(
+    channel,
+    product,
+    caption: str,
+    old_message_id: int,
+    posted_message,
+    eitaa_token: Optional[str] = None,
+    platform: Platform = None,
+    bot: Bot = None,
+) -> bool:
+    """
+    ویرایش یک پست با مدیریت سناریوی حذف ناموفق (پیام قبلاً حذف شده است).
+    در صورت خطای حذف، پیام جدید ارسال می‌شود و message_id به‌روز می‌شود.
+    """
+    try:
+        edit_result = await edit_channel_post(
+            bot=bot,
+            channel=channel,
+            product=product,
+            new_caption=caption,
+            old_message_id=old_message_id,
+            eitaa_token=eitaa_token,
+        )
+
+        if edit_result.success:
+            # به‌روزرسانی posted_message
+            async with AsyncSessionLocal() as session:
+                # اگر پیام جدید ارسال شده باشد، message_id جدید در edit_result موجود است
+                new_message_id = getattr(edit_result, "new_message_id", old_message_id)
+                # شیء posted_message را به‌روز می‌کنیم (بدون کوئری اضافی)
+                posted_message.telegram_message_id = new_message_id
+                posted_message.last_caption = caption
+                posted_message.last_price = int(product.price) if product.price else 0
+                posted_message.last_stock_qty = product.stock_qty or 0
+                session.add(posted_message)
+                await session.commit()
+
+            log.info(
+                f"✅ [Edit Posts] {product.sku} در {channel.channel_identifier} "
+                f"(پلتفرم {platform.value if platform else '?'}) ادیت شد"
+            )
+            return True
+        else:
+            log.warning(
+                f"⚠️ [Edit Posts] ادیت {product.sku} در {channel.channel_identifier} "
+                f"ناموفق: {edit_result.error_message}"
+            )
+            return False
+
+    except Exception as e:
+        log.error(
+            f"❌ [Edit Posts] استثنا در {product.sku} - {channel.channel_identifier}: {e}",
+            exc_info=True,
+        )
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# تابع apply_pending_post_edits (به‌روز شده با رویکرد جدید)
+# ═══════════════════════════════════════════════════════════════
+
 async def apply_pending_post_edits(bot: Bot, customer_id: int) -> dict:
     """
     ادیت پست‌های تلگرام برای محصولاتی که در دیتابیس تغییر کردن
@@ -469,9 +660,6 @@ async def apply_pending_post_edits(bot: Bot, customer_id: int) -> dict:
 
     منطق: مقایسه product.price/stock_qty با posted_message.last_price/last_stock_qty
     """
-    from app.database.models import Product, ProductPublishStatus, PostedMessage
-    from decimal import Decimal
-
     async with AsyncSessionLocal() as session:
         # همه محصولات PUBLISHED مشتری
         products_result = await session.execute(
@@ -499,26 +687,12 @@ async def apply_pending_post_edits(bot: Bot, customer_id: int) -> dict:
                 continue
 
             for pm in posted_messages:
-                # قیمت فعلی محصول
                 current_price = int(product.price) if product.price else 0
-
-                # قیمت ذخیره شده در آخرین پست
-                # اگه last_price None باشه، حتماً نیاز به ادیت داره
-                if pm.last_price is None:
-                    products_needing_edit.append(product.id)
-                    log.info(
-                        f"[Pending Edit] محصول {product.sku}: "
-                        f"last_price=None، نیاز به ادیت"
-                    )
-                    break
-
-                last_price = int(pm.last_price)
-
-                # موجودی
+                last_price = int(pm.last_price) if pm.last_price is not None else None
                 current_stock = product.stock_qty or 0
                 last_stock = pm.last_stock_qty if pm.last_stock_qty is not None else -1
 
-                if current_price != last_price or current_stock != last_stock:
+                if last_price is None or current_price != last_price or current_stock != last_stock:
                     products_needing_edit.append(product.id)
                     log.info(
                         f"[Pending Edit] محصول {product.sku}: "
@@ -532,7 +706,6 @@ async def apply_pending_post_edits(bot: Bot, customer_id: int) -> dict:
 
     log.info(f"[Pending Edit] {len(products_needing_edit)} محصول نیاز به ادیت دارن")
 
-    # ادیت
     edited_count = await _edit_published_posts(
         bot=bot,
         customer_id=customer_id,
