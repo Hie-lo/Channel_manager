@@ -629,11 +629,10 @@ async def _publish_or_edit(bot, product, channel, caption):
         
         # تصمیم‌گیری: delete+repost یا edit؟
         # - ایتا: همیشه delete+repost (API edit نداره)
-        # - بله/تلگرام: فقط اگه media تغییر کرد → delete+repost
-        #               اگه فقط متن تغییر کرد → edit
+        # - بله/تلگرام: اگه media تغییر کرد → delete+repost | وگرنه → edit
         needs_repost = (
             (channel.platform == Platform.EITAA) or  # ایتا همیشه repost
-            (media_changed and channel.platform in [Platform.BALE, Platform.TELEGRAM])  # media تغییر کرد
+            media_changed  # هر پلتفرمی که media تغییر کرده
         )
         
         if needs_repost:
