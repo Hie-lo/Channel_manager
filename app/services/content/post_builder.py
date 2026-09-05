@@ -96,7 +96,6 @@ def _prepare_template_values(
         "price": _format_price(int(product.price)),
         "stock_status": _get_stock_status(product),
         "update_date": _format_date(product.updated_at),
-        "phone": "{phone}",
     }
 
     # مقادیر از specs
