@@ -635,45 +635,7 @@ async def _edit_single_post_with_fallback(
             )
             return True
         else:
-            error_text = (edit_result.error_message or "").lower()
-            deleted_message = any(
-                marker in error_text
-                for marker in (
-                    "[bale_missing_message]",
-                    "message_id_invalid",
-                    "message id invalid",
-                    "message to edit not found",
-                    "پست قابل ویرایش پیدا نشد",
-                )
-            )
-            if platform in (Platform.TELEGRAM, Platform.BALE) and deleted_message:
-                log.warning(
-                    f"[Edit Posts] پیام {platform.value} حذف شده؛ ارسال مجدد در "
-                    f"{channel.channel_identifier}"
-                )
-                repost_result = await publish_to_channel(
-                    bot=bot,
-                    channel=channel,
-                    product=product,
-                    caption=caption,
-                    eitaa_token=eitaa_token,
-                )
-                if repost_result.success and repost_result.message_id:
-                    async with AsyncSessionLocal() as session:
-                        posted_message.telegram_message_id = repost_result.message_id
-                        posted_message.last_caption = caption
-                        posted_message.last_price = int(product.price) if product.price else 0
-                        posted_message.last_stock_qty = product.stock_qty or 0
-                        session.add(posted_message)
-                        await session.commit()
-
-                    log.info(
-                        f"✅ [Edit Posts] پست {platform.value} دوباره ارسال و "
-                        f"شناسه آن به‌روز شد: "
-                        f"{channel.channel_identifier}"
-                    )
-                    return True
-
+            # ادیت ناموفق - بدون تلاش برای repost
             log.warning(
                 f"⚠️ [Edit Posts] ادیت {product.sku} در {channel.channel_identifier} "
                 f"ناموفق: {edit_result.error_message}"
