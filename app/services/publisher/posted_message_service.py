@@ -37,6 +37,7 @@ async def create_posted_message(
     stock_qty: int,
     platform: Platform = Platform.TELEGRAM,
     message_ids: list[int] | None = None,
+    media_hash: str | None = None,
 ) -> PostedMessage:
     """ایجاد رکورد پست ارسال شده"""
     now = utc_now_naive()
@@ -50,6 +51,7 @@ async def create_posted_message(
         last_caption=caption,
         last_price=price,
         last_stock_qty=stock_qty,
+        last_media_hash=media_hash or "",
         status="ACTIVE",
         created_at=now,
         updated_at=now,
@@ -71,11 +73,14 @@ async def update_posted_message(
     new_caption: str,
     new_price: int,
     new_stock_qty: int,
+    new_media_hash: str | None = None,
 ) -> PostedMessage:
     """آپدیت رکورد پست بعد از ویرایش"""
     posted_message.last_caption = new_caption
     posted_message.last_price = new_price
     posted_message.last_stock_qty = new_stock_qty
+    if new_media_hash is not None:
+        posted_message.last_media_hash = new_media_hash
     posted_message.updated_at = utc_now_naive()
 
     await session.commit()
