@@ -357,12 +357,23 @@ def get_subcategory(business_key: str, subcategory_key: str) -> SubCategory | No
 
 def get_subcategory_by_worksheet(business_key: str, worksheet_name: str) -> SubCategory | None:
     """پیدا کردن زیردسته بر اساس نام worksheet"""
+    from app.utils.logger import log
+    
     business = get_business(business_key)
     if not business:
+        log.warning(f"🔍 [Config Debug] Business '{business_key}' not found!")
         return None
+    
+    log.info(f"🔍 [Config Debug] Searching for worksheet '{worksheet_name}' in business '{business_key}'")
+    log.info(f"🔍 [Config Debug] Available worksheets: {[sc.worksheet_name for sc in business.sub_categories]}")
+    
     for sc in business.sub_categories:
+        log.info(f"🔍 [Config Debug] Comparing '{sc.worksheet_name.lower()}' == '{worksheet_name.lower()}'")
         if sc.worksheet_name.lower() == worksheet_name.lower():
+            log.info(f"🔍 [Config Debug] MATCH FOUND! Subcategory: {sc.key}")
             return sc
+    
+    log.warning(f"🔍 [Config Debug] NO MATCH for '{worksheet_name}' in business '{business_key}'")
     return None
 
 

@@ -158,13 +158,20 @@ def read_google_sheet(
     try:
         spreadsheet = client.open_by_key(sheet_id)
 
+        # 🔍 Debug: log all worksheet names found
+        all_worksheet_names = [ws.title for ws in spreadsheet.worksheets()]
+        log.info(f"🔍 [Sheet Debug] All worksheets found: {all_worksheet_names}")
+
         for worksheet in spreadsheet.worksheets():
             sheet_name = worksheet.title
+            log.info(f"🔍 [Sheet Debug] Processing worksheet: '{sheet_name}'")
 
             if sheet_name.strip().lower() in IGNORED_WORKSHEET_NAMES:
+                log.info(f"🔍 [Sheet Debug] '{sheet_name}' is in IGNORED list, skipping")
                 continue
 
             subcategory = get_subcategory_by_worksheet(business_config.key, sheet_name)
+            log.info(f"🔍 [Sheet Debug] Subcategory for '{sheet_name}': {subcategory.key if subcategory else None}")
             
             if not subcategory and business_config.key == "other":
                 if business_config.sub_categories:

@@ -392,7 +392,7 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
             final_text = (
                 f"✅ اتصال و همگام‌سازی کامل شد!\n"
                 f"━━━━━━━━━━━━━━━\n"
-                f" شیت: {result.sheet_title}\n"
+                f"📊 شیت: {result.sheet_title}\n"
                 f"📄 صفحه‌های فعال: {len(recognized_sheets)}\n"
                 f"━━━━━━━━━━━━━━━\n\n"
                 f"📊 نتیجه همگام‌سازی:\n"
@@ -404,12 +404,12 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
 
             if new_count > 0:
                 final_text += (
-                    f" {new_count} محصول جدید به سیستم اضافه شد!\n\n"
+                    f"✅ {new_count} محصول جدید به سیستم اضافه شد!\n\n"
                     f"از این به بعد:\n"
-                    f"├── هر  ساعت خودکار همگام‌سازی میشه\n"
+                    f"├── هر ۲ ساعت خودکار همگام‌سازی میشه\n"
                     f"├── تغییر قیمت/موجودی در شیت → آپدیت پست‌ها\n"
                     f"└── محصولات جدید → اضافه به سیستم\n\n"
-                    f"💡 برای دیدن محصولات از ' مدیریت محصولات'"
+                    f"💡 برای دیدن محصولات از '📦 مدیریت محصولات' استفاده کنید."
                 )
             else:
                 final_text += (
