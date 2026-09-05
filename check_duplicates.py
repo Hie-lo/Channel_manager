@@ -3,6 +3,33 @@ Script to check for duplicate customer records in the database
 Run this to diagnose the MultipleResultsFound issue
 """
 import asyncio
+import sys
+import os
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+# Load environment variables from .env.production if it exists
+from dotenv import load_dotenv
+env_file = project_root / ".env.production"
+if env_file.exists():
+    print(f"📝 Loading environment from: {env_file}")
+    load_dotenv(env_file)
+else:
+    print(f"📝 Loading environment from: .env")
+    load_dotenv()
+
+# Verify DATABASE_URL is set
+db_url = os.getenv("DATABASE_URL")
+if not db_url:
+    print("❌ ERROR: DATABASE_URL not found in environment variables!")
+    print("Make sure .env or .env.production file exists with DATABASE_URL set.")
+    sys.exit(1)
+
+print(f"✅ DATABASE_URL found: {db_url[:30]}...\n")
+
 from sqlalchemy import select, func
 from app.database.connection import AsyncSessionLocal
 from app.database.models import Customer, Channel, PostedMessage
