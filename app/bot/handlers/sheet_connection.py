@@ -343,8 +343,9 @@ async def sheet_url_received_handler(update: Update, context: ContextTypes.DEFAU
     )
 
      # مرحله بعد: شروع همگام‌سازی اولیه
-    connection_text += (
-        f"\n━━━━━━━━━━━━━━━\n\n"
+    connection_text = (
+        f"✅ اتصال برقرار شد!\n"
+        f"━━━━━━━━━━━━━━━\n\n"
         f"🔄 در حال شروع همگام‌سازی اولیه...\n"
         f"لطفاً چند لحظه صبر کنید."
     )
