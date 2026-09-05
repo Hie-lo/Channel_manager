@@ -367,6 +367,10 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
         channel = channels[idx]
         
         if result.success and result.message_id:
+            # محاسبه hash عکس
+            from app.services.media_hash import calculate_media_hash
+            media_hash = await calculate_media_hash(product, channel.platform)
+            
             # ذخیره در posted_messages
             async with AsyncSessionLocal() as session:
                 await create_posted_message(
@@ -377,6 +381,9 @@ async def _process_customer_publish(bot: Bot, customer_id: int) -> str:
                     caption=caption,
                     price=int(product.price),
                     stock_qty=product.stock_qty,
+                    platform=channel.platform,
+                    message_ids=result.message_ids,
+                    media_hash=media_hash,
                 )
             any_success = True
             log.info(f"✅ [Customer {customer_id}] پست شد در {channel.platform.value}: {channel.channel_identifier}")

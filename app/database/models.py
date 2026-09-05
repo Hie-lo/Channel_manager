@@ -254,6 +254,9 @@ class PostedMessage(Base):
     last_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_price: Mapped[Numeric | None] = mapped_column(Numeric(18, 0), nullable=True)
     last_stock_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    
+    # هش عکس‌های آخرین پست برای تشخیص تغییر عکس (برای Bale و Eitaa)
+    last_media_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     status: Mapped[str] = mapped_column(String(30), default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
