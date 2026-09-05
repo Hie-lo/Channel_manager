@@ -469,7 +469,15 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
         selected_preset = await get_selected_preset(session, customer.id)
 
     # نمایش پیام "در حال ارسال"
-    await query.edit_message_text("⏳ در حال ارسال به کانال‌ها...")
+    try:
+        await query.edit_message_text("⏳ در حال ارسال به کانال‌ها...")
+    except Exception as e:
+        # اگر پیام قبلی عکس بود، نمی‌توانیم edit_message_text کنیم
+        # در این صورت یک پیام جدید ارسال می‌کنیم
+        if "no text" in str(e).lower():
+            await query.message.reply_text("⏳ در حال ارسال به کانال‌ها...")
+        else:
+            raise
 
     # ساخت کپشن
     preset_text = selected_preset.template_text if selected_preset else None
@@ -535,7 +543,14 @@ async def prod_publish_callback(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("🔙 بازگشت", callback_data=f"prod_view_{product.id}")],
     ]
 
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    try:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception as e:
+        # اگر پیام قبلی عکس بود
+        if "no text" in str(e).lower():
+            await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            raise
 
     # آپدیت وضعیت publish محصول اگه حداقل یک ارسال موفق بود
     if success_count > 0:
