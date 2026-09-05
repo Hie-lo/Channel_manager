@@ -560,7 +560,7 @@ async def _publish_or_edit(bot, product, channel, caption):
     اگه محصول قبلاً در این کانال پست شده → ویرایش
     اگه نه → ارسال جدید
 
-    پشتیبانی از تلگرام و ایتا
+    پشتیبانی از تلگرام، بله و ایتا
     """
     from app.services.publisher.publisher_manager import (
         publish_to_channel,
@@ -568,18 +568,29 @@ async def _publish_or_edit(bot, product, channel, caption):
     )
     from app.database.models import Platform
 
+    # ─── گرفتن داده‌های قبلی ───
     async with AsyncSessionLocal() as session:
         # چک قبلاً پست شده
         existing = await get_posted_message(session, product.id, channel.id)
+        
+        # کپی کردن مقادیر مهم (برای جلوگیری از مشکل detached object)
+        if existing:
+            existing_data = {
+                "id": existing.id,
+                "telegram_message_id": existing.telegram_message_id,
+                "telegram_message_ids": list(existing.telegram_message_ids or []),
+                "last_caption": existing.last_caption,
+                "last_price": existing.last_price,
+                "last_stock_qty": existing.last_stock_qty,
+                "last_media_hash": existing.last_media_hash or "",
+            }
+        else:
+            existing_data = None
 
         # گرفتن توکن ایتا (اگه کانال ایتاست)
         eitaa_token = None
         if channel.platform == Platform.EITAA:
-            from app.services.customer_service import (
-                get_customer_by_telegram_id,
-                get_customer_eitaa_token,
-            )
-            # از طریق customer_id کانال
+            from app.services.customer_service import get_customer_eitaa_token
             from app.database.models import Customer
             customer_result = await session.execute(
                 select(Customer).where(Customer.id == channel.customer_id)
@@ -590,25 +601,164 @@ async def _publish_or_edit(bot, product, channel, caption):
                 eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
     # ─── حالت ویرایش ───
-    if existing and existing.telegram_message_id:
+    if existing_data and existing_data["telegram_message_id"]:
+        # محاسبه hash عکس فعلی
+        from app.services.media_hash import calculate_media_hash
+        current_media_hash = await calculate_media_hash(product, channel.platform)
+        
+        # بررسی تغییرات (از existing_data استفاده می‌کنیم)
+        current_price = int(product.price) if product.price else 0
+        current_stock_qty = product.stock_qty or 0
+        
+        caption_changed = existing_data["last_caption"] != caption
+        price_changed = int(existing_data["last_price"] or 0) != current_price
+        stock_changed = (existing_data["last_stock_qty"] or 0) != current_stock_qty
+        media_changed = existing_data["last_media_hash"] != current_media_hash
+        
+        # 🔍 DEBUG LOG
+        log.info(
+            f"[Publish Debug] محصول {product.id} در کانال {channel.channel_identifier} ({channel.platform.value}):\n"
+            f"  caption_changed={caption_changed}\n"
+            f"  price_changed={price_changed}\n"
+            f"  stock_changed={stock_changed}\n"
+            f"  media_changed={media_changed}\n"
+            f"  telegram_message_id={existing_data['telegram_message_id']}"
+        )
+        
+        # اگه هیچ تغییری نکرده، هیچ کاری نکن
+        if not any([caption_changed, price_changed, stock_changed, media_changed]):
+            from app.services.publisher.telegram_publisher import PublishResult
+            log.info(
+                f"[Publish] محصول {product.id} در {channel.channel_identifier} "
+                "بدون تغییر است؛ عملیات ارسال/ادیت انجام نشد"
+            )
+            return PublishResult(
+                success=True,
+                message_id=existing_data["telegram_message_id"],
+            )
+        
+        # تصمیم‌گیری: delete+repost یا edit؟
+        # - ایتا: همیشه delete+repost (API edit نداره)
+        # - بله/تلگرام: اگه media تغییر کرد → delete+repost | وگرنه → edit
+        needs_repost = (
+            (channel.platform == Platform.EITAA) or  # ایتا همیشه repost
+            media_changed  # هر پلتفرمی که media تغییر کرده
+        )
+        
+        if needs_repost:
+            log.info(
+                f"[Publish] محصول {product.id} نیاز به repost دارد؛ "
+                f"(media_changed={media_changed}, platform={channel.platform.value}) "
+                f"حذف و ارسال مجدد در {channel.channel_identifier}"
+            )
+            
+            # حذف پست قبلی
+            try:
+                if channel.platform == Platform.BALE:
+                    from app.config import settings
+                    from telegram import Bot
+                    
+                    bale_bot = Bot(
+                        token=settings.BALE_BOT_TOKEN,
+                        base_url=settings.BALE_API_BASE,
+                        base_file_url=settings.BALE_FILE_API_BASE,
+                    )
+                    await bale_bot.initialize()
+                    
+                    try:
+                        # حذف پست(های) قبلی
+                        if existing_data["telegram_message_ids"] and len(existing_data["telegram_message_ids"]) > 1:
+                            # آلبوم - حذف همه پیام‌ها
+                            for msg_id in existing_data["telegram_message_ids"]:
+                                try:
+                                    await bale_bot.delete_message(
+                                        chat_id=channel.channel_identifier,
+                                        message_id=msg_id
+                                    )
+                                except Exception as e:
+                                    log.warning(f"خطا در حذف پیام {msg_id}: {e}")
+                        else:
+                            # تک عکس
+                            await bale_bot.delete_message(
+                                chat_id=channel.channel_identifier,
+                                message_id=existing_data["telegram_message_id"]
+                            )
+                    finally:
+                        await bale_bot.shutdown()
+                        
+                elif channel.platform == Platform.EITAA:
+                    # برای ایتا از همان روش موجود استفاده می‌کنیم
+                    pass
+                    
+            except Exception as e:
+                log.warning(f"[Publish] خطا در حذف پست قبلی: {e}")
+            
+            # حذف رکورد قدیمی
+            async with AsyncSessionLocal() as session:
+                existing_to_delete = await get_posted_message(session, product.id, channel.id)
+                if existing_to_delete:
+                    await session.delete(existing_to_delete)
+                    await session.commit()
+            
+            # ارسال جدید
+            repost_result = await publish_to_channel(
+                bot=bot,
+                channel=channel,
+                product=product,
+                caption=caption,
+                eitaa_token=eitaa_token,
+            )
+            
+            # ذخیره پست جدید
+            if repost_result.success and repost_result.message_id:
+                async with AsyncSessionLocal() as session:
+                    await create_posted_message(
+                        session=session,
+                        product_id=product.id,
+                        channel_id=channel.id,
+                        telegram_message_id=repost_result.message_id,
+                        caption=caption,
+                        price=int(product.price),
+                        stock_qty=product.stock_qty,
+                        media_hash=current_media_hash,
+                    )
+                    
+                    # ذخیره message_ids آلبوم
+                    if repost_result.message_ids and len(repost_result.message_ids) > 1:
+                        posted = await get_posted_message(session, product.id, channel.id)
+                        if posted:
+                            posted.telegram_message_ids = repost_result.message_ids
+                            await session.commit()
+            
+            from app.services.publisher.telegram_publisher import PublishResult
+            return PublishResult(
+                success=repost_result.success,
+                message_id=repost_result.message_id,
+                error_message=repost_result.error_message,
+            )
+        
+        # اگه فقط caption تغییر کرده، ویرایش کن
         result = await edit_channel_post(
             bot=bot,
             channel=channel,
             product=product,
             new_caption=caption,
-            old_message_id=existing.telegram_message_id,
+            old_message_id=existing_data["telegram_message_id"],
             eitaa_token=eitaa_token,
         )
 
         # اگه ویرایش موفق بود
         if result.success:
             # برای ایتا: message_id عوض میشه (delete + repost)
-            # برای تلگرام: message_id همون قبلی می‌مونه
-            new_msg_id = result.message_id if result.message_id else existing.telegram_message_id
+            # برای تلگرام/بله: message_id همون قبلی می‌مونه
+            new_msg_id = result.message_id if result.message_id else existing_data["telegram_message_id"]
 
             async with AsyncSessionLocal() as session:
                 posted_fresh = await get_posted_message(session, product.id, channel.id)
                 if posted_fresh:
+                    # محاسبه hash عکس جدید (اگه عکس عوض نشده همون قبلی میمونه)
+                    new_media_hash = await calculate_media_hash(product, channel.platform) if media_changed else posted_fresh.last_media_hash
+                    
                     # آپدیت message_id (برای ایتا حتماً عوض شده)
                     posted_fresh.telegram_message_id = new_msg_id
                     await update_posted_message(
@@ -617,6 +767,7 @@ async def _publish_or_edit(bot, product, channel, caption):
                         new_caption=caption,
                         new_price=int(product.price),
                         new_stock_qty=product.stock_qty,
+                        new_media_hash=new_media_hash,
                     )
 
         # تبدیل UnifiedPublishResult به فرمت سازگار
