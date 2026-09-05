@@ -627,10 +627,17 @@ async def _publish_or_edit(bot, product, channel, caption):
                 message_id=existing.telegram_message_id,
             )
         
-        # اگه عکس تغییر کرده، برای Bale و Eitaa باید delete + repost کنیم
-        if media_changed and channel.platform in [Platform.BALE, Platform.EITAA]:
+        # اگه عکس تغییر کرده یا پلتفرم Bale است، delete + repost کن
+        # (Bale را همیشه repost می‌کنیم چون edit غیرقابل اعتماد است)
+        needs_repost = (
+            media_changed or 
+            (channel.platform == Platform.BALE and any([caption_changed, price_changed, stock_changed]))
+        )
+        
+        if needs_repost and channel.platform in [Platform.BALE, Platform.EITAA]:
             log.info(
-                f"[Publish] عکس محصول {product.id} تغییر کرده؛ "
+                f"[Publish] محصول {product.id} نیاز به repost دارد؛ "
+                f"(media_changed={media_changed}, platform={channel.platform.value}) "
                 f"حذف و ارسال مجدد در {channel.channel_identifier}"
             )
             
@@ -766,6 +773,15 @@ async def _publish_or_edit(bot, product, channel, caption):
             log.info(
                 f"پیام قبلی پیدا نشد؛ ارسال مجدد محصول {product.id} به کانال {channel.id}"
             )
+            
+            # حذف رکورد قدیمی
+            async with AsyncSessionLocal() as session:
+                old_posted = await get_posted_message(session, product.id, channel.id)
+                if old_posted:
+                    await session.delete(old_posted)
+                    await session.commit()
+            
+            # ارسال جدید
             repost_result = await publish_to_channel(
                 bot=bot,
                 channel=channel,
@@ -773,18 +789,27 @@ async def _publish_or_edit(bot, product, channel, caption):
                 caption=caption,
                 eitaa_token=eitaa_token,
             )
+            
+            # ذخیره رکورد جدید
             if repost_result.success and repost_result.message_id:
+                # محاسبه hash عکس
+                from app.services.media_hash import calculate_media_hash
+                media_hash = await calculate_media_hash(product, channel.platform)
+                
                 async with AsyncSessionLocal() as session:
-                    posted_fresh = await get_posted_message(session, product.id, channel.id)
-                    if posted_fresh:
-                        posted_fresh.telegram_message_id = repost_result.message_id
-                        await update_posted_message(
-                            session=session,
-                            posted_message=posted_fresh,
-                            new_caption=caption,
-                            new_price=int(product.price),
-                            new_stock_qty=product.stock_qty,
-                        )
+                    await create_posted_message(
+                        session=session,
+                        product_id=product.id,
+                        channel_id=channel.id,
+                        telegram_message_id=repost_result.message_id,
+                        caption=caption,
+                        price=int(product.price),
+                        stock_qty=product.stock_qty,
+                        platform=channel.platform,
+                        message_ids=repost_result.message_ids,
+                        media_hash=media_hash,
+                    )
+                    
             result = repost_result
 
         # تبدیل UnifiedPublishResult به فرمت سازگار
