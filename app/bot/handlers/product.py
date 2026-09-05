@@ -9,7 +9,7 @@ from telegram.ext import ContextTypes
 from app.services.subscription.service import get_active_subscription
 from app.services.subscription.plans import get_plan
 from app.database.connection import AsyncSessionLocal
-from app.database.models import CustomerStatus, Product, ProductPublishStatus, Platform
+from app.database.models import CustomerStatus, Product, ProductPublishStatus, Platform, PostedMessage
 from app.services.customer_service import get_customer_by_telegram_id
 from app.services.product_service import (
     get_all_products_by_customer,
@@ -627,14 +627,16 @@ async def _publish_or_edit(bot, product, channel, caption):
                 message_id=existing.telegram_message_id,
             )
         
-        # اگه عکس تغییر کرده یا پلتفرم Bale است، delete + repost کن
-        # (Bale را همیشه repost می‌کنیم چون edit غیرقابل اعتماد است)
+        # تصمیم‌گیری: delete+repost یا edit؟
+        # - ایتا: همیشه delete+repost (API edit نداره)
+        # - بله/تلگرام: فقط اگه media تغییر کرد → delete+repost
+        #               اگه فقط متن تغییر کرد → edit
         needs_repost = (
-            media_changed or 
-            (channel.platform == Platform.BALE and any([caption_changed, price_changed, stock_changed]))
+            (channel.platform == Platform.EITAA) or  # ایتا همیشه repost
+            (media_changed and channel.platform in [Platform.BALE, Platform.TELEGRAM])  # media تغییر کرد
         )
         
-        if needs_repost and channel.platform in [Platform.BALE, Platform.EITAA]:
+        if needs_repost:
             log.info(
                 f"[Publish] محصول {product.id} نیاز به repost دارد؛ "
                 f"(media_changed={media_changed}, platform={channel.platform.value}) "
@@ -737,7 +739,7 @@ async def _publish_or_edit(bot, product, channel, caption):
         # اگه ویرایش موفق بود
         if result.success:
             # برای ایتا: message_id عوض میشه (delete + repost)
-            # برای تلگرام: message_id همون قبلی می‌مونه
+            # برای تلگرام/بله: message_id همون قبلی می‌مونه
             new_msg_id = result.message_id if result.message_id else existing.telegram_message_id
 
             async with AsyncSessionLocal() as session:
@@ -767,6 +769,7 @@ async def _publish_or_edit(bot, product, channel, caption):
                 "message to edit not found",
                 "پست قابل ویرایش پیدا نشد",
                 "[bale_missing_message]",
+                "[bale_needs_repost]",  # ← edge case: text-only → photo
             )
         )
         if not result.success and deleted_message:

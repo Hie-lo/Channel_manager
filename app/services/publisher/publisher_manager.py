@@ -725,10 +725,17 @@ async def _edit_bale_post(
     new_caption: str,
     old_message_id: int,
 ) -> UnifiedPublishResult:
-    """ویرایش پست بله"""
+    """
+    ویرایش پست بله با هندل کردن تمامی حالت‌های edge case:
+    1. پست قبلی text-only بود، الان عکس داره → نمیشه edit زد، باید delete+repost
+    2. پست قبلی عکس داشت، الان عکس نداره → edit_message_caption با خطا مواجه میشه
+    3. هر دو text-only → edit_message_text
+    4. هر دو عکس دارن → edit_message_caption
+    """
     from app.config import settings
     from app.services.product_media_service import get_product_medias
     from app.database.connection import AsyncSessionLocal
+    from app.database.models import PostedMessage
 
     actual_bot = bot
     is_temp_bot = False
@@ -755,11 +762,37 @@ async def _edit_bale_post(
 
         async with AsyncSessionLocal() as session:
             medias = await get_product_medias(session, product.id, Platform.BALE)
+            
+            # بررسی وضعیت پست قبلی: آیا text-only بود؟
+            posted_res = await session.execute(
+                select(PostedMessage).where(
+                    PostedMessage.product_id == product.id,
+                    PostedMessage.channel_id == channel.id
+                )
+            )
+            posted_rec = posted_res.scalar_one_or_none()
 
-        has_photo = len(medias) > 0 or bool(product.image_url)
+        has_photo_now = len(medias) > 0 or bool(product.image_url)
+        
+        # 🔍 تشخیص: آیا پست قبلی text-only بود؟
+        # اگه last_media_hash خالی باشه یعنی text-only بوده
+        was_text_only = (posted_rec and not posted_rec.last_media_hash)
+        
+        # ⚠️ Edge Case: پست قبلی text-only بود ولی الان عکس داره
+        # → نمیشه edit زد، باید caller delete+repost کنه
+        if was_text_only and has_photo_now:
+            log.warning(
+                f"[Bale Edit] پست قبلی text-only بود ولی الان عکس داره؛ "
+                f"نیاز به delete+repost"
+            )
+            return UnifiedPublishResult(
+                success=False,
+                platform=Platform.BALE,
+                error_message="[BALE_NEEDS_REPOST] پست قبلی text-only بود، نیاز به repost",
+            )
 
         try:
-            if has_photo:
+            if has_photo_now:
                 await actual_bot.edit_message_caption(
                     chat_id=channel.channel_identifier,
                     message_id=old_message_id,
@@ -781,12 +814,30 @@ async def _edit_bale_post(
 
         except Exception as e:
             error_msg = str(e).lower()
+            
             if "message is not modified" in error_msg:
                 return UnifiedPublishResult(
                     success=True,
                     message_id=old_message_id,
                     platform=Platform.BALE,
                 )
+            
+            # 💡 اگه caption ندارد، یعنی text-only بوده، تلاش مجدد با edit_text
+            if "no caption" in error_msg or "message has no caption" in error_msg:
+                log.warning("[Bale Edit] پست بدون caption، تلاش مجدد با edit_text...")
+                try:
+                    await actual_bot.edit_message_text(
+                        chat_id=channel.channel_identifier,
+                        message_id=old_message_id,
+                        text=new_caption,
+                    )
+                    return UnifiedPublishResult(
+                        success=True,
+                        message_id=old_message_id,
+                        platform=Platform.BALE,
+                    )
+                except Exception as retry_e:
+                    log.error(f"[Bale Edit] تلاش مجدد با edit_text هم ناموفق: {retry_e}")
 
             if "permission_denied" in error_msg or "forbidden" in error_msg:
                 try:
