@@ -50,13 +50,11 @@ def build_post_caption(
 
     try:
         post_text = template.format(**values)
-    except KeyError as e:
-        log.error(f"کلید ناشناخته در قالب: {e}, sub_category: {product.sub_category_key}")
-        return _fallback_post(product, business_config)
-    except IndexError as e:
-        log.error(f"خطای فرمت در قالب: {e}, sub_category: {product.sub_category_key}")
-        log.error(f"Template values keys: {list(values.keys())}")
-        log.error(f"Problematic values with braces: {[k for k, v in values.items() if isinstance(v, str) and '{' in str(v)]}") 
+    except (KeyError, IndexError, ValueError) as e:
+        log.warning(
+            f"⚠️ [Post Template] محصول {product.sku} دارای داده نامعتبر است، "
+            f"از fallback استفاده می‌شود. خطا: {type(e).__name__}: {e}"
+        )
         return _fallback_post(product, business_config)
 
     return _clean_empty_lines(post_text)

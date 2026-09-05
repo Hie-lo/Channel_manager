@@ -13,7 +13,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     """هندلر مرکزی خطاها"""
 
     error = context.error
-    log.error(f"خطا در پردازش آپدیت: {type(error).__name__}: {error}", exc_info=error)
+    # Safe string conversion to avoid nested formatting errors
+    error_str = str(error).replace('%', '%%').replace('{', '{{').replace('}', '}}') if error else "Unknown error"
+    log.error(f"خطا در پردازش آپدیت: {type(error).__name__}: {error_str}", exc_info=error)
 
     # پیام به کاربر
     if isinstance(update, Update) and update.effective_message:
@@ -55,7 +57,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
                 admin_id = settings.BALE_ADMIN_CHAT_ID
 
             error_type = type(error).__name__ if error else "UnknownError"
-            error_details = str(error) if error else "بدون جزئیات"
+            # Escape special characters to prevent formatting errors
+            error_details = str(error).replace('<', '&lt;').replace('>', '&gt;').replace('&', '&amp;') if error else "بدون جزئیات"
 
             error_message = (
                 f"⚠️ <b>خطا در ربات</b>\n"
