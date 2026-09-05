@@ -779,18 +779,6 @@ async def _publish_or_edit(bot, product, channel, caption):
                         new_price=int(product.price),
                         new_stock_qty=product.stock_qty,
                         new_media_hash=new_media_hash,
-                    ) عکس عوض نشده همون قبلی میمونه)
-                    new_media_hash = await calculate_media_hash(product, channel.platform) if media_changed else posted_fresh.last_media_hash
-                    
-                    # آپدیت message_id (برای ایتا حتماً عوض شده)
-                    posted_fresh.telegram_message_id = new_msg_id
-                    await update_posted_message(
-                        session=session,
-                        posted_message=posted_fresh,
-                        new_caption=caption,
-                        new_price=int(product.price),
-                        new_stock_qty=product.stock_qty,
-                        new_media_hash=new_media_hash,
                     )
 
         # پیام قبلی ممکن است دستی از کانال حذف شده باشد؛ در این حالت ارسال جدید انجام بده.
