@@ -774,9 +774,14 @@ async def _edit_bale_post(
 
         has_photo_now = len(medias) > 0 or bool(product.image_url)
         
-        # 🔍 تشخیص: آیا پست قبلی text-only بود؟
-        # اگه last_media_hash خالی باشه یعنی text-only بوده
-        was_text_only = (posted_rec and not posted_rec.last_media_hash)
+        # 🔍 تشخیص هوشمند: آیا پست قبلی text-only بود؟
+        # نکته مهم: برای پست‌های قدیمی که last_media_hash ندارند، فرض می‌کنیم عکس داشتند
+        # چون اکثر محصولات عکس دارند و این امن‌تر است (edit_caption امتحان می‌شود)
+        was_text_only = False
+        if posted_rec and posted_rec.last_media_hash is not None:
+            # اگر media_hash خالی باشد (رشته خالی) → text-only بوده
+            was_text_only = (posted_rec.last_media_hash == "")
+        # اگر last_media_hash اصلاً نداریم (NULL) → فرض می‌کنیم عکس داشته
         
         # ⚠️ Edge Case: پست قبلی text-only بود ولی الان عکس داره
         # → نمیشه edit زد، باید caller delete+repost کنه
