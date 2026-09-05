@@ -571,7 +571,7 @@ async def _publish_or_edit(bot, product, channel, caption):
     اگه محصول قبلاً در این کانال پست شده → ویرایش
     اگه نه → ارسال جدید
 
-    پشتیبانی از تلگرام و ایتا
+    پشتیبانی از تلگرام، بله و ایتا
     """
     from app.services.publisher.publisher_manager import (
         publish_to_channel,
@@ -579,18 +579,29 @@ async def _publish_or_edit(bot, product, channel, caption):
     )
     from app.database.models import Platform
 
+    # ─── گرفتن داده‌های قبلی ───
     async with AsyncSessionLocal() as session:
         # چک قبلاً پست شده
         existing = await get_posted_message(session, product.id, channel.id)
+        
+        # کپی کردن مقادیر مهم (برای جلوگیری از مشکل detached object)
+        if existing:
+            existing_data = {
+                "id": existing.id,
+                "telegram_message_id": existing.telegram_message_id,
+                "telegram_message_ids": list(existing.telegram_message_ids or []),
+                "last_caption": existing.last_caption,
+                "last_price": existing.last_price,
+                "last_stock_qty": existing.last_stock_qty,
+                "last_media_hash": existing.last_media_hash or "",
+            }
+        else:
+            existing_data = None
 
         # گرفتن توکن ایتا (اگه کانال ایتاست)
         eitaa_token = None
         if channel.platform == Platform.EITAA:
-            from app.services.customer_service import (
-                get_customer_by_telegram_id,
-                get_customer_eitaa_token,
-            )
-            # از طریق customer_id کانال
+            from app.services.customer_service import get_customer_eitaa_token
             from app.database.models import Customer
             customer_result = await session.execute(
                 select(Customer).where(Customer.id == channel.customer_id)
@@ -601,19 +612,29 @@ async def _publish_or_edit(bot, product, channel, caption):
                 eitaa_token = await get_customer_eitaa_token(session, customer.id)
 
     # ─── حالت ویرایش ───
-    if existing and existing.telegram_message_id:
+    if existing_data and existing_data["telegram_message_id"]:
         # محاسبه hash عکس فعلی
         from app.services.media_hash import calculate_media_hash
         current_media_hash = await calculate_media_hash(product, channel.platform)
         
-        # بررسی تغییرات
+        # بررسی تغییرات (از existing_data استفاده می‌کنیم)
         current_price = int(product.price) if product.price else 0
         current_stock_qty = product.stock_qty or 0
         
-        caption_changed = existing.last_caption != caption
-        price_changed = int(existing.last_price or 0) != current_price
-        stock_changed = (existing.last_stock_qty or 0) != current_stock_qty
-        media_changed = (existing.last_media_hash or "") != current_media_hash
+        caption_changed = existing_data["last_caption"] != caption
+        price_changed = int(existing_data["last_price"] or 0) != current_price
+        stock_changed = (existing_data["last_stock_qty"] or 0) != current_stock_qty
+        media_changed = existing_data["last_media_hash"] != current_media_hash
+        
+        # 🔍 DEBUG LOG
+        log.info(
+            f"[Publish Debug] محصول {product.id} در کانال {channel.channel_identifier} ({channel.platform.value}):\n"
+            f"  caption_changed={caption_changed}\n"
+            f"  price_changed={price_changed}\n"
+            f"  stock_changed={stock_changed}\n"
+            f"  media_changed={media_changed}\n"
+            f"  telegram_message_id={existing_data['telegram_message_id']}"
+        )
         
         # اگه هیچ تغییری نکرده، هیچ کاری نکن
         if not any([caption_changed, price_changed, stock_changed, media_changed]):
@@ -624,7 +645,7 @@ async def _publish_or_edit(bot, product, channel, caption):
             )
             return PublishResult(
                 success=True,
-                message_id=existing.telegram_message_id,
+                message_id=existing_data["telegram_message_id"],
             )
         
         # تصمیم‌گیری: delete+repost یا edit؟
@@ -657,9 +678,9 @@ async def _publish_or_edit(bot, product, channel, caption):
                     
                     try:
                         # حذف پست(های) قبلی
-                        if existing.telegram_message_ids and len(existing.telegram_message_ids) > 1:
+                        if existing_data["telegram_message_ids"] and len(existing_data["telegram_message_ids"]) > 1:
                             # آلبوم - حذف همه پیام‌ها
-                            for msg_id in existing.telegram_message_ids:
+                            for msg_id in existing_data["telegram_message_ids"]:
                                 try:
                                     await bale_bot.delete_message(
                                         chat_id=channel.channel_identifier,
@@ -671,7 +692,7 @@ async def _publish_or_edit(bot, product, channel, caption):
                             # تک عکس
                             await bale_bot.delete_message(
                                 chat_id=channel.channel_identifier,
-                                message_id=existing.telegram_message_id
+                                message_id=existing_data["telegram_message_id"]
                             )
                     finally:
                         await bale_bot.shutdown()
@@ -685,8 +706,10 @@ async def _publish_or_edit(bot, product, channel, caption):
             
             # حذف رکورد قدیمی
             async with AsyncSessionLocal() as session:
-                await session.delete(existing)
-                await session.commit()
+                existing_to_delete = await get_posted_message(session, product.id, channel.id)
+                if existing_to_delete:
+                    await session.delete(existing_to_delete)
+                    await session.commit()
             
             # ارسال جدید
             repost_result = await publish_to_channel(
@@ -731,7 +754,7 @@ async def _publish_or_edit(bot, product, channel, caption):
             channel=channel,
             product=product,
             new_caption=caption,
-            old_message_id=existing.telegram_message_id,
+            old_message_id=existing_data["telegram_message_id"],
             eitaa_token=eitaa_token,
         )
 
