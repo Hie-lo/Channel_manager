@@ -837,8 +837,8 @@ async def _edit_bale_post(
 
         except Exception as e:
             error_msg = str(e).lower()
-            log.error(f"[Bale Edit] خطا در ویرایش: {e}")
             
+            # اگر پیام تغییری نکرده، موفقیت محسوب می‌شود
             if "message is not modified" in error_msg:
                 return UnifiedPublishResult(
                     success=True,
@@ -846,74 +846,7 @@ async def _edit_bale_post(
                     platform=Platform.BALE,
                 )
             
-            # 💡 اگه caption ندارد، یعنی text-only بوده، تلاش مجدد با edit_text
-            if "no caption" in error_msg or "message has no caption" in error_msg:
-                log.warning("[Bale Edit] پست بدون caption، تلاش مجدد با edit_text...")
-                try:
-                    await actual_bot.edit_message_text(
-                        chat_id=channel.channel_identifier,
-                        message_id=old_message_id,
-                        text=new_caption,
-                    )
-                    return UnifiedPublishResult(
-                        success=True,
-                        message_id=old_message_id,
-                        platform=Platform.BALE,
-                    )
-                except Exception as retry_e:
-                    log.error(f"[Bale Edit] تلاش مجدد با edit_text هم ناموفق: {retry_e}")
-
-            if "permission_denied" in error_msg or "forbidden" in error_msg:
-                try:
-                    bot_member = await actual_bot.get_chat_member(
-                        chat_id=channel.channel_identifier,
-                        user_id=actual_bot.id,
-                    )
-                    bot_status = getattr(bot_member, "status", "unknown")
-                    can_edit = getattr(bot_member, "can_edit_messages", None)
-                    can_post = getattr(bot_member, "can_post_messages", None)
-                    log.error(
-                        f"[Bale Edit] permission diagnostic: "
-                        f"chat={channel.channel_identifier} bot_id={actual_bot.id} "
-                        f"status={bot_status} "
-                        f"can_edit={can_edit if can_edit is not None else 'unknown'} "
-                        f"can_post={can_post if can_post is not None else 'unknown'} "
-                        f"old_message_id={old_message_id}"
-                    )
-
-                    if (
-                        bot_status == "creator"
-                        or (
-                            bot_status == "administrator"
-                            and can_post is True
-                            and can_edit is True
-                        )
-                    ):
-                        return UnifiedPublishResult(
-                            success=False,
-                            platform=Platform.BALE,
-                            error_message=(
-                                "[BALE_MISSING_MESSAGE] پیام قبلی پیدا نشد؛ "
-                                "ارسال مجدد انجام می‌شود."
-                            ),
-                        )
-                except Exception as diagnostic_error:
-                    log.error(
-                        f"[Bale Edit] permission diagnostic failed: "
-                        f"chat={channel.channel_identifier} "
-                        f"old_message_id={old_message_id} error={diagnostic_error}"
-                    )
-
-                return UnifiedPublishResult(
-                    success=False,
-                    platform=Platform.BALE,
-                    error_message=(
-                        "بات بله مجوز ویرایش این پیام را ندارد؛ "
-                        "ادمین بودن بات و متعلق بودن پیام به همین بات را بررسی کنید. "
-                        f"({str(e)[:100]})"
-                    ),
-                )
-
+            # هر خطای دیگری (از جمله permission_denied) را به سادگی برگردان
             log.error(f"[Bale Edit] خطا: {e}")
             return UnifiedPublishResult(
                 success=False,
