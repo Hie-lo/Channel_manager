@@ -12,6 +12,34 @@ from app.database.models import Platform, Channel, Product, PostedMessage, Busin
 from app.utils.logger import log
 
 
+# ═══════════════════════════════════════════════════════════
+# Singleton Bale Bot Instance (برای جلوگیری از مشکلات permission)
+# ═══════════════════════════════════════════════════════════
+_bale_bot_instance = None
+_bale_bot_lock = None
+
+async def get_bale_bot():
+    """دریافت instance یکتای Bale bot (singleton pattern)"""
+    global _bale_bot_instance, _bale_bot_lock
+    
+    if _bale_bot_lock is None:
+        import asyncio
+        _bale_bot_lock = asyncio.Lock()
+    
+    async with _bale_bot_lock:
+        if _bale_bot_instance is None or not _bale_bot_instance.bot:
+            from telegram import Bot
+            _bale_bot_instance = Bot(
+                token=settings.BALE_BOT_TOKEN,
+                base_url=settings.BALE_API_BASE,
+                base_file_url=settings.BALE_FILE_API_BASE,
+            )
+            await _bale_bot_instance.initialize()
+            log.info("🤖 [Bale] Singleton bot instance created")
+        
+        return _bale_bot_instance
+
+
 
 @dataclass
 class UnifiedPublishResult:
@@ -518,14 +546,9 @@ async def _publish_to_bale_channel(
         base_url = str(getattr(bot, "base_url", "") or "")
         if "bale" not in base_url.lower():
             if settings.BALE_BOT_TOKEN:
-                from telegram import Bot
-                actual_bot = Bot(
-                    token=settings.BALE_BOT_TOKEN,
-                    base_url=settings.BALE_API_BASE,
-                    base_file_url=settings.BALE_FILE_API_BASE,
-                )
-                await actual_bot.initialize()
-                is_temp_bot = True
+                # استفاده از singleton instance
+                actual_bot = await get_bale_bot()
+                is_temp_bot = False  # دیگر temp نیست، singleton است
     except Exception as e:
         log.error(f"[Bale Publish] خطا در ساخت Bot بله: {e}")
         return UnifiedPublishResult(success=False, platform=Platform.BALE, error_message=f"خطا در ساخت Bot بله: {str(e)[:100]}")
@@ -744,14 +767,9 @@ async def _edit_bale_post(
         base_url = str(getattr(bot, "base_url", "") or "")
         if "bale" not in base_url.lower():
             if settings.BALE_BOT_TOKEN:
-                from telegram import Bot
-                actual_bot = Bot(
-                    token=settings.BALE_BOT_TOKEN,
-                    base_url=settings.BALE_API_BASE,
-                    base_file_url=settings.BALE_FILE_API_BASE,
-                )
-                await actual_bot.initialize()
-                is_temp_bot = True
+                # استفاده از singleton instance
+                actual_bot = await get_bale_bot()
+                is_temp_bot = False  # دیگر temp نیست، singleton است
     except Exception as e:
         log.error(f"[Bale Edit] خطا: {e}")
 

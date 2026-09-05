@@ -670,15 +670,9 @@ async def _publish_or_edit(bot, product, channel, caption):
             # حذف پست قبلی
             try:
                 if channel.platform == Platform.BALE:
-                    from app.config import settings
-                    from telegram import Bot
+                    from app.services.publisher.publisher_manager import get_bale_bot
                     
-                    bale_bot = Bot(
-                        token=settings.BALE_BOT_TOKEN,
-                        base_url=settings.BALE_API_BASE,
-                        base_file_url=settings.BALE_FILE_API_BASE,
-                    )
-                    await bale_bot.initialize()
+                    bale_bot = await get_bale_bot()
                     
                     try:
                         # حذف پست(های) قبلی
@@ -698,8 +692,8 @@ async def _publish_or_edit(bot, product, channel, caption):
                                 chat_id=channel.channel_identifier,
                                 message_id=existing_data["telegram_message_id"]
                             )
-                    finally:
-                        await bale_bot.shutdown()
+                    except Exception as del_e:
+                        log.warning(f"[Publish] خطا در حذف پست قبلی: {del_e}")
                         
                 elif channel.platform == Platform.EITAA:
                     # برای ایتا از همان روش موجود استفاده می‌کنیم
@@ -817,15 +811,9 @@ async def _publish_or_edit(bot, product, channel, caption):
             # سعی در حذف پست قدیمی از کانال (اگر هنوز وجود دارد)
             try:
                 if channel.platform == Platform.BALE:
-                    from app.config import settings
-                    from telegram import Bot
+                    from app.services.publisher.publisher_manager import get_bale_bot
                     
-                    bale_bot = Bot(
-                        token=settings.BALE_BOT_TOKEN,
-                        base_url=settings.BALE_API_BASE,
-                        base_file_url=settings.BALE_FILE_API_BASE,
-                    )
-                    await bale_bot.initialize()
+                    bale_bot = await get_bale_bot()
                     
                     try:
                         # حذف پست قدیمی
@@ -848,8 +836,6 @@ async def _publish_or_edit(bot, product, channel, caption):
                         log.info(f"[Publish] پست قدیمی {existing_data['telegram_message_id']} از بله حذف شد")
                     except Exception as del_e:
                         log.warning(f"[Publish] خطا در حذف پست قدیمی از بله: {del_e}")
-                    finally:
-                        await bale_bot.shutdown()
             except Exception as e:
                 log.warning(f"[Publish] خطا در تلاش برای حذف پست قدیمی: {e}")
             
