@@ -819,6 +819,7 @@ async def _edit_bale_post(
 
         except Exception as e:
             error_msg = str(e).lower()
+            log.error(f"[Bale Edit] خطا در ویرایش: {e}")
             
             if "message is not modified" in error_msg:
                 return UnifiedPublishResult(
