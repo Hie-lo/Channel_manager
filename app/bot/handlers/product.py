@@ -762,12 +762,24 @@ async def _publish_or_edit(bot, product, channel, caption):
         if result.success:
             # برای ایتا: message_id عوض میشه (delete + repost)
             # برای تلگرام/بله: message_id همون قبلی می‌مونه
-            new_msg_id = result.message_id if result.message_id else existing.telegram_message_id
+            new_msg_id = result.message_id if result.message_id else existing_data["telegram_message_id"]
 
             async with AsyncSessionLocal() as session:
                 posted_fresh = await get_posted_message(session, product.id, channel.id)
                 if posted_fresh:
                     # محاسبه hash عکس جدید (اگه عکس عوض نشده همون قبلی میمونه)
+                    new_media_hash = await calculate_media_hash(product, channel.platform) if media_changed else posted_fresh.last_media_hash
+                    
+                    # آپدیت message_id (برای ایتا حتماً عوض شده)
+                    posted_fresh.telegram_message_id = new_msg_id
+                    await update_posted_message(
+                        session=session,
+                        posted_message=posted_fresh,
+                        new_caption=caption,
+                        new_price=int(product.price),
+                        new_stock_qty=product.stock_qty,
+                        new_media_hash=new_media_hash,
+                    ) عکس عوض نشده همون قبلی میمونه)
                     new_media_hash = await calculate_media_hash(product, channel.platform) if media_changed else posted_fresh.last_media_hash
                     
                     # آپدیت message_id (برای ایتا حتماً عوض شده)
@@ -795,6 +807,47 @@ async def _publish_or_edit(bot, product, channel, caption):
             )
         )
         if not result.success and deleted_message:
+            log.info(
+                f"پیام قبلی پیدا نشد؛ ارسال مجدد محصول {product.id} به کانال {channel.id}"
+            )
+            
+            # حذف رکورد قدیمی
+            async with AsyncSessionLocal() as session:
+                old_posted = await get_posted_message(session, product.id, channel.id)
+                if old_posted:
+                    await session.delete(old_posted)
+                    await session.commit()
+            
+            # ارسال جدید
+            repost_result = await publish_to_channel(
+                bot=bot,
+                channel=channel,
+                product=product,
+                caption=caption,
+                eitaa_token=eitaa_token,
+            )
+            
+            # ذخیره رکورد جدید
+            if repost_result.success and repost_result.message_id:
+                # محاسبه hash عکس
+                from app.services.media_hash import calculate_media_hash
+                media_hash = await calculate_media_hash(product, channel.platform)
+                
+                async with AsyncSessionLocal() as session:
+                    await create_posted_message(
+                        session=session,
+                        product_id=product.id,
+                        channel_id=channel.id,
+                        telegram_message_id=repost_result.message_id,
+                        caption=caption,
+                        price=int(product.price),
+                        stock_qty=product.stock_qty,
+                        platform=channel.platform,
+                        message_ids=repost_result.message_ids,
+                        media_hash=media_hash,
+                    )
+                    
+            result = repost_result   if not result.success and deleted_message:
             log.info(
                 f"پیام قبلی پیدا نشد؛ ارسال مجدد محصول {product.id} به کانال {channel.id}"
             )
