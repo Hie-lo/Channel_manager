@@ -769,8 +769,84 @@ async def _publish_or_edit(bot, product, channel, caption):
                         new_stock_qty=product.stock_qty,
                         new_media_hash=new_media_hash,
                     )
-
-        # تبدیل UnifiedPublishResult به فرمت سازگار
+            
+            # تبدیل UnifiedPublishResult به فرمت سازگار
+            from app.services.publisher.telegram_publisher import PublishResult
+            return PublishResult(
+                success=result.success,
+                message_id=result.message_id,
+                error_message=result.error_message,
+                used_fallback=result.used_fallback,
+            )
+        
+        # اگه ویرایش ناموفق بود، چک کن آیا پیام حذف شده؟
+        error_text = (result.error_message or "").lower()
+        message_deleted = any(
+            marker in error_text
+            for marker in (
+                "message_id_invalid",
+                "message id invalid", 
+                "message to edit not found",
+                "message not found",
+                "پیام قابل ویرایش پیدا نشد",
+                "[bale_missing_message]",
+                "[bale_needs_repost]",
+            )
+        )
+        
+        if message_deleted:
+            log.info(
+                f"[Publish] پیام قبلی در کانال پیدا نشد؛ ارسال مجدد محصول {product.id}"
+            )
+            
+            # حذف رکورد قدیمی از دیتابیس
+            async with AsyncSessionLocal() as session:
+                old_posted = await get_posted_message(session, product.id, channel.id)
+                if old_posted:
+                    await session.delete(old_posted)
+                    await session.commit()
+            
+            # ارسال جدید
+            repost_result = await publish_to_channel(
+                bot=bot,
+                channel=channel,
+                product=product,
+                caption=caption,
+                eitaa_token=eitaa_token,
+            )
+            
+            # ذخیره رکورد جدید
+            if repost_result.success and repost_result.message_id:
+                from app.services.media_hash import calculate_media_hash
+                media_hash = await calculate_media_hash(product, channel.platform)
+                
+                async with AsyncSessionLocal() as session:
+                    await create_posted_message(
+                        session=session,
+                        product_id=product.id,
+                        channel_id=channel.id,
+                        telegram_message_id=repost_result.message_id,
+                        caption=caption,
+                        price=int(product.price),
+                        stock_qty=product.stock_qty,
+                        media_hash=media_hash,
+                    )
+                    
+                    # ذخیره message_ids آلبوم
+                    if repost_result.message_ids and len(repost_result.message_ids) > 1:
+                        posted = await get_posted_message(session, product.id, channel.id)
+                        if posted:
+                            posted.telegram_message_ids = repost_result.message_ids
+                            await session.commit()
+            
+            from app.services.publisher.telegram_publisher import PublishResult
+            return PublishResult(
+                success=repost_result.success,
+                message_id=repost_result.message_id,
+                error_message=repost_result.error_message,
+            )
+        
+        # در غیر این صورت، برگردان خطای اصلی
         from app.services.publisher.telegram_publisher import PublishResult
         return PublishResult(
             success=result.success,
