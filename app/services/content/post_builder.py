@@ -53,6 +53,11 @@ def build_post_caption(
     except KeyError as e:
         log.error(f"کلید ناشناخته در قالب: {e}, sub_category: {product.sub_category_key}")
         return _fallback_post(product, business_config)
+    except IndexError as e:
+        log.error(f"خطای فرمت در قالب: {e}, sub_category: {product.sub_category_key}")
+        log.error(f"Template values keys: {list(values.keys())}")
+        log.error(f"Problematic values with braces: {[k for k, v in values.items() if isinstance(v, str) and '{' in str(v)]}") 
+        return _fallback_post(product, business_config)
 
     return _clean_empty_lines(post_text)
 
