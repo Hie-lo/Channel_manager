@@ -750,6 +750,10 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
             if result.success and result.message_id:
+                # محاسبه hash عکس
+                from app.services.media_hash import calculate_media_hash
+                media_hash = await calculate_media_hash(product, channel.platform)
+                
                 async with AsyncSessionLocal() as session:
                     posted = await create_posted_message(
                         session=session,
@@ -759,6 +763,7 @@ async def prod_repost_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                         caption=caption,
                         price=int(product.price),
                         stock_qty=product.stock_qty,
+                        media_hash=media_hash,
                     )
 
                     # ذخیره message_ids آلبوم
